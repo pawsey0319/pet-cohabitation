@@ -29,7 +29,7 @@ function simulatedDays(lastActiveAt: string, now: string): number {
   return Math.min(MAX_SIMULATED_DAYS, Math.floor(elapsed / DAY_IN_MILLISECONDS));
 }
 
-function isPetPausedByMajority(space: RelationshipSpace, petId: string): boolean {
+export function getPetPauseGovernance(space: RelationshipSpace, petId: string) {
   const latestVotes = new Map<string, "pause" | "resume">();
   for (const vote of space.petGovernanceVotes) {
     if (vote.petId === petId && (vote.decision === "pause" || vote.decision === "resume")) {
@@ -38,11 +38,12 @@ function isPetPausedByMajority(space: RelationshipSpace, petId: string): boolean
   }
 
   const pauses = [...latestVotes.values()].filter((decision) => decision === "pause").length;
-  return pauses > space.memberIds.length / 2;
+  const required = Math.floor(space.memberIds.length / 2) + 1;
+  return Object.freeze({ pauses, required, paused: pauses >= required });
 }
 
 function canSendProactivePetContent(space: RelationshipSpace, petId: string): boolean {
-  return !space.locallyMutedPetIds.includes(petId) && !isPetPausedByMajority(space, petId);
+  return !space.locallyMutedPetIds.includes(petId) && !getPetPauseGovernance(space, petId).paused;
 }
 
 function atDay(lastActiveAt: string, day: number): string {
@@ -138,6 +139,7 @@ export function createDelegatedAction(
     id: `delegated-${pet.id}-${request.kind}`,
     kind: request.kind,
     petId: pet.id,
+    spaceId: request.spaceId,
     status,
     permissionSource: status === "blocked" ? "delegation_policy" : "pet_low_risk_delegation",
     summary: request.summary,

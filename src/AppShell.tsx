@@ -1,30 +1,16 @@
 import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomNav, type AppTab } from "./components/BottomNav";
 import { HomeScreen } from "./screens/HomeScreen";
+import { PetScreen } from "./screens/PetScreen";
+import { SpaceScreen } from "./screens/SpaceScreen";
 import { useAppState } from "./state/AppState";
-import { colors, spacing, typography } from "./theme/tokens";
-
-function PlaceholderScreen({ tab }: Readonly<{ tab: Exclude<AppTab, "home"> }>) {
-  const { state } = useAppState();
-  const isSpace = tab === "space";
-
-  return (
-    <View style={styles.placeholder}>
-      <Text style={styles.placeholderKicker}>{isSpace ? "RELATIONSHIP SPACES" : "LIFELONG PET"}</Text>
-      <Text style={styles.placeholderTitle}>{isSpace ? "空间" : state.pet.name}</Text>
-      <Text style={styles.placeholderBody}>
-        {isSpace
-          ? `${state.spaces.length} 个关系空间已就位，详细互动将在下一阶段接入。`
-          : "异宠档案与成长轨迹将在下一阶段接入。"}
-      </Text>
-    </View>
-  );
-}
+import { colors } from "./theme/tokens";
 
 export function AppShell() {
   const [activeTab, setActiveTab] = useState<AppTab>("home");
+  const { dispatch } = useAppState();
   const insets = useSafeAreaInsets();
 
   return (
@@ -33,7 +19,12 @@ export function AppShell() {
       style={[styles.app, { paddingLeft: insets.left, paddingRight: insets.right }]}
     >
       <View testID="app-safe-top" style={[styles.screen, { paddingTop: insets.top }]}>
-        {activeTab === "home" ? <HomeScreen /> : <PlaceholderScreen tab={activeTab} />}
+        {activeTab === "home" ? (
+          <HomeScreen onOpenSpace={(spaceId) => {
+            dispatch({ type: "SET_ACTIVE_SPACE", spaceId });
+            setActiveTab("space");
+          }} />
+        ) : activeTab === "space" ? <SpaceScreen /> : <PetScreen />}
       </View>
       <View
         testID="app-safe-bottom"
@@ -58,31 +49,5 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 560,
     alignSelf: "center",
-  },
-  placeholder: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: spacing.xl,
-  },
-  placeholderKicker: {
-    color: colors.coral,
-    fontSize: typography.eyebrow,
-    fontWeight: "800",
-    letterSpacing: 1.4,
-  },
-  placeholderTitle: {
-    marginTop: spacing.sm,
-    color: colors.text,
-    fontSize: typography.display,
-    fontWeight: "900",
-  },
-  placeholderBody: {
-    maxWidth: 420,
-    marginTop: spacing.sm,
-    color: colors.textMuted,
-    fontSize: typography.body,
-    lineHeight: 24,
-    textAlign: "center",
   },
 });

@@ -22,6 +22,7 @@ import type {
   DelegatedActionRequest,
   EvolutionEvent,
   GrowthExperience,
+  PetGovernanceDecision,
   PetWithStatus,
   RuntimeState,
   SpaceMessage,
@@ -33,11 +34,17 @@ export type AppPet = PetWithStatus & Readonly<{
   experiences: readonly GrowthExperience[];
 }>;
 
+export type PetPreferences = Readonly<{
+  routine: "22:30–07:30" | "23:30–08:00";
+  proactiveFrequency: "daily" | "low" | "quiet";
+}>;
+
 export type AppState = Omit<RuntimeState, "pet"> & Readonly<{
   pet: AppPet;
   activeSpaceId: string | null;
   pendingEvolution: EvolutionEvent | null;
   evolutionEvents: readonly EvolutionEvent[];
+  petPreferences: PetPreferences;
 }>;
 
 export type AppAction =
@@ -63,6 +70,19 @@ export type AppAction =
   | Readonly<{ type: "PROPOSE_EVOLUTION"; ownerExpectation: string }>
   | Readonly<{ type: "APPLY_EVOLUTION" }>
   | Readonly<{ type: "TOGGLE_LOCAL_MUTE"; spaceId: string; voterId: string }>
+  | Readonly<{
+      type: "CAST_PET_GOVERNANCE_VOTE";
+      spaceId: string;
+      voterId: string;
+      decision: Extract<PetGovernanceDecision, "pause" | "resume">;
+    }>
+  | Readonly<{ type: "EDIT_MEMORY"; memoryId: string; content: string }>
+  | Readonly<{ type: "DELETE_MEMORY"; memoryId: string }>
+  | Readonly<{ type: "SET_PET_ROUTINE"; routine: PetPreferences["routine"] }>
+  | Readonly<{
+      type: "SET_PET_PROACTIVE_FREQUENCY";
+      frequency: PetPreferences["proactiveFrequency"];
+    }>
   | Readonly<{ type: "SET_ACTIVE_SPACE"; spaceId: string | null }>
   | Readonly<{ type: "RESET_DEMO" }>;
 
@@ -75,6 +95,10 @@ function cloneDemoState(): AppState {
     activeSpaceId: null,
     pendingEvolution: null,
     evolutionEvents: Object.freeze([]),
+    petPreferences: Object.freeze({
+      routine: "22:30–07:30",
+      proactiveFrequency: "daily",
+    }),
   });
 }
 
@@ -95,6 +119,7 @@ function isAppState(value: unknown): value is AppState {
       Array.isArray(candidate.petCornerStories) &&
       Array.isArray(candidate.delegatedActions) &&
       Array.isArray(candidate.pet.experiences) &&
+      candidate.petPreferences &&
       typeof candidate.lastActiveAt === "string",
   );
 }
@@ -273,6 +298,81 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         ),
       });
     }
+
+    case "CAST_PET_GOVERNANCE_VOTE": {
+      const space = findSpace(state, action.spaceId);
+      if (!space) {
+        return state;
+      }
+      const updatedSpace = applyPetGovernance(space, state.pet.id, {
+        voterId: action.voterId,
+        decision: action.decision,
+      });
+
+      return Object.freeze({
+        ...state,
+        spaces: Object.freeze(
+          state.spaces.map((candidate) =>
+            candidate.id === updatedSpace.id ? updatedSpace : candidate,
+          ),
+        ),
+      });
+    }
+
+    case "EDIT_MEMORY": {
+      const content = action.content.trim();
+      if (!content) {
+        return state;
+      }
+      const memory = state.pet.memories.find((candidate) => candidate.id === action.memoryId);
+      if (!memory || memory.ownerId !== state.pet.ownerId) {
+        return state;
+      }
+      return Object.freeze({
+        ...state,
+        pet: Object.freeze({
+          ...state.pet,
+          memories: Object.freeze(
+            state.pet.memories.map((candidate) =>
+              candidate.id === action.memoryId
+                ? Object.freeze({ ...candidate, content })
+                : candidate,
+            ),
+          ),
+        }),
+      });
+    }
+
+    case "DELETE_MEMORY": {
+      const memory = state.pet.memories.find((candidate) => candidate.id === action.memoryId);
+      if (!memory || memory.ownerId !== state.pet.ownerId) {
+        return state;
+      }
+      return Object.freeze({
+        ...state,
+        pet: Object.freeze({
+          ...state.pet,
+          memories: Object.freeze(
+            state.pet.memories.filter((candidate) => candidate.id !== action.memoryId),
+          ),
+        }),
+      });
+    }
+
+    case "SET_PET_ROUTINE":
+      return Object.freeze({
+        ...state,
+        petPreferences: Object.freeze({ ...state.petPreferences, routine: action.routine }),
+      });
+
+    case "SET_PET_PROACTIVE_FREQUENCY":
+      return Object.freeze({
+        ...state,
+        petPreferences: Object.freeze({
+          ...state.petPreferences,
+          proactiveFrequency: action.frequency,
+        }),
+      });
 
     case "SET_ACTIVE_SPACE":
       return action.spaceId !== null && !findSpace(state, action.spaceId)

@@ -140,6 +140,7 @@ export type DelegatedAction = Readonly<{
   kind: string;
   id?: string;
   petId?: string;
+  spaceId?: string;
   status?: DelegatedActionStatus;
   permissionSource?: string;
   summary?: string;

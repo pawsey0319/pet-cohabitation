@@ -18,6 +18,16 @@ export function createDemoSeed(): RuntimeState {
       abstractTraits: Object.freeze(["善于倾听", "会组织小游戏"]),
       memories: Object.freeze([
         Object.freeze({
+          id: "memory-life-seed",
+          spaceId: "global",
+          ownerId: "owner-mei",
+          source: "life_seed",
+          occurredAt: "2026-08-19T08:00:00.000Z",
+          content: "第一次被叫作灯灯时，发光触角轻轻亮了起来",
+          sensitivity: "normal" as const,
+          visibility: "owner_only" as const,
+        }),
+        Object.freeze({
           id: "memory-old-friends",
           spaceId: "space-old-friends",
           ownerId: "owner-mei",

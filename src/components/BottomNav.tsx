@@ -22,6 +22,7 @@ export function BottomNav({ activeTab, onChange }: BottomNavProps) {
         return (
           <Pressable
             accessibilityRole="tab"
+            accessibilityLabel={item.label}
             accessibilityState={{ selected: active }}
             key={item.key}
             onPress={() => onChange(item.key)}

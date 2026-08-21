@@ -1,4 +1,4 @@
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { AppPet } from "../state/AppState";
 import { useAppState } from "../state/AppState";
 import type { DelegatedAction, PetStatus, RelationshipSpace } from "../domain/types";
@@ -31,7 +31,7 @@ export function PetStatusPill({ status }: Readonly<{ status: PetStatus }>) {
   );
 }
 
-export function HomeScreen() {
+export function HomeScreen({ onOpenSpace }: Readonly<{ onOpenSpace?: (spaceId: string) => void }>) {
   const { state } = useAppState();
   const pendingActions = state.delegatedActions.filter(
     (action) => action.status === "pending_owner",
@@ -79,7 +79,13 @@ export function HomeScreen() {
           </View>
           <View style={styles.spaceList}>
             {state.spaces.map((space) => (
-              <View key={space.id} style={styles.spaceRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`进入空间：${space.name}`}
+                key={space.id}
+                onPress={() => onOpenSpace?.(space.id)}
+                style={({ pressed }) => [styles.spaceRow, pressed && styles.spaceRowPressed]}
+              >
                 <View style={styles.spaceMonogram}>
                   <Text style={styles.spaceMonogramText}>{space.name.slice(0, 1)}</Text>
                 </View>
@@ -90,7 +96,7 @@ export function HomeScreen() {
                   </Text>
                 </View>
                 <Text style={styles.arrow}>↗</Text>
-              </View>
+              </Pressable>
             ))}
           </View>
           <Text style={styles.cardFootnote}>{state.pet.name}只在被允许的空间里看见共同语境。</Text>
@@ -298,6 +304,9 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     backgroundColor: "rgba(230, 225, 255, 0.06)",
     borderRadius: radii.md,
+  },
+  spaceRowPressed: {
+    opacity: 0.72,
   },
   spaceMonogram: {
     width: 42,
