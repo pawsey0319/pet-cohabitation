@@ -53,9 +53,9 @@ function selectTrait(
   const candidates = eligibleExperiences.flatMap(
     (experience) => TRAITS_BY_CATEGORY[experience.category],
   );
-  const newCandidates = candidates.filter(
-    (trait) => !pet.abstractTraits.includes(trait),
-  );
+  const newCandidates = candidates
+    .filter((trait) => !pet.abstractTraits.includes(trait))
+    .sort();
 
   if (newCandidates.length === 0) {
     return null;

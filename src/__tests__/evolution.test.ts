@@ -59,6 +59,13 @@ describe("identity-preserving evolution", () => {
     expect(next.abstractTraits).toHaveLength(2);
   });
 
+  it("chooses the same trait when identical source experiences arrive in reverse order", () => {
+    const forward = proposeEvolution(pet, experiences, "希望你每天开心");
+    const reverse = proposeEvolution(pet, [...experiences].reverse(), "希望你每天开心");
+
+    expect(reverse.visualTrait).toBe(forward.visualTrait);
+  });
+
   it("does not turn an owner request into a selected visual trait", () => {
     const event = proposeEvolution(
       pet,
