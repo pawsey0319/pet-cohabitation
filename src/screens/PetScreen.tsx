@@ -190,7 +190,7 @@ export function PetScreen() {
         </View>
       </View>
       <View style={styles.grid}>
-        <View style={styles.sectionCard}>
+        <View testID="local-demo-reset-card" style={[styles.sectionCard, styles.resetCard]}>
           <Text style={styles.sectionTitle}>本机演示数据</Text>
           <Text style={styles.sectionNote}>只删除这台设备上的演示消息、记忆与成长记录，不影响任何真实云端数据。</Text>
           {confirmingReset ? (
@@ -233,6 +233,7 @@ const styles = StyleSheet.create({
   controlButton: { marginTop: spacing.sm, padding: spacing.md, backgroundColor: colors.canvasRaised, borderColor: colors.line, borderWidth: 1, borderRadius: radii.sm },
   controlText: { color: colors.text, fontWeight: "900" },
   sectionCard: { padding: spacing.lg, backgroundColor: colors.surface, borderColor: colors.line, borderWidth: 1, borderRadius: radii.lg },
+  resetCard: { flexGrow: 1, flexShrink: 1, flexBasis: 360, minWidth: 0 },
   empty: { marginTop: spacing.md, color: colors.textMuted },
   diaryEntry: { marginTop: spacing.sm, color: colors.text, lineHeight: 22 },
   memoryList: { marginTop: spacing.md, gap: spacing.sm },

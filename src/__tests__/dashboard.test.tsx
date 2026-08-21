@@ -5,7 +5,7 @@ jest.mock("react-native-safe-area-context", () =>
   require("react-native-safe-area-context/jest/mock").default,
 );
 
-import { render, screen } from "@testing-library/react-native";
+import { fireEvent, render, screen } from "@testing-library/react-native";
 import { StyleSheet } from "react-native";
 import App from "../../App";
 import { PetStatusPill } from "../screens/HomeScreen";
@@ -43,6 +43,18 @@ describe("dual-core dashboard", () => {
     });
     expect(StyleSheet.flatten(screen.getByTestId("app-safe-bottom").props.style)).toMatchObject({
       paddingBottom: 34,
+    });
+  });
+
+  it("keeps the local-demo reset card constrained inside the narrow pet screen grid", async () => {
+    await render(<App />);
+    await fireEvent.press(screen.getByRole("tab", { name: "异宠" }));
+
+    expect(StyleSheet.flatten(screen.getByTestId("local-demo-reset-card").props.style)).toMatchObject({
+      flexGrow: 1,
+      flexShrink: 1,
+      flexBasis: 360,
+      minWidth: 0,
     });
   });
 });
