@@ -1,0 +1,8 @@
+node_modules/
+.expo/
+dist/
+coverage/
+.worktrees/
+.superpowers/
+*.log
+.DS_Store
