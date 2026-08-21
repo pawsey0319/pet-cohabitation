@@ -125,8 +125,13 @@ function fallbackTraitSlot(trait: string): number {
     FALLBACK_SLOTS.length;
 }
 
+const INITIAL_TRAIT_MARKS = {
+  listening: "善于倾听",
+  organizedPlay: "会组织小游戏",
+} as const;
+
 function isInitialTraitMark(trait: string): boolean {
-  return trait.includes("倾听") || trait.includes("游戏") || trait.includes("组织");
+  return Object.values(INITIAL_TRAIT_MARKS).some((initialTrait) => initialTrait === trait);
 }
 
 function FallbackTraitMark({ trait }: Readonly<{ trait: string }>) {
@@ -149,10 +154,8 @@ export function PetAvatar({ pet, size = 148 }: PetAvatarProps) {
   const bodyColor = coreColor(pet.identityAnchors.coreColor);
   const isRound = pet.identityAnchors.silhouette.includes("圆");
   const hasAntennae = pet.identityAnchors.signatureOrgan.includes("触角");
-  const listens = pet.abstractTraits.some((trait) => trait.includes("倾听"));
-  const organizesPlay = pet.abstractTraits.some(
-    (trait) => trait.includes("游戏") || trait.includes("组织"),
-  );
+  const listens = pet.abstractTraits.includes(INITIAL_TRAIT_MARKS.listening);
+  const organizesPlay = pet.abstractTraits.includes(INITIAL_TRAIT_MARKS.organizedPlay);
 
   return (
     <Svg

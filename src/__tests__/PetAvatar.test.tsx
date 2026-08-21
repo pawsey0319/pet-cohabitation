@@ -32,4 +32,12 @@ describe("PetAvatar additive trait marks", () => {
       "trait-mark-fallback-1",
     );
   });
+
+  it("does not mistake a keyword-containing future trait for an exact seed trait", async () => {
+    await render(<PetAvatar pet={petWithTrait("深度倾听纹")} />);
+
+    expect(screen.getByLabelText("成长印记：深度倾听纹").props.testID).toBe(
+      "trait-mark-fallback-2",
+    );
+  });
 });
