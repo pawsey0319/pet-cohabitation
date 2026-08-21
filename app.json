@@ -1,12 +1,22 @@
 {
   "expo": {
     "name": "异宠共生空间",
-    "slug": "pet-cohabitation-mvp",
+    "slug": "pet-cohabitation",
     "version": "1.0.0",
+    "description": "一只成长型异宠陪伴熟人关系空间的本地纵向原型。",
     "orientation": "portrait",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#16142D",
     "web": {
-      "bundler": "metro"
+      "bundler": "metro",
+      "output": "single",
+      "name": "异宠共生空间",
+      "shortName": "异宠共生",
+      "lang": "zh-CN",
+      "themeColor": "#16142D",
+      "description": "一只成长型异宠陪伴熟人关系空间的本地纵向原型。",
+      "display": "standalone",
+      "orientation": "portrait"
     }
   }
 }
