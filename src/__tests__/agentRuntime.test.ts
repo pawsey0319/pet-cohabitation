@@ -26,6 +26,21 @@ describe("local agent runtime", () => {
     expect(summary.content).not.toContain("我");
   });
 
+  it("does not claim a human commitment state from ordinary messages", () => {
+    const state = createDemoSeed();
+    const space = state.spaces[0];
+    const confirmationLikeMessage = {
+      ...state.messages[0],
+      id: "message-old-friends-2",
+      content: "周末见面已确认",
+    };
+
+    const summary = summarizeSpace(space, [...state.messages, confirmationLikeMessage]);
+
+    expect(summary.content).toContain("2条成员消息");
+    expect(summary.content).not.toContain("确认");
+  });
+
   it("does not punish a pet for owner absence and bounds generated activity", () => {
     const state = createDemoSeed();
     const result = simulateOwnerAbsence(state, addDays(state.lastActiveAt, 5));

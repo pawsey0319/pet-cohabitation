@@ -104,7 +104,7 @@ export function summarizeSpace(
     actorType: "space_agent",
     permissionSource: "space_objective_summary",
     spaceId: space.id,
-    content: `${space.name}目前有${humanMessages}条成员消息和${petMessages}条异宠消息；尚无已确认的人类承诺。`,
+    content: `${space.name}目前有${humanMessages}条成员消息和${petMessages}条异宠消息。`,
   });
 }
 
