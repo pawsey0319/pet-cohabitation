@@ -1,10 +1,21 @@
+import {
+  SafeAreaProvider,
+  initialWindowMetrics,
+  type Metrics,
+} from "react-native-safe-area-context";
 import { AppShell } from "./src/AppShell";
 import { AppProvider } from "./src/state/AppState";
 
-export default function App() {
+type AppProps = Readonly<{
+  initialSafeAreaMetrics?: Metrics | null;
+}>;
+
+export default function App({ initialSafeAreaMetrics = initialWindowMetrics }: AppProps) {
   return (
-    <AppProvider>
-      <AppShell />
-    </AppProvider>
+    <SafeAreaProvider initialMetrics={initialSafeAreaMetrics}>
+      <AppProvider>
+        <AppShell />
+      </AppProvider>
+    </SafeAreaProvider>
   );
 }

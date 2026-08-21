@@ -1,7 +1,7 @@
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import type { AppPet } from "../state/AppState";
 import { useAppState } from "../state/AppState";
-import type { DelegatedAction, RelationshipSpace } from "../domain/types";
+import type { DelegatedAction, PetStatus, RelationshipSpace } from "../domain/types";
 import { AgentBadge } from "../components/AgentBadge";
 import { GlassCard } from "../components/GlassCard";
 import { PetAvatar } from "../components/PetAvatar";
@@ -15,6 +15,20 @@ function relationshipLabel(space: RelationshipSpace): string {
 
 function pendingSummary(action: DelegatedAction, pet: AppPet): string {
   return action.summary?.trim() || `${pet.name}准备执行一项代办，正在等你确认。`;
+}
+
+const PET_STATUS_LABELS = {
+  waiting_warmly: "温暖等你",
+  exploring_spaces: "正在串门",
+} satisfies Readonly<Record<PetStatus, string>>;
+
+export function PetStatusPill({ status }: Readonly<{ status: PetStatus }>) {
+  return (
+    <View style={styles.livePill}>
+      <View style={styles.liveDot} />
+      <Text style={styles.liveText}>{PET_STATUS_LABELS[status]}</Text>
+    </View>
+  );
 }
 
 export function HomeScreen() {
@@ -39,10 +53,7 @@ export function HomeScreen() {
               <Text style={styles.eyebrow}>LIFELONG PET</Text>
               <Text style={styles.sectionTitle}>今天的异宠</Text>
             </View>
-            <View style={styles.livePill}>
-              <View style={styles.liveDot} />
-              <Text style={styles.liveText}>正在生活</Text>
-            </View>
+            <PetStatusPill status={state.pet.status} />
           </View>
           <View style={styles.petBody}>
             <PetAvatar pet={state.pet} />

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomNav, type AppTab } from "./components/BottomNav";
 import { HomeScreen } from "./screens/HomeScreen";
 import { useAppState } from "./state/AppState";
@@ -24,13 +25,20 @@ function PlaceholderScreen({ tab }: Readonly<{ tab: Exclude<AppTab, "home"> }>) 
 
 export function AppShell() {
   const [activeTab, setActiveTab] = useState<AppTab>("home");
+  const insets = useSafeAreaInsets();
 
   return (
-    <View style={styles.app}>
-      <View style={styles.screen}>
+    <View
+      testID="app-safe-area"
+      style={[styles.app, { paddingLeft: insets.left, paddingRight: insets.right }]}
+    >
+      <View testID="app-safe-top" style={[styles.screen, { paddingTop: insets.top }]}>
         {activeTab === "home" ? <HomeScreen /> : <PlaceholderScreen tab={activeTab} />}
       </View>
-      <View style={styles.navWidth}>
+      <View
+        testID="app-safe-bottom"
+        style={[styles.navWidth, { paddingBottom: insets.bottom }]}
+      >
         <BottomNav activeTab={activeTab} onChange={setActiveTab} />
       </View>
     </View>

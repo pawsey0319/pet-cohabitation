@@ -5,12 +5,15 @@ import type {
   UserPet,
 } from "./types";
 
-const TRAITS_BY_CATEGORY: Readonly<Record<ExperienceCategory, readonly string[]>> = {
+export const EVOLUTION_TRAITS_BY_CATEGORY = {
   care: ["柔光绒边", "暖心徽记"],
   work: ["专注星纹", "工具小挂饰"],
   social: ["迎宾光点", "友伴缎带"],
   shared: ["同游足迹", "共鸣铃铛"],
-};
+} as const satisfies Readonly<Record<ExperienceCategory, readonly string[]>>;
+
+export type EvolutionVisualTrait =
+  (typeof EVOLUTION_TRAITS_BY_CATEGORY)[ExperienceCategory][number];
 
 function categoryWeightedBy(ownerExpectation: string): ExperienceCategory | null {
   if (ownerExpectation.includes("勇敢") || ownerExpectation.includes("朋友")) {
@@ -51,7 +54,7 @@ function selectTrait(
     ? experiences.filter((experience) => experience.category === preferredCategory)
     : experiences;
   const candidates = eligibleExperiences.flatMap(
-    (experience) => TRAITS_BY_CATEGORY[experience.category],
+    (experience) => EVOLUTION_TRAITS_BY_CATEGORY[experience.category],
   );
   const newCandidates = candidates
     .filter((trait) => !pet.abstractTraits.includes(trait))

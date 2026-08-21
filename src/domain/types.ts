@@ -38,7 +38,7 @@ export type UserPet = Readonly<{
   memories: readonly SpaceMemory[];
 }>;
 
-export type PetStatus = "waiting_warmly";
+export type PetStatus = "waiting_warmly" | "exploring_spaces";
 
 export type PetWithStatus = UserPet & Readonly<{
   status: PetStatus;
