@@ -1,0 +1,32 @@
+{
+  "name": "pet-cohabitation-mvp",
+  "version": "1.0.0",
+  "private": true,
+  "main": "expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "web": "expo start --web",
+    "test": "jest",
+    "typecheck": "tsc --noEmit",
+    "export:web": "expo export --platform web"
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "57.0.12",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "expo": "57.0.15",
+    "expo-linear-gradient": "57.0.1",
+    "expo-status-bar": "57.0.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.2",
+    "react-native-svg": "15.15.4",
+    "react-native-web": "^0.21.2"
+  },
+  "devDependencies": {
+    "@types/jest": "30.0.0",
+    "@types/react": "19.2.2",
+    "@testing-library/react-native": "14.0.1",
+    "jest-expo": "57.0.4",
+    "typescript": "6.0.3"
+  }
+}

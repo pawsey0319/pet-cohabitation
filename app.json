@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "异宠共生空间",
+    "slug": "pet-cohabitation-mvp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}

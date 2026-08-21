@@ -6,7 +6,7 @@
 
 **Architecture:** 单客户端本地优先原型。纯 TypeScript 领域层实现全部信任边界与确定性 Agent 模拟，React Context/reducer 管理可持久化状态，React Native 组件渲染移动端界面。未来云端 Agent、消息与加密实现只能替换 `AgentRuntime`/`Repository` 边界，不得绕过领域策略。
 
-**Tech Stack:** Expo 57.0.15、React 19.2.8、React Native 0.87.0、React Native Web 0.21.2、TypeScript 7.0.2、Jest Expo 57.0.4、React Native Testing Library 14.0.1、AsyncStorage 3.1.1、React Native SVG 15.15.5、Expo Linear Gradient 57.0.1。
+**Tech Stack:** Expo 57.0.15、React 19.2.3、React Native 0.86.2、React Native Web 0.21.2、TypeScript 6.0.3、Jest Expo 57.0.4、React Native Testing Library 14.0.1、AsyncStorage 2.2.0、React Native SVG 15.15.4、Expo Linear Gradient 57.0.1。版本取自 `create-expo-app@4.0.0` 的 Expo 57 官方模板及 `expo install` 兼容解析结果。
 
 **Spec:** `docs/superpowers/specs/2026-08-21-pet-cohabitation-mvp-design.md`
 
