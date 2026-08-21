@@ -2,13 +2,37 @@ jest.mock("@react-native-async-storage/async-storage", () =>
   require("@react-native-async-storage/async-storage/jest/async-storage-mock"),
 );
 
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { createElement } from "react";
+import { Button, Text, View } from "react-native";
+import { act, fireEvent, render } from "@testing-library/react-native";
 import {
+  APP_STORAGE_KEY,
+  AppProvider,
   appReducer,
   createInitialAppState,
   hydrateSavedState,
+  useAppState,
 } from "../state/AppState";
 
 const occurredAt = "2026-08-21T09:00:00.000Z";
+
+function ProviderStateProbe() {
+  const { dispatch, state } = useAppState();
+  const containsStaleMessage = state.messages.some(
+    (message) => message.content === "过期消息",
+  );
+
+  return createElement(
+    View,
+    null,
+    createElement(Text, { testID: "provider-state" }, containsStaleMessage ? "stale" : "seed"),
+    createElement(Button, {
+      title: "重置演示",
+      onPress: () => dispatch({ type: "RESET_DEMO" }),
+    }),
+  );
+}
 
 describe("application state reducer", () => {
   it("blocks a requested high-risk delegation through the runtime policy", () => {
@@ -199,5 +223,35 @@ describe("application state reducer", () => {
     expect(next.messages.filter((message) => message.actorType === "pet")).toHaveLength(1);
     expect(next.petCornerStories).toHaveLength(2);
     expect(next.lastActiveAt).toBe("2026-08-21T00:00:00.000Z");
+  });
+
+  it("keeps the deterministic seed when reset wins a deferred hydration", async () => {
+    const staleSavedState = appReducer(createInitialAppState(), {
+      type: "SEND_HUMAN_MESSAGE",
+      spaceId: "space-old-friends",
+      actorId: "friend-lin",
+      content: "过期消息",
+      occurredAt,
+    });
+    let resolveGetItem: (value: string | null) => void = () => undefined;
+    (AsyncStorage.getItem as jest.Mock).mockImplementationOnce(
+      () => new Promise<string | null>((resolve) => {
+        resolveGetItem = resolve;
+      }),
+    );
+
+    const provider = await render(
+      createElement(AppProvider, null, createElement(ProviderStateProbe)),
+    );
+    expect(AsyncStorage.getItem).toHaveBeenCalledWith(APP_STORAGE_KEY);
+
+    await fireEvent.press(provider.getByText("重置演示"));
+    await act(async () => {
+      resolveGetItem(JSON.stringify(staleSavedState));
+      await Promise.resolve();
+    });
+
+    expect(provider.getByTestId("provider-state").props.children).toBe("seed");
+    expect(AsyncStorage.removeItem).toHaveBeenCalledWith(APP_STORAGE_KEY);
   });
 });

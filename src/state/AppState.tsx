@@ -310,21 +310,24 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [state, setState] = useState<AppState>(createInitialAppState);
   const [isHydrated, setIsHydrated] = useState(false);
   const resetRequested = useRef(false);
+  const hydrationGeneration = useRef(0);
 
   const dispatch = useCallback<Dispatch<AppAction>>((action) => {
     if (action.type === "RESET_DEMO") {
       resetRequested.current = true;
+      hydrationGeneration.current += 1;
     }
     setState((current) => appReducer(current, action));
   }, []);
 
   useEffect(() => {
     let isMounted = true;
+    const generation = hydrationGeneration.current;
 
     void (async () => {
       try {
         const saved = await AsyncStorage.getItem(APP_STORAGE_KEY);
-        if (!isMounted || !saved) {
+        if (!isMounted || generation !== hydrationGeneration.current || !saved) {
           return;
         }
 
