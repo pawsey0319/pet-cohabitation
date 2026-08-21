@@ -14,8 +14,10 @@ import {
   APP_INVALID_BACKUP_KEY,
   APP_STORAGE_KEY,
   AppProvider,
+  appReducer,
   createInitialAppState,
   normalizeSavedState,
+  normalizeSavedStateWithIssues,
   useAppState,
 } from "../state/AppState";
 
@@ -221,6 +223,200 @@ describe("provider persistence security", () => {
     await fireEvent.press(screen.getByRole("tab", { name: "空间" }));
     expect(screen.getByText("老友空间中的正常回复")).toBeTruthy();
     expect(screen.queryByText(forgedPreview)).toBeNull();
+  });
+
+  it("keeps the first valid duplicate space identity for every authorization lookup", async () => {
+    const seed = createInitialAppState();
+    const canonicalSpace = seed.spaces[0];
+    const attackerContent = "重复空间中的攻击者消息";
+    const forgedExperience = "重复空间中的攻击者经历";
+    const raw = {
+      ...seed,
+      lastActiveAt: fixedNow,
+      activeSpaceId: canonicalSpace.id,
+      spaces: [
+        canonicalSpace,
+        {
+          ...canonicalSpace,
+          name: "伪造同 ID 空间",
+          memberIds: ["attacker-eve"],
+          memberNames: { "attacker-eve": "攻击者" },
+        },
+        ...seed.spaces.slice(1),
+      ],
+      messages: [
+        ...seed.messages,
+        {
+          id: "duplicate-space-attacker-message",
+          spaceId: canonicalSpace.id,
+          actorType: "human",
+          actorId: "attacker-eve",
+          permissionSource: "member_message",
+          content: attackerContent,
+          occurredAt: fixedNow,
+        },
+      ],
+      pet: {
+        ...seed.pet,
+        experiences: [{
+          id: "duplicate-space-attacker-experience",
+          category: "social",
+          summary: forgedExperience,
+          scope: "space",
+          spaceId: canonicalSpace.id,
+          provenance: { source: "game", actorId: "attacker-eve", occurredAt: fixedNow },
+        }],
+      },
+    };
+
+    const normalized = normalizeSavedState(raw);
+    expect(normalized?.spaces.filter((space) => space.id === canonicalSpace.id)).toHaveLength(1);
+    expect(normalized?.spaces.find((space) => space.id === canonicalSpace.id)?.memberIds)
+      .toEqual(canonicalSpace.memberIds);
+    expect(normalized?.messages.map((message) => message.content)).not.toContain(attackerContent);
+    expect(normalized?.pet.experiences.map((experience) => experience.summary)).not.toContain(forgedExperience);
+    expect(normalized?.activeSpaceId).toBe(canonicalSpace.id);
+    expect(normalized?.ritualSettings.spaceId).toBe(canonicalSpace.id);
+
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValueOnce(JSON.stringify(raw));
+    await render(<App />);
+    await waitFor(() => expect(screen.getByRole("tab", { name: "空间" })).toBeTruthy());
+    await fireEvent.press(screen.getByRole("tab", { name: "空间" }));
+    expect(screen.queryByText(attackerContent)).toBeNull();
+    expect(screen.queryByText("伪造同 ID 空间")).toBeNull();
+  });
+
+  it("clears replies to an ambiguous duplicate message id", () => {
+    const seed = createInitialAppState();
+    const space = seed.spaces[0];
+    const raw = {
+      ...seed,
+      messages: [
+        ...seed.messages,
+        {
+          id: "ambiguous-message",
+          spaceId: space.id,
+          actorType: "human",
+          actorId: seed.currentUserId,
+          permissionSource: "member_message",
+          content: "歧义目标甲",
+          occurredAt: fixedNow,
+        },
+        {
+          id: "ambiguous-message",
+          spaceId: space.id,
+          actorType: "human",
+          actorId: "friend-lin",
+          permissionSource: "member_message",
+          content: "歧义目标乙",
+          occurredAt: fixedNow,
+        },
+        {
+          id: "reply-to-ambiguous-message",
+          spaceId: space.id,
+          actorType: "human",
+          actorId: seed.currentUserId,
+          permissionSource: "member_message",
+          content: "不能引用歧义目标",
+          occurredAt: fixedNow,
+          metadata: {
+            replyToMessageId: "ambiguous-message",
+            replyPreview: "持久化伪造预览",
+          },
+        },
+      ],
+    };
+
+    const normalized = normalizeSavedState(raw);
+    const targetCopies = normalized?.messages.filter((message) => message.id === "ambiguous-message");
+    const reply = normalized?.messages.find((message) => message.id === "reply-to-ambiguous-message");
+    expect(targetCopies).toHaveLength(1);
+    expect(reply?.metadata?.replyToMessageId).toBeUndefined();
+    expect(reply?.metadata?.replyPreview).toBeUndefined();
+  });
+
+  it("treats an absent message format as canonical but repairs an explicit invalid format", () => {
+    const seed = createInitialAppState();
+    const absent = normalizeSavedStateWithIssues(seed);
+    expect(absent.repaired).toBe(false);
+    expect(absent.state?.messages[0]).not.toHaveProperty("format");
+
+    const invalid = normalizeSavedStateWithIssues({
+      ...seed,
+      messages: seed.messages.map((message, index) => index === 0
+        ? { ...message, format: "uploaded_video" }
+        : message),
+    });
+    expect(invalid.repaired).toBe(true);
+    expect(invalid.state?.messages[0].format).toBe("text");
+  });
+
+  it("keeps ritual, query, and summary snapshots canonical without inventing formats", () => {
+    const seed = createInitialAppState();
+    const invited = appReducer(seed, { type: "GENERATE_RITUAL_INVITE", occurredAt: fixedNow });
+    const queried = appReducer(invited, {
+      type: "QUERY_PET",
+      spaceId: seed.spaces[0].id,
+      requesterId: seed.currentUserId,
+      occurredAt: fixedNow,
+    });
+    const summarized = appReducer(queried, {
+      type: "RUN_SPACE_SUMMARY",
+      spaceId: seed.spaces[0].id,
+      occurredAt: fixedNow,
+    });
+
+    for (const snapshot of [seed, invited, queried, summarized]) {
+      expect(normalizeSavedStateWithIssues(snapshot).repaired).toBe(false);
+    }
+  });
+
+  it("backs up the exact raw payload for an explicit invalid message format", async () => {
+    const seed = createInitialAppState();
+    const raw = JSON.stringify({
+      ...seed,
+      lastActiveAt: fixedNow,
+      messages: seed.messages.map((message, index) => index === 0
+        ? { ...message, format: "uploaded_video" }
+        : message),
+    });
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValueOnce(raw);
+
+    const provider = await render(
+      createElement(AppProvider, { now: () => fixedNow }, createElement(StateProbe)),
+    );
+    await waitFor(() => expect(provider.getByTestId("hydration-status").props.children).toBe("hydrated"));
+    expect(AsyncStorage.setItem).toHaveBeenCalledWith(APP_INVALID_BACKUP_KEY, raw);
+  });
+
+  it("does not back up a normal absence snapshot when it is reopened", async () => {
+    const seed = createInitialAppState();
+    const firstNow = "2026-08-23T09:00:00.000Z";
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValueOnce(JSON.stringify(seed));
+
+    const first = await render(
+      createElement(AppProvider, { now: () => firstNow }, createElement(StateProbe)),
+    );
+    await waitFor(() => expect(first.getByTestId("hydration-status").props.children).toBe("hydrated"));
+    await waitFor(() => expect(AsyncStorage.setItem).toHaveBeenCalledWith(
+      APP_STORAGE_KEY,
+      expect.any(String),
+    ));
+    const savedSnapshots = (AsyncStorage.setItem as jest.Mock).mock.calls
+      .filter(([key]) => key === APP_STORAGE_KEY)
+      .map(([, value]) => value as string);
+    const absenceSnapshot = savedSnapshots.at(-1);
+    expect(absenceSnapshot).toContain("轻松的问候");
+    await first.unmount();
+
+    jest.clearAllMocks();
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValueOnce(absenceSnapshot);
+    (AsyncStorage.setItem as jest.Mock).mockResolvedValue(undefined);
+    const reopened = await render(
+      createElement(AppProvider, { now: () => firstNow }, createElement(StateProbe)),
+    );
+    await waitFor(() => expect(reopened.getByTestId("hydration-status").props.children).toBe("hydrated"));
+    expect(AsyncStorage.setItem).not.toHaveBeenCalledWith(APP_INVALID_BACKUP_KEY, expect.any(String));
   });
 
   it("hydrates repaired valid history even when writing the invalid backup fails", async () => {

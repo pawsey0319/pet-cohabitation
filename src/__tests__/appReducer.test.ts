@@ -406,6 +406,28 @@ describe("application state reducer", () => {
     })).toEqual(seed);
   });
 
+  it.each(["__proto__", "constructor", "toString"])(
+    "rejects prototype-key game component %s without throwing",
+    (gameType) => {
+      const seed = createInitialAppState();
+
+      expect(() => appReducer(seed, {
+        type: "PLAY_SAFE_GAME",
+        spaceId: seed.spaces[0].id,
+        actorId: seed.currentUserId,
+        gameType: gameType as never,
+        occurredAt,
+      })).not.toThrow();
+      expect(appReducer(seed, {
+        type: "PLAY_SAFE_GAME",
+        spaceId: seed.spaces[0].id,
+        actorId: seed.currentUserId,
+        gameType: gameType as never,
+        occurredAt,
+      })).toBe(seed);
+    },
+  );
+
   it.each([
     ["unknown message format", (seed: ReturnType<typeof createInitialAppState>) => ({
       type: "SEND_HUMAN_MESSAGE",

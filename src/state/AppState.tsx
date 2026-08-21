@@ -209,6 +209,7 @@ const MESSAGE_FORMATS = new Set(["text", "image_placeholder", "voice_placeholder
 const PET_ROUTINES = new Set(["22:30–07:30", "23:30–08:00"]);
 const PROACTIVE_FREQUENCIES = new Set(["daily", "low", "quiet"]);
 const RITUAL_FREQUENCIES = new Set(["daily", "weekly"]);
+const SAFE_GAME_TYPES = new Set<SafeGameType>(["same_prompt_reveal", "guess_choice", "relay"]);
 
 function normalizeSpace(value: unknown) {
   if (
@@ -390,9 +391,13 @@ export function normalizeSavedStateWithIssues(value: unknown): NormalizedSavedSt
   let repaired = false;
   const rawSpaces = Array.isArray(value.spaces) ? value.spaces : [];
   if (!Array.isArray(value.spaces)) repaired = true;
-  const spaces = rawSpaces.map(normalizeSpace).filter(
-    (space): space is NonNullable<ReturnType<typeof normalizeSpace>> => Boolean(space),
-  );
+  const seenSpaceIds = new Set<string>();
+  const spaces = rawSpaces.flatMap((rawSpace) => {
+    const space = normalizeSpace(rawSpace);
+    if (!space || seenSpaceIds.has(space.id)) return [];
+    seenSpaceIds.add(space.id);
+    return [space];
+  });
   if (spaces.length !== rawSpaces.length) repaired = true;
   const spaceById = new Map(spaces.map((space) => [space.id, space]));
 
@@ -467,12 +472,10 @@ export function normalizeSavedStateWithIssues(value: unknown): NormalizedSavedSt
 
   const rawMessages = Array.isArray(value.messages) ? value.messages : [];
   if (!Array.isArray(value.messages)) repaired = true;
-  const seenMessageIds = new Set<string>();
-  const messageCandidates = rawMessages.flatMap((message) => {
+  const validMessageCandidates = rawMessages.flatMap((message) => {
     if (
       !isRecord(message) ||
       typeof message.id !== "string" ||
-      seenMessageIds.has(message.id) ||
       typeof message.spaceId !== "string" ||
       !spaceById.has(message.spaceId) ||
       typeof message.actorType !== "string" ||
@@ -483,12 +486,14 @@ export function normalizeSavedStateWithIssues(value: unknown): NormalizedSavedSt
     ) return [];
     const space = spaceById.get(message.spaceId);
     if (message.actorType === "human" && !space?.memberIds.includes(message.actorId)) return [];
-    seenMessageIds.add(message.id);
     const actorType = message.actorType as SpaceMessage["actorType"];
     const rawMetadata = isRecord(message.metadata) ? message.metadata : null;
-    const format = message.format === "image_placeholder" || message.format === "voice_placeholder"
-      ? message.format
-      : "text";
+    const hasFormat = Object.prototype.hasOwnProperty.call(message, "format");
+    const format = !hasFormat
+      ? undefined
+      : MESSAGE_FORMATS.has(message.format as string)
+        ? message.format as SpaceMessage["format"]
+        : "text" as const;
     const permissionSource = actorType === "human"
       ? (message.permissionSource === "member_game_contribution" ? "member_game_contribution" : "member_message")
       : actorType === "pet"
@@ -509,7 +514,9 @@ export function normalizeSavedStateWithIssues(value: unknown): NormalizedSavedSt
       ...(rawMetadata?.communicationIntent === "share" || rawMetadata?.communicationIntent === "seek_comfort"
         ? { communicationIntent: rawMetadata.communicationIntent }
         : {}),
-      ...(format !== "text" ? { mediaBoundary: "local_demo_not_uploaded" as const } : {}),
+      ...(format === "image_placeholder" || format === "voice_placeholder"
+        ? { mediaBoundary: "local_demo_not_uploaded" as const }
+        : {}),
     });
     const base: SpaceMessage = Object.freeze({
       id: message.id,
@@ -519,12 +526,24 @@ export function normalizeSavedStateWithIssues(value: unknown): NormalizedSavedSt
       permissionSource,
       content: message.content,
       occurredAt: message.occurredAt,
-      format,
+      ...(format ? { format } : {}),
       ...(Object.keys(metadataWithoutReply).length ? { metadata: metadataWithoutReply } : {}),
     });
     return [Object.freeze({ base, rawMetadata })];
   });
-  const baseMessageById = new Map(messageCandidates.map((candidate) => [candidate.base.id, candidate.base]));
+  const messageIdCounts = validMessageCandidates.reduce((counts, candidate) => {
+    counts.set(candidate.base.id, (counts.get(candidate.base.id) ?? 0) + 1);
+    return counts;
+  }, new Map<string, number>());
+  const seenMessageIds = new Set<string>();
+  const messageCandidates = validMessageCandidates.filter((candidate) => {
+    if (seenMessageIds.has(candidate.base.id)) return false;
+    seenMessageIds.add(candidate.base.id);
+    return true;
+  });
+  const baseMessageById = new Map(messageCandidates
+    .filter((candidate) => messageIdCounts.get(candidate.base.id) === 1)
+    .map((candidate) => [candidate.base.id, candidate.base]));
   const messages = messageCandidates.map(({ base, rawMetadata }) => {
     const replyTarget = typeof rawMetadata?.replyToMessageId === "string"
       ? baseMessageById.get(rawMetadata.replyToMessageId)
@@ -1080,7 +1099,11 @@ export function appReducer(state: AppState, action: AppAction): AppState {
 
     case "PLAY_SAFE_GAME": {
       const space = findSpace(state, action.spaceId);
-      if (!space || !isCurrentSpaceMember(state, action.spaceId, action.actorId)) {
+      if (
+        !space ||
+        !isCurrentSpaceMember(state, action.spaceId, action.actorId) ||
+        !SAFE_GAME_TYPES.has(action.gameType)
+      ) {
         return state;
       }
       const gameCopy: Readonly<Record<SafeGameType, Readonly<{
@@ -1105,9 +1128,6 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         },
       };
       const copy = gameCopy[action.gameType];
-      if (!copy) {
-        return state;
-      }
       const base = state.messages.length + 1;
       const gameMessages: readonly SpaceMessage[] = Object.freeze([
         Object.freeze({
