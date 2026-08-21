@@ -7,11 +7,12 @@ type EvolutionSheetProps = Readonly<{
   petName: string;
   anchors: IdentityAnchors;
   pending: EvolutionEvent | null;
+  canPropose: boolean;
   onPropose: (expectation: string) => void;
   onApply: () => void;
 }>;
 
-export function EvolutionSheet({ petName, anchors, pending, onPropose, onApply }: EvolutionSheetProps) {
+export function EvolutionSheet({ petName, anchors, pending, canPropose, onPropose, onApply }: EvolutionSheetProps) {
   const [expectation, setExpectation] = useState("");
   const inherited = [anchors.eyes, anchors.coreColor, anchors.voice, anchors.silhouette, anchors.signatureOrgan].join("、");
 
@@ -20,17 +21,6 @@ export function EvolutionSheet({ petName, anchors, pending, onPropose, onApply }
       <Text style={styles.eyebrow}>SHALLOW PARTICIPATION</Text>
       <Text style={styles.title}>下一次生长，留一句祝福</Text>
       <Text style={styles.copy}>你可以写期待、祝福或象征物；变化由{petName}依据生命故事自主决定。</Text>
-      <TextInput
-        accessibilityLabel="期待或祝福"
-        placeholder="写下你的期待或祝福"
-        placeholderTextColor={colors.textMuted}
-        value={expectation}
-        onChangeText={setExpectation}
-        style={styles.input}
-      />
-      <Pressable accessibilityRole="button" accessibilityLabel={`交给${petName}决定`} disabled={!expectation.trim()} onPress={() => onPropose(expectation)} style={[styles.primary, !expectation.trim() && styles.disabled]}>
-        <Text style={styles.primaryText}>交给{petName}决定</Text>
-      </Pressable>
       {pending ? (
         <View style={styles.decision}>
           <Text style={styles.decisionTitle}>决定者：{petName}</Text>
@@ -46,7 +36,22 @@ export function EvolutionSheet({ petName, anchors, pending, onPropose, onApply }
             <Text style={styles.acceptText}>接受{petName}的成长</Text>
           </Pressable>
         </View>
-      ) : null}
+      ) : (
+        <>
+          <TextInput
+            accessibilityLabel="期待或祝福"
+            placeholder="写下你的期待或祝福"
+            placeholderTextColor={colors.textMuted}
+            value={expectation}
+            onChangeText={setExpectation}
+            style={styles.input}
+          />
+          {!canPropose ? <Text style={styles.waiting}>等待新的共同故事后再生长</Text> : null}
+          <Pressable accessibilityRole="button" accessibilityLabel={`交给${petName}决定`} disabled={!canPropose || !expectation.trim()} onPress={() => onPropose(expectation)} style={[styles.primary, (!canPropose || !expectation.trim()) && styles.disabled]}>
+            <Text style={styles.primaryText}>交给{petName}决定</Text>
+          </Pressable>
+        </>
+      )}
     </View>
   );
 }
@@ -60,6 +65,7 @@ const styles = StyleSheet.create({
   primary: { alignItems: "center", marginTop: spacing.sm, padding: spacing.sm, backgroundColor: colors.coral, borderRadius: radii.sm },
   primaryText: { color: colors.textDark, fontWeight: "900" },
   disabled: { opacity: 0.45 },
+  waiting: { marginTop: spacing.sm, color: colors.textMuted, fontSize: typography.eyebrow },
   decision: { marginTop: spacing.md, padding: spacing.md, backgroundColor: "rgba(190,184,248,0.1)", borderRadius: radii.md, gap: spacing.xs },
   decisionTitle: { color: colors.lavenderSoft, fontSize: typography.bodyLarge, fontWeight: "900" },
   decisionText: { color: colors.text, lineHeight: 21 },

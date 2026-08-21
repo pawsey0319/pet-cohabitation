@@ -5,9 +5,10 @@ jest.mock("react-native-safe-area-context", () =>
   require("react-native-safe-area-context/jest/mock").default,
 );
 
-import { fireEvent, render, screen, within } from "@testing-library/react-native";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import App from "../../App";
+import { APP_STORAGE_KEY, createInitialAppState } from "../state/AppState";
 
 async function openOldFriendsSpace() {
   await fireEvent.press(screen.getByText("老友小圈"));
@@ -32,6 +33,39 @@ describe("critical cohabitation flows", () => {
     expect(screen.getByText(/我还记得这里的老友小圈的接力游戏/)).toBeTruthy();
     expect(screen.getByText(/目前有1条成员消息和1条异宠消息/)).toBeTruthy();
     expect(screen.getByText("宠物发言不是主人承诺")).toBeTruthy();
+  });
+
+  it("never publishes a hydrated sensitive memory through the real pet-query UI", async () => {
+    const seed = createInitialAppState();
+    const secret = "我的住址和健康低谷";
+    const saved = {
+      ...seed,
+      lastActiveAt: new Date().toISOString(),
+      pet: {
+        ...seed.pet,
+        memories: [
+          ...seed.pet.memories,
+          {
+            ...seed.pet.memories[1],
+            id: "sensitive-ui-memory",
+            spaceId: seed.spaces[0].id,
+            sensitivity: "sensitive" as const,
+            visibility: "space_members" as const,
+            content: secret,
+          },
+        ],
+      },
+    };
+    await AsyncStorage.setItem(APP_STORAGE_KEY, JSON.stringify(saved));
+    await render(<App />);
+    await fireEvent.press(screen.getByRole("tab", { name: "异宠" }));
+    await waitFor(() => expect(screen.getByText(secret)).toBeTruthy());
+
+    await fireEvent.press(screen.getByRole("tab", { name: "空间" }));
+    await fireEvent.press(screen.getByRole("button", { name: "问灯灯发生了什么" }));
+
+    expect(screen.getByText(/没有可在这里分享的新回顾/)).toBeTruthy();
+    expect(screen.queryByText(secret)).toBeNull();
   });
 
   it("sends a message and records pet-corner care through the real space flow", async () => {
@@ -107,6 +141,7 @@ describe("critical cohabitation flows", () => {
     await fireEvent.press(screen.getByRole("button", { name: "交给灯灯决定" }));
 
     expect(screen.getByText("决定者：灯灯")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("写下你的期待或祝福")).toBeNull();
     expect(screen.getByText(/原因：来自.*梳理触角/)).toBeTruthy();
     expect(screen.getByText(/继承特征：琥珀眼、珊瑚橙、轻柔、圆润、发光触角/)).toBeTruthy();
     expect(screen.queryByText("选择最终形态")).toBeNull();
@@ -115,6 +150,8 @@ describe("critical cohabitation flows", () => {
 
     await fireEvent.press(screen.getByRole("button", { name: "接受灯灯的成长" }));
     expect(screen.getByText(/灯灯从care-space-old-friends-1的经历中/)).toBeTruthy();
+    expect(screen.getByText("等待新的共同故事后再生长")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "交给灯灯决定" })).toBeDisabled();
   });
 
   it("supports routine controls, local mute, and majority pause without affecting human chat", async () => {
@@ -129,9 +166,9 @@ describe("critical cohabitation flows", () => {
     await fireEvent.press(screen.getByRole("button", { name: "本地静音灯灯" }));
     expect(screen.getByRole("button", { name: "恢复灯灯声音" })).toBeTruthy();
 
-    await fireEvent.press(screen.getByRole("button", { name: "梅投票暂停" }));
     expect(screen.getByText("暂停票 1/2 · 尚未达到多数")).toBeTruthy();
-    await fireEvent.press(screen.getByRole("button", { name: "林投票暂停" }));
+    expect(screen.queryByRole("button", { name: "林投票暂停" })).toBeNull();
+    await fireEvent.press(screen.getByRole("button", { name: "梅投票暂停" }));
     expect(screen.getByText("已按多数暂停异宠主动发言")).toBeTruthy();
 
     await fireEvent.changeText(screen.getByPlaceholderText("给老友小圈发消息"), "人类聊天仍可发送");

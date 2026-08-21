@@ -29,13 +29,18 @@ export function SpaceScreen() {
   const pendingCount = delegations.filter((action) => action.status === "pending_owner").length;
   const muted = activeSpace.locallyMutedPetIds.includes(state.pet.id);
   const governance = getPetPauseGovernance(activeSpace, state.pet.id);
+  const currentMemberLabel = MEMBER_LABELS[state.currentUserId] ?? state.currentUserId;
+  const currentVote = [...activeSpace.petGovernanceVotes].reverse().find(
+    (vote) => vote.petId === state.pet.id && vote.voterId === state.currentUserId,
+  );
+  const currentUserIsPausing = currentVote?.decision === "pause";
 
   const send = () => {
     if (!draft.trim()) return;
     dispatch({
       type: "SEND_HUMAN_MESSAGE",
       spaceId: activeSpace.id,
-      actorId: state.pet.ownerId,
+      actorId: state.currentUserId,
       content: draft,
       occurredAt: new Date().toISOString(),
     });
@@ -47,7 +52,7 @@ export function SpaceScreen() {
       <View style={styles.hero}>
         <Text style={styles.kicker}>RELATIONSHIP SPACE / 隔离记忆舱</Text>
         <Text style={styles.display}>{activeSpace.name}</Text>
-        <Text style={styles.lede}>{activeSpace.memberIds.length} 位成员 · 人类聊天始终独立于 Agent 控制</Text>
+        <Text style={styles.lede}>{activeSpace.memberIds.length} 位成员 · 当前身份：{currentMemberLabel} · 人类聊天始终独立于 Agent 控制</Text>
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.spaceTabs}>
@@ -96,8 +101,8 @@ export function SpaceScreen() {
             spaceName={activeSpace.name}
             stories={stories}
             experiences={experiences}
-            onCare={() => dispatch({ type: "CARE_FOR_PET", spaceId: activeSpace.id, byUserId: state.pet.ownerId, care: "梳理触角", occurredAt: new Date().toISOString() })}
-            onInteract={() => dispatch({ type: "CARE_FOR_PET", spaceId: activeSpace.id, byUserId: state.pet.ownerId, care: "击掌互动", occurredAt: new Date().toISOString() })}
+            onCare={() => dispatch({ type: "CARE_FOR_PET", spaceId: activeSpace.id, byUserId: state.currentUserId, care: "梳理触角", occurredAt: new Date().toISOString() })}
+            onInteract={() => dispatch({ type: "CARE_FOR_PET", spaceId: activeSpace.id, byUserId: state.currentUserId, care: "击掌互动", occurredAt: new Date().toISOString() })}
           />
         </View>
 
@@ -105,7 +110,7 @@ export function SpaceScreen() {
           <View style={styles.actionCard}>
             <Text style={styles.sectionTitle}>异宠协助</Text>
             <Text style={styles.sectionNote}>查询只使用本空间记忆；代理先经过风险策略。</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel={`问${state.pet.name}发生了什么`} onPress={() => dispatch({ type: "QUERY_PET", spaceId: activeSpace.id, occurredAt: new Date().toISOString() })} style={styles.softButton}><Text style={styles.softButtonText}>问{state.pet.name}发生了什么</Text></Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel={`问${state.pet.name}发生了什么`} onPress={() => dispatch({ type: "QUERY_PET", spaceId: activeSpace.id, requesterId: state.currentUserId, occurredAt: new Date().toISOString() })} style={styles.softButton}><Text style={styles.softButtonText}>问{state.pet.name}发生了什么</Text></Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel="创建暂定提醒" onPress={() => dispatch({ type: "REQUEST_DELEGATION", request: { kind: "tentative_reminder", spaceId: activeSpace.id, summary: "周末接力游戏暂定提醒" } })} style={styles.softButton}><Text style={styles.softButtonText}>创建暂定提醒</Text></Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel="请求真实见面" onPress={() => dispatch({ type: "REQUEST_DELEGATION", request: { kind: "meetup", spaceId: activeSpace.id, summary: "替主人答应周末见面" } })} style={styles.riskButton}><Text style={styles.riskButtonText}>请求真实见面（需策略检查）</Text></Pressable>
             <Text style={styles.riskNote}>阻断原因：真实见面、长期计划、情感承诺与关系变化会形成主人承诺；位置、健康和敏感信息需本人再次授权；消费与财务不能由异宠决定。</Text>
@@ -127,24 +132,16 @@ export function SpaceScreen() {
 
           <View style={styles.governanceCard}>
             <Text style={styles.sectionTitle}>异宠发言治理</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel={muted ? `恢复${state.pet.name}声音` : `本地静音${state.pet.name}`} onPress={() => dispatch({ type: "TOGGLE_LOCAL_MUTE", spaceId: activeSpace.id, voterId: state.pet.ownerId })} style={styles.softButton}><Text style={styles.softButtonText}>{muted ? `恢复${state.pet.name}声音` : `本地静音${state.pet.name}`}</Text></Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel={muted ? `恢复${state.pet.name}声音` : `本地静音${state.pet.name}`} onPress={() => dispatch({ type: "TOGGLE_LOCAL_MUTE", spaceId: activeSpace.id, voterId: state.currentUserId })} style={styles.softButton}><Text style={styles.softButtonText}>{muted ? `恢复${state.pet.name}声音` : `本地静音${state.pet.name}`}</Text></Pressable>
             <Text style={styles.voteStatus}>{governance.paused ? "已按多数暂停异宠主动发言" : `暂停票 ${governance.pauses}/${governance.required} · 尚未达到多数`}</Text>
-            {activeSpace.memberIds.map((memberId) => {
-              const latestVote = [...activeSpace.petGovernanceVotes].reverse().find((vote) => vote.petId === state.pet.id && vote.voterId === memberId);
-              const isPausing = latestVote?.decision === "pause";
-              const memberLabel = MEMBER_LABELS[memberId] ?? memberId;
-              return (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`${memberLabel}投票${isPausing ? "恢复" : "暂停"}`}
-                  key={memberId}
-                  onPress={() => dispatch({ type: "CAST_PET_GOVERNANCE_VOTE", spaceId: activeSpace.id, voterId: memberId, decision: isPausing ? "resume" : "pause" })}
-                  style={styles.voteButton}
-                >
-                  <Text style={styles.voteButtonText}>{memberLabel}：{isPausing ? "恢复主动发言" : "同意暂停"}</Text>
-                </Pressable>
-              );
-            })}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${currentMemberLabel}投票${currentUserIsPausing ? "恢复" : "暂停"}`}
+              onPress={() => dispatch({ type: "CAST_PET_GOVERNANCE_VOTE", spaceId: activeSpace.id, voterId: state.currentUserId, decision: currentUserIsPausing ? "resume" : "pause" })}
+              style={styles.voteButton}
+            >
+              <Text style={styles.voteButtonText}>{currentMemberLabel}：{currentUserIsPausing ? "恢复主动发言" : "同意暂停"}</Text>
+            </Pressable>
           </View>
         </View>
       </View>

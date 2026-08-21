@@ -5,13 +5,14 @@ jest.mock("@react-native-async-storage/async-storage", () =>
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createElement } from "react";
 import { Button, Text, View } from "react-native";
-import { act, fireEvent, render } from "@testing-library/react-native";
+import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import {
   APP_STORAGE_KEY,
   AppProvider,
   appReducer,
   createInitialAppState,
   hydrateSavedState,
+  normalizeSavedState,
   useAppState,
 } from "../state/AppState";
 
@@ -34,7 +35,93 @@ function ProviderStateProbe() {
   );
 }
 
+function MigrationProbe() {
+  const { state } = useAppState();
+  return createElement(
+    Text,
+    { testID: "migration-state" },
+    JSON.stringify({
+      currentUserId: state.currentUserId,
+      preferences: state.petPreferences,
+      nextDelegationSequence: state.nextDelegationSequence,
+      consumed: state.consumedEvolutionExperienceIds,
+      keptMessage: state.messages.some((message) => message.content === "旧存档消息"),
+      keptMemory: state.pet.memories.some((memory) => memory.content === "旧存档记忆"),
+      keptEvolution: state.evolutionEvents.some((event) => event.ownerInfluence === "旧存档祝福"),
+    }),
+  );
+}
+
 describe("application state reducer", () => {
+  it("migrates a v1 payload without new fields and persists the preserved data", async () => {
+    const current = createInitialAppState();
+    const oldExperience = Object.freeze({
+      id: "legacy-care-1",
+      category: "care" as const,
+      summary: "旧存档经历",
+    });
+    const oldEvolution = Object.freeze({
+      petName: current.pet.name,
+      sources: Object.freeze([oldExperience]),
+      ownerInfluence: "旧存档祝福",
+      decisionBy: "pet" as const,
+      visualTrait: "暖心徽记",
+    });
+    const legacy: Record<string, unknown> = {
+      ...current,
+      lastActiveAt: new Date().toISOString(),
+      messages: Object.freeze([
+        ...current.messages,
+        Object.freeze({
+          id: "legacy-message",
+          spaceId: current.spaces[0].id,
+          actorType: "human" as const,
+          actorId: current.pet.ownerId,
+          permissionSource: "member_message",
+          content: "旧存档消息",
+          occurredAt,
+        }),
+      ]),
+      pet: Object.freeze({
+        ...current.pet,
+        experiences: Object.freeze([oldExperience]),
+        memories: Object.freeze([
+          ...current.pet.memories,
+          Object.freeze({
+            ...current.pet.memories[0],
+            id: "legacy-memory",
+            content: "旧存档记忆",
+          }),
+        ]),
+      }),
+      evolutionEvents: Object.freeze([oldEvolution]),
+    };
+    delete legacy.petPreferences;
+    delete legacy.currentUserId;
+    delete legacy.nextDelegationSequence;
+    delete legacy.consumedEvolutionExperienceIds;
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValueOnce(JSON.stringify(legacy));
+
+    const provider = await render(createElement(AppProvider, null, createElement(MigrationProbe)));
+
+    await waitFor(() => {
+      expect(provider.getByTestId("migration-state").props.children).toContain('"keptMessage":true');
+    });
+    const migrated = JSON.parse(provider.getByTestId("migration-state").props.children);
+    expect(migrated).toMatchObject({
+      currentUserId: current.pet.ownerId,
+      preferences: { routine: "22:30–07:30", proactiveFrequency: "daily" },
+      nextDelegationSequence: 1,
+      consumed: ["legacy-care-1"],
+      keptMessage: true,
+      keptMemory: true,
+      keptEvolution: true,
+    });
+    await waitFor(() => expect(AsyncStorage.setItem).toHaveBeenCalled());
+    const savedPayload = JSON.parse((AsyncStorage.setItem as jest.Mock).mock.calls.at(-1)[1]);
+    expect(savedPayload.messages.some((message: { content: string }) => message.content === "旧存档消息")).toBe(true);
+  });
+
   it("blocks a requested high-risk delegation through the runtime policy", () => {
     const seed = createInitialAppState();
 
@@ -61,7 +148,7 @@ describe("application state reducer", () => {
   });
 
   it("care from another member creates a social experience without changing anchors", () => {
-    const seed = createInitialAppState();
+    const seed = Object.freeze({ ...createInitialAppState(), currentUserId: "friend-lin" });
     const spaceId = seed.spaces[0].id;
 
     const next = appReducer(seed, {
@@ -94,7 +181,7 @@ describe("application state reducer", () => {
   });
 
   it("adds a labeled human message to the requested space", () => {
-    const seed = createInitialAppState();
+    const seed = Object.freeze({ ...createInitialAppState(), currentUserId: "friend-lin" });
 
     const next = appReducer(seed, {
       type: "SEND_HUMAN_MESSAGE",
@@ -111,6 +198,45 @@ describe("application state reducer", () => {
       permissionSource: "member_message",
       content: "晚点一起玩接力吧",
     });
+  });
+
+  it("rejects member impersonation for messages, care, and governance votes", () => {
+    const seed = createInitialAppState();
+    const spaceId = seed.spaces[0].id;
+
+    expect(appReducer(seed, {
+      type: "SEND_HUMAN_MESSAGE",
+      spaceId,
+      actorId: "friend-lin",
+      content: "冒用消息",
+      occurredAt,
+    })).toEqual(seed);
+    expect(appReducer(seed, {
+      type: "CARE_FOR_PET",
+      spaceId,
+      byUserId: "friend-lin",
+      care: "冒用照顾",
+      occurredAt,
+    })).toEqual(seed);
+    expect(appReducer(seed, {
+      type: "CAST_PET_GOVERNANCE_VOTE",
+      spaceId,
+      voterId: "friend-lin",
+      decision: "pause",
+    })).toEqual(seed);
+  });
+
+  it("accepts another member care only when that member is the current verified user", () => {
+    const seed = Object.freeze({ ...createInitialAppState(), currentUserId: "friend-lin" });
+    const next = appReducer(seed, {
+      type: "CARE_FOR_PET",
+      spaceId: seed.spaces[0].id,
+      byUserId: "friend-lin",
+      care: "递来一颗果子",
+      occurredAt,
+    });
+
+    expect(next.pet.experiences.at(-1)).toMatchObject({ category: "social" });
   });
 
   it("confirms pending work and removes a revoked delegation", () => {
@@ -132,7 +258,12 @@ describe("application state reducer", () => {
     const seed = createInitialAppState();
     const spaceId = seed.spaces[0].id;
 
-    const queried = appReducer(seed, { type: "QUERY_PET", spaceId, occurredAt });
+    const queried = appReducer(seed, {
+      type: "QUERY_PET",
+      spaceId,
+      requesterId: seed.currentUserId,
+      occurredAt,
+    });
     const summarized = appReducer(queried, {
       type: "RUN_SPACE_SUMMARY",
       spaceId,
@@ -147,6 +278,99 @@ describe("application state reducer", () => {
       actorType: "space_agent",
       permissionSource: "space_objective_summary",
     });
+  });
+
+  it.each([
+    ["sensitive", "space_members"],
+    ["normal", "owner_only"],
+  ] as const)("does not broadcast a %s/%s memory into the shared timeline", (sensitivity, visibility) => {
+    const seed = createInitialAppState();
+    const secret = "不应出现在共享时间线的秘密";
+    const state = Object.freeze({
+      ...seed,
+      pet: Object.freeze({
+        ...seed.pet,
+        memories: Object.freeze([
+          ...seed.pet.memories,
+          Object.freeze({
+            ...seed.pet.memories[1],
+            id: `private-${sensitivity}-${visibility}`,
+            spaceId: seed.spaces[0].id,
+            sensitivity,
+            visibility,
+            content: secret,
+          }),
+        ]),
+      }),
+    });
+
+    const next = appReducer(state, {
+      type: "QUERY_PET",
+      spaceId: seed.spaces[0].id,
+      requesterId: seed.currentUserId,
+      occurredAt,
+    });
+
+    expect(next.messages.at(-1)?.content).not.toContain(secret);
+  });
+
+  it("creates unique delegated action ids and confirms or revokes only one instance", () => {
+    const seed = createInitialAppState();
+    const first = appReducer(seed, {
+      type: "REQUEST_DELEGATION",
+      request: { kind: "tentative_reminder", spaceId: seed.spaces[0].id, summary: "第一项" },
+    });
+    const second = appReducer(first, {
+      type: "REQUEST_DELEGATION",
+      request: { kind: "tentative_reminder", spaceId: seed.spaces[0].id, summary: "第二项" },
+    });
+    const [firstAction, secondAction] = second.delegatedActions;
+
+    expect(firstAction.id).not.toBe(secondAction.id);
+    const confirmed = appReducer(second, { type: "CONFIRM_ACTION", actionId: firstAction.id as string });
+    expect(confirmed.delegatedActions.map((action) => action.status)).toEqual(["completed", "pending_owner"]);
+    const revoked = appReducer(confirmed, { type: "REVOKE_ACTION", actionId: secondAction.id as string });
+    expect(revoked.delegatedActions.map((action) => action.summary)).toEqual(["第一项"]);
+  });
+
+  it("normalizes duplicate delegated ids from an existing v1 payload", () => {
+    const seed = createInitialAppState();
+    const duplicate = Object.freeze({
+      id: "delegated-pet-lantern-1",
+      kind: "tentative_reminder",
+      petId: seed.pet.id,
+      spaceId: seed.spaces[0].id,
+      status: "pending_owner" as const,
+      permissionSource: "pet_low_risk_delegation",
+      summary: "旧存档重复项",
+    });
+    const normalized = normalizeSavedState({
+      ...seed,
+      delegatedActions: [duplicate, { ...duplicate, summary: "旧存档第二项" }],
+      nextDelegationSequence: 1,
+    });
+
+    expect(new Set(normalized?.delegatedActions.map((action) => action.id)).size).toBe(2);
+    expect(normalized?.nextDelegationSequence).toBe(3);
+  });
+
+  it("does not overwrite a pending evolution or reuse consumed experiences", () => {
+    const seed = createInitialAppState();
+    const caredFor = appReducer(seed, {
+      type: "CARE_FOR_PET",
+      spaceId: seed.spaces[0].id,
+      byUserId: seed.currentUserId,
+      care: "梳理触角",
+      occurredAt,
+    });
+    const first = appReducer(caredFor, { type: "PROPOSE_EVOLUTION", ownerExpectation: "希望你更温柔" });
+    const overwritten = appReducer(first, { type: "PROPOSE_EVOLUTION", ownerExpectation: "请换成另一种" });
+    const applied = appReducer(overwritten, { type: "APPLY_EVOLUTION" });
+    const reused = appReducer(applied, { type: "PROPOSE_EVOLUTION", ownerExpectation: "再成长一次" });
+
+    expect(overwritten.pendingEvolution).toEqual(first.pendingEvolution);
+    expect(applied.consumedEvolutionExperienceIds).toEqual(["care-space-old-friends-1"]);
+    expect(reused.pendingEvolution).toBeNull();
   });
 
   it("applies only the pet-selected proposed evolution", () => {
@@ -178,12 +402,12 @@ describe("application state reducer", () => {
     const muted = appReducer(seed, {
       type: "TOGGLE_LOCAL_MUTE",
       spaceId,
-      voterId: "friend-lin",
+      voterId: seed.currentUserId,
     });
     const unmuted = appReducer(muted, {
       type: "TOGGLE_LOCAL_MUTE",
       spaceId,
-      voterId: "friend-lin",
+      voterId: seed.currentUserId,
     });
 
     expect(muted.spaces[0].locallyMutedPetIds).toContain(seed.pet.id);
@@ -218,11 +442,24 @@ describe("application state reducer", () => {
 
   it("simulates saved owner absence once and advances the activity timestamp", () => {
     const saved = createInitialAppState();
-    const next = hydrateSavedState(saved, "2026-08-21T00:00:00.000Z");
+    const next = hydrateSavedState(saved, "2026-08-21T08:00:00.000Z");
 
     expect(next.messages.filter((message) => message.actorType === "pet")).toHaveLength(1);
     expect(next.petCornerStories).toHaveLength(2);
-    expect(next.lastActiveAt).toBe("2026-08-21T00:00:00.000Z");
+    expect(next.messages.at(-1)?.occurredAt).toBe("2026-08-21T07:30:00.000Z");
+    expect(next.lastActiveAt).toBe("2026-08-21T08:00:00.000Z");
+  });
+
+  it("hydrates quiet mode without proactive content while advancing activity time", () => {
+    const saved = Object.freeze({
+      ...createInitialAppState(),
+      petPreferences: Object.freeze({ routine: "22:30–07:30" as const, proactiveFrequency: "quiet" as const }),
+    });
+    const next = hydrateSavedState(saved, "2026-08-23T08:00:00.000Z");
+
+    expect(next.messages).toEqual(saved.messages);
+    expect(next.petCornerStories).toEqual(saved.petCornerStories);
+    expect(next.lastActiveAt).toBe("2026-08-23T08:00:00.000Z");
   });
 
   it("keeps the deterministic seed when reset wins a deferred hydration", async () => {

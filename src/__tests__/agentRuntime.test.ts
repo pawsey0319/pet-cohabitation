@@ -17,7 +17,7 @@ describe("local agent runtime", () => {
     const space = state.spaces[0];
 
     const summary = summarizeSpace(space, state.messages);
-    const narrative = askPetWhatHappened(state.pet, space.id);
+    const narrative = askPetWhatHappened(state.pet, space.id, state.pet.ownerId);
 
     expect(summary.actorType).toBe("space_agent");
     expect(summary.permissionSource).toBe("space_objective_summary");
@@ -53,10 +53,37 @@ describe("local agent runtime", () => {
 
   it("keeps each pet narrative inside its requested space memory", () => {
     const state = createDemoSeed();
-    const narrative = askPetWhatHappened(state.pet, "space-old-friends");
+    const narrative = askPetWhatHappened(state.pet, "space-old-friends", state.pet.ownerId);
 
     expect(narrative.content).toContain("老友小圈");
     expect(narrative.content).not.toContain("周六去海边");
+  });
+
+  it.each([
+    ["sensitive", "space_members"],
+    ["normal", "owner_only"],
+  ] as const)("returns a safe shared recap instead of a %s/%s memory", (sensitivity, visibility) => {
+    const state = createDemoSeed();
+    const secret = "住址和健康低谷不能广播";
+    const pet = Object.freeze({
+      ...state.pet,
+      memories: Object.freeze([
+        ...state.pet.memories,
+        Object.freeze({
+          ...state.pet.memories[1],
+          id: `blocked-${sensitivity}-${visibility}`,
+          spaceId: state.spaces[0].id,
+          sensitivity,
+          visibility,
+          content: secret,
+        }),
+      ]),
+    });
+
+    const narrative = askPetWhatHappened(pet, state.spaces[0].id, state.pet.ownerId);
+
+    expect(narrative.content).toContain("没有可在这里分享的新回顾");
+    expect(narrative.content).not.toContain(secret);
   });
 
   it("does not add proactive content when the pet is locally muted", () => {
@@ -105,5 +132,42 @@ describe("local agent runtime", () => {
     expect(createDelegatedAction(state.pet, { kind: "purchase" }).status).toBe(
       "blocked",
     );
+  });
+
+  it("quiet mode suppresses proactive messages and pet-corner stories", () => {
+    const state = createDemoSeed();
+    const result = simulateOwnerAbsence(
+      { ...state, petPreferences: { routine: "22:30–07:30", proactiveFrequency: "quiet" } },
+      addDays(state.lastActiveAt, 3),
+    );
+
+    expect(result.messages).toEqual(state.messages);
+    expect(result.petCornerStories).toEqual(state.petCornerStories);
+  });
+
+  it("low frequency deterministically participates every second simulated day", () => {
+    const state = createDemoSeed();
+    const result = simulateOwnerAbsence(
+      { ...state, petPreferences: { routine: "22:30–07:30", proactiveFrequency: "low" } },
+      addDays(state.lastActiveAt, 3),
+    );
+
+    expect(result.messages.filter((message) => message.actorType === "pet")).toHaveLength(1);
+    expect(result.petCornerStories).toHaveLength(2);
+  });
+
+  it("moves proactive activity out of the configured sleep routine", () => {
+    const state = {
+      ...createDemoSeed(),
+      lastActiveAt: "2026-08-20T23:00:00.000Z",
+      petPreferences: { routine: "22:30–07:30" as const, proactiveFrequency: "daily" as const },
+    };
+    const now = "2026-08-22T23:00:00.000Z";
+    const result = simulateOwnerAbsence(state, now);
+    const generated = result.messages.filter((message) => message.actorType === "pet");
+
+    expect(generated).toHaveLength(1);
+    expect(generated[0].occurredAt).toBe("2026-08-22T07:30:00.000Z");
+    expect(new Date(generated[0].occurredAt).getTime()).toBeLessThanOrEqual(new Date(now).getTime());
   });
 });

@@ -1,4 +1,5 @@
 import {
+  canBroadcastMemoryToSpace,
   canPetExecute,
   getPetContextForSpace,
 } from "./policies";
@@ -19,6 +20,30 @@ import type {
 const DAY_IN_MILLISECONDS = 86_400_000;
 const MAX_SIMULATED_DAYS = 3;
 const AUTO_COMPLETABLE_ACTIONS = new Set(["game_invite", "light_vote"]);
+
+function parseClock(clock: string): Readonly<{ hour: number; minute: number }> {
+  const [hour, minute] = clock.split(":").map(Number);
+  return Object.freeze({ hour, minute });
+}
+
+function scheduledOutsideRoutine(occurredAt: string, routine: RuntimeState["petPreferences"]["routine"]): string {
+  const [sleepClock, wakeClock] = routine.split("–");
+  const sleep = parseClock(sleepClock);
+  const wake = parseClock(wakeClock);
+  const date = new Date(occurredAt);
+  const minutes = date.getUTCHours() * 60 + date.getUTCMinutes();
+  const sleepMinutes = sleep.hour * 60 + sleep.minute;
+  const wakeMinutes = wake.hour * 60 + wake.minute;
+
+  if (minutes >= sleepMinutes) {
+    date.setUTCDate(date.getUTCDate() + 1);
+    date.setUTCHours(wake.hour, wake.minute, 0, 0);
+  } else if (minutes < wakeMinutes) {
+    date.setUTCHours(wake.hour, wake.minute, 0, 0);
+  }
+
+  return date.toISOString();
+}
 
 function simulatedDays(lastActiveAt: string, now: string): number {
   const elapsed = new Date(now).getTime() - new Date(lastActiveAt).getTime();
@@ -109,12 +134,18 @@ export function summarizeSpace(
   });
 }
 
-export function askPetWhatHappened(pet: UserPet, spaceId: string): PetNarrative {
+export function askPetWhatHappened(
+  pet: UserPet,
+  spaceId: string,
+  requesterId: string,
+): PetNarrative {
   const context = getPetContextForSpace(pet, spaceId);
   const latestMemory = context.memories.at(-1);
-  const remembered = latestMemory
-    ? `我还记得这里的${latestMemory.content}`
-    : "这个空间今天很安静，我在等大家随时回来";
+  const remembered = !latestMemory
+    ? "这个空间今天很安静，我在等大家随时回来"
+    : canBroadcastMemoryToSpace(latestMemory, requesterId, spaceId)
+      ? `我还记得这里的${latestMemory.content}`
+      : "这里暂时没有可在这里分享的新回顾";
 
   return Object.freeze({
     actorType: "pet",
@@ -136,7 +167,7 @@ export function createDelegatedAction(
       : "pending_owner";
 
   return Object.freeze({
-    id: `delegated-${pet.id}-${request.kind}`,
+    id: request.requestId ?? `delegated-${pet.id}-${request.kind}`,
     kind: request.kind,
     petId: pet.id,
     spaceId: request.spaceId,
@@ -183,6 +214,7 @@ export function simulateOwnerAbsence(
   state: RuntimeState,
   now: string,
 ): SimulationResult {
+  const preferences = state.petPreferences;
   const activeSpaces = state.spaces
     .filter((space) => canSendProactivePetContent(space, state.pet.id))
     .sort((left, right) => left.id.localeCompare(right.id));
@@ -190,9 +222,31 @@ export function simulateOwnerAbsence(
   const generatedMessages: SpaceMessage[] = [];
   const generatedStories: PetCornerStory[] = [];
 
+  if (preferences.proactiveFrequency === "quiet") {
+    return Object.freeze({
+      pet: Object.freeze({ ...state.pet, status: "waiting_warmly" }),
+      messages: state.messages,
+      petCornerStories: state.petCornerStories,
+      delegatedActions: Object.freeze(
+        state.delegatedActions.map((action) =>
+          action.status ? action : createDelegatedAction(state.pet, action),
+        ),
+      ),
+    });
+  }
+
   for (let day = 1; day <= days && activeSpaces.length > 0; day += 1) {
+    if (preferences.proactiveFrequency === "low" && day % 2 !== 0) {
+      continue;
+    }
     const space = activeSpaces[(day - 1) % activeSpaces.length];
-    const occurredAt = atDay(state.lastActiveAt, day);
+    const occurredAt = scheduledOutsideRoutine(
+      atDay(state.lastActiveAt, day),
+      preferences.routine,
+    );
+    if (new Date(occurredAt).getTime() > new Date(now).getTime()) {
+      continue;
+    }
     generatedMessages.push(createPetMessage(space, state.pet, occurredAt));
     generatedStories.push(...createPetCornerStories(space, state.pet, occurredAt));
   }

@@ -58,6 +58,9 @@ export function PetScreen() {
   const spacesById = new Map(state.spaces.map((space) => [space.id, space.name]));
   const nextFrequency: Readonly<Record<PetPreferences["proactiveFrequency"], PetPreferences["proactiveFrequency"]>> = { daily: "low", low: "quiet", quiet: "daily" };
   const formLabel = state.evolutionEvents.length ? `成长形态 · ${state.evolutionEvents.length + 1}` : "初生共生体";
+  const canProposeEvolution = state.pet.experiences.some(
+    (experience) => !state.consumedEvolutionExperienceIds.includes(experience.id),
+  );
 
   return (
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -105,6 +108,7 @@ export function PetScreen() {
             petName={state.pet.name}
             anchors={state.pet.identityAnchors}
             pending={state.pendingEvolution}
+            canPropose={canProposeEvolution}
             onPropose={(ownerExpectation) => dispatch({ type: "PROPOSE_EVOLUTION", ownerExpectation })}
             onApply={() => dispatch({ type: "APPLY_EVOLUTION" })}
           />

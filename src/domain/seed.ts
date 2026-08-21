@@ -56,7 +56,13 @@ export function createDemoSeed(): RuntimeState {
         kind: "friend_pair" as const,
         memberIds: Object.freeze(["owner-mei", "friend-lin"]),
         locallyMutedPetIds: Object.freeze([]),
-        petGovernanceVotes: Object.freeze([]),
+        petGovernanceVotes: Object.freeze([
+          Object.freeze({
+            voterId: "friend-lin",
+            decision: "pause" as const,
+            petId: "pet-lantern",
+          }),
+        ]),
       }),
     ]),
     messages: Object.freeze([
@@ -72,6 +78,10 @@ export function createDemoSeed(): RuntimeState {
     ]),
     petCornerStories: Object.freeze([]),
     delegatedActions: Object.freeze([]),
+    petPreferences: Object.freeze({
+      routine: "22:30–07:30" as const,
+      proactiveFrequency: "daily" as const,
+    }),
     lastActiveAt: "2026-08-20T00:00:00.000Z",
   });
 }

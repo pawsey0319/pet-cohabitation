@@ -111,6 +111,7 @@ export type DelegatedActionRequest = Readonly<{
   kind: string;
   spaceId?: string;
   summary?: string;
+  requestId?: string;
 }>;
 
 export type ExperienceCategory = "care" | "work" | "social" | "shared";
@@ -146,12 +147,18 @@ export type DelegatedAction = Readonly<{
   summary?: string;
 }>;
 
+export type PetRuntimePreferences = Readonly<{
+  routine: "22:30–07:30" | "23:30–08:00";
+  proactiveFrequency: "daily" | "low" | "quiet";
+}>;
+
 export type RuntimeState = Readonly<{
   pet: PetWithStatus;
   spaces: readonly RelationshipSpace[];
   messages: readonly SpaceMessage[];
   petCornerStories: readonly PetCornerStory[];
   delegatedActions: readonly DelegatedAction[];
+  petPreferences: PetRuntimePreferences;
   lastActiveAt: string;
 }>;
 

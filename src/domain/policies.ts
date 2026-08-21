@@ -50,3 +50,16 @@ export function canRevealMemory(
 
   return memory.visibility === "owner_only" ? "deny" : "allow";
 }
+
+export function canBroadcastMemoryToSpace(
+  memory: SpaceMemory,
+  requesterId: string,
+  spaceId: string,
+): boolean {
+  return (
+    memory.spaceId === spaceId &&
+    memory.sensitivity === "normal" &&
+    memory.visibility === "space_members" &&
+    canRevealMemory(memory, requesterId) === "allow"
+  );
+}
