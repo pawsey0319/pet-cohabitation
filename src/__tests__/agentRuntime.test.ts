@@ -2,6 +2,7 @@ import {
   applyPetGovernance,
   askPetWhatHappened,
   createDelegatedAction,
+  getPetPauseGovernance,
   simulateOwnerAbsence,
   summarizeSpace,
 } from "../domain/agentRuntime";
@@ -118,6 +119,28 @@ describe("local agent runtime", () => {
 
     expect(result.messages).toEqual(state.messages);
     expect(result.petCornerStories).toEqual([]);
+  });
+
+  it("counts only each current member's latest valid governance vote", () => {
+    const state = createDemoSeed();
+    const space = Object.freeze({
+      ...state.spaces[0],
+      petGovernanceVotes: Object.freeze([
+        Object.freeze({ voterId: "owner-mei", decision: "resume" as const, petId: state.pet.id }),
+        Object.freeze({ voterId: "owner-mei", decision: "pause" as const, petId: state.pet.id }),
+        Object.freeze({ voterId: "exited-member", decision: "pause" as const, petId: state.pet.id }),
+      ]),
+    });
+
+    expect(getPetPauseGovernance(space, state.pet.id)).toEqual({ pauses: 1, required: 2, paused: false });
+    const currentMajority = Object.freeze({
+      ...space,
+      petGovernanceVotes: Object.freeze([
+        ...space.petGovernanceVotes,
+        Object.freeze({ voterId: "friend-lin", decision: "pause" as const, petId: state.pet.id }),
+      ]),
+    });
+    expect(getPetPauseGovernance(currentMajority, state.pet.id)).toEqual({ pauses: 2, required: 2, paused: true });
   });
 
   it("only completes low-risk pet-only work and blocks human commitments", () => {

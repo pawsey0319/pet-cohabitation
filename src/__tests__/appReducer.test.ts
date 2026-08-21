@@ -354,6 +354,34 @@ describe("application state reducer", () => {
     expect(normalized?.nextDelegationSequence).toBe(3);
   });
 
+  it("preserves normalized ids for old statusless delegations through absence", () => {
+    const seed = createInitialAppState();
+    const secondSpace = Object.freeze({
+      ...seed.spaces[0],
+      id: "space-second",
+      name: "第二空间",
+    });
+    const legacy = {
+      ...seed,
+      spaces: [seed.spaces[0], secondSpace],
+      delegatedActions: [
+        { id: "legacy-same-id", kind: "tentative_reminder", spaceId: seed.spaces[0].id, summary: "第一项" },
+        { id: "legacy-same-id", kind: "tentative_reminder", spaceId: secondSpace.id, summary: "第二项" },
+      ],
+      lastActiveAt: "2026-08-20T00:00:00.000Z",
+    };
+    const normalized = normalizeSavedState(legacy) as ReturnType<typeof createInitialAppState>;
+    const beforeIds = normalized.delegatedActions.map((action) => action.id);
+    const hydrated = hydrateSavedState(normalized, "2026-08-21T08:00:00.000Z");
+
+    expect(new Set(beforeIds).size).toBe(2);
+    expect(hydrated.delegatedActions.map((action) => action.id)).toEqual(beforeIds);
+    const confirmed = appReducer(hydrated, { type: "CONFIRM_ACTION", actionId: beforeIds[0] as string });
+    expect(confirmed.delegatedActions.map((action) => action.status)).toEqual(["completed", "pending_owner"]);
+    const revoked = appReducer(confirmed, { type: "REVOKE_ACTION", actionId: beforeIds[1] as string });
+    expect(revoked.delegatedActions.map((action) => action.summary)).toEqual(["第一项"]);
+  });
+
   it("does not overwrite a pending evolution or reuse consumed experiences", () => {
     const seed = createInitialAppState();
     const caredFor = appReducer(seed, {

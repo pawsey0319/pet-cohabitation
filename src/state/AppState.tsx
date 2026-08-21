@@ -201,7 +201,9 @@ export function normalizeSavedState(value: unknown): AppState | null {
     nextSequenceFrom(delegatedActions, candidate.pet.id),
   );
   const activeSpaceId = typeof candidate.activeSpaceId === "string" &&
-    candidate.spaces.some((space) => space.id === candidate.activeSpaceId)
+    candidate.spaces.some(
+      (space) => space.id === candidate.activeSpaceId && space.memberIds.includes(currentUserId),
+    )
     ? candidate.activeSpaceId
     : null;
 
@@ -510,7 +512,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       });
 
     case "SET_ACTIVE_SPACE":
-      return action.spaceId !== null && !findSpace(state, action.spaceId)
+      return action.spaceId !== null &&
+        !isCurrentSpaceMember(state, action.spaceId, state.currentUserId)
         ? state
         : Object.freeze({ ...state, activeSpaceId: action.spaceId });
 

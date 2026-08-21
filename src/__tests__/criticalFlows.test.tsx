@@ -57,6 +57,7 @@ describe("critical cohabitation flows", () => {
       },
     };
     await AsyncStorage.setItem(APP_STORAGE_KEY, JSON.stringify(saved));
+    (AsyncStorage.setItem as jest.Mock).mockClear();
     await render(<App />);
     await fireEvent.press(screen.getByRole("tab", { name: "异宠" }));
     await waitFor(() => expect(screen.getByText(secret)).toBeTruthy());
@@ -66,6 +67,74 @@ describe("critical cohabitation flows", () => {
 
     expect(screen.getByText(/没有可在这里分享的新回顾/)).toBeTruthy();
     expect(screen.queryByText(secret)).toBeNull();
+  });
+
+  it("gives a hydrated non-owner only the shared-space public pet view", async () => {
+    const seed = createInitialAppState();
+    const privateSpace = Object.freeze({
+      id: "space-lover",
+      name: "海边约会空间",
+      kind: "lover_pair" as const,
+      memberIds: Object.freeze([seed.pet.ownerId]),
+      locallyMutedPetIds: Object.freeze([]),
+      petGovernanceVotes: Object.freeze([]),
+    });
+    const privateMessage = Object.freeze({
+      id: "private-space-message",
+      spaceId: privateSpace.id,
+      actorType: "human" as const,
+      actorId: seed.pet.ownerId,
+      permissionSource: "member_message",
+      content: "仅主人空间的海边安排",
+      occurredAt: "2026-08-20T19:00:00.000Z",
+    });
+    const ownerPending = Object.freeze({
+      id: "delegated-pet-lantern-99",
+      kind: "tentative_reminder",
+      petId: seed.pet.id,
+      spaceId: seed.spaces[0].id,
+      status: "pending_owner" as const,
+      permissionSource: "pet_low_risk_delegation",
+      summary: "主人待确认秘密事项",
+    });
+    const saved = {
+      ...seed,
+      currentUserId: "friend-lin",
+      activeSpaceId: privateSpace.id,
+      lastActiveAt: new Date().toISOString(),
+      spaces: [...seed.spaces, privateSpace],
+      messages: [...seed.messages, privateMessage],
+      delegatedActions: [ownerPending],
+    };
+    await AsyncStorage.setItem(APP_STORAGE_KEY, JSON.stringify(saved));
+    await render(<App />);
+    await waitFor(() => {
+      const payload = JSON.parse((AsyncStorage.setItem as jest.Mock).mock.calls.at(-1)[1]);
+      expect(payload.currentUserId).toBe("friend-lin");
+    });
+
+    expect(screen.getByText("老友小圈")).toBeTruthy();
+    expect(screen.queryByText("海边约会空间")).toBeNull();
+    expect(screen.queryByText("主人待确认秘密事项")).toBeNull();
+
+    await fireEvent.press(screen.getByRole("tab", { name: "异宠" }));
+    expect(screen.getByText("主人专属生命档案已锁定")).toBeTruthy();
+    expect(screen.getByText("公共照顾视图")).toBeTruthy();
+    expect(screen.getByText("老友小圈的接力游戏约在周末继续")).toBeTruthy();
+    expect(screen.queryByText("全局个人记忆")).toBeNull();
+    expect(screen.queryByText(/第一次被叫作灯灯/)).toBeNull();
+    expect(screen.queryByText("周六去海边")).toBeNull();
+    expect(screen.queryByText("永久身份锚点")).toBeNull();
+
+    await fireEvent.press(screen.getByRole("tab", { name: "空间" }));
+    expect(screen.getAllByText("老友小圈").length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("选择空间：海边约会空间")).toBeNull();
+    expect(screen.queryByText("仅主人空间的海边安排")).toBeNull();
+    expect(screen.queryByText("主人待确认秘密事项")).toBeNull();
+    await fireEvent.press(screen.getByRole("button", { name: "帮灯灯梳理触角" }));
+    expect(screen.getByText(/friend-lin在老友小圈照顾了灯灯：梳理触角/)).toBeTruthy();
+    await fireEvent.press(screen.getByRole("button", { name: "问灯灯发生了什么" }));
+    expect(screen.getByText(/老友小圈的接力游戏/)).toBeTruthy();
   });
 
   it("sends a message and records pet-corner care through the real space flow", async () => {

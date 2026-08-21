@@ -1,6 +1,11 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { AppPet } from "../state/AppState";
 import { useAppState } from "../state/AppState";
+import {
+  selectAccessibleSpaces,
+  selectVisibleDelegatedActions,
+  selectVisiblePetCornerStories,
+} from "../state/selectors";
 import type { DelegatedAction, PetStatus, RelationshipSpace } from "../domain/types";
 import { AgentBadge } from "../components/AgentBadge";
 import { GlassCard } from "../components/GlassCard";
@@ -33,10 +38,12 @@ export function PetStatusPill({ status }: Readonly<{ status: PetStatus }>) {
 
 export function HomeScreen({ onOpenSpace }: Readonly<{ onOpenSpace?: (spaceId: string) => void }>) {
   const { state } = useAppState();
-  const pendingActions = state.delegatedActions.filter(
+  const spaces = selectAccessibleSpaces(state);
+  const pendingActions = selectVisibleDelegatedActions(state).filter(
     (action) => action.status === "pending_owner",
   );
-  const recentStory = state.petCornerStories[state.petCornerStories.length - 1];
+  const visibleStories = selectVisiblePetCornerStories(state);
+  const recentStory = visibleStories[visibleStories.length - 1];
 
   return (
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -63,7 +70,7 @@ export function HomeScreen({ onOpenSpace }: Readonly<{ onOpenSpace?: (spaceId: s
                 {state.pet.identityAnchors.eyes} · {state.pet.identityAnchors.voice}声线
               </Text>
               <Text style={styles.bodyText}>
-                {recentStory?.content || "刚刚从老友小圈回来，触角还留着一点薄荷色的亮光。"}
+                {recentStory?.content || "正在安静地等待下一次共同空间互动。"}
               </Text>
             </View>
           </View>
@@ -75,10 +82,10 @@ export function HomeScreen({ onOpenSpace }: Readonly<{ onOpenSpace?: (spaceId: s
               <Text style={styles.eyebrow}>SHARED CONTEXT</Text>
               <Text style={styles.sectionTitle}>关系空间</Text>
             </View>
-            <Text style={styles.count}>{state.spaces.length}</Text>
+            <Text style={styles.count}>{spaces.length}</Text>
           </View>
           <View style={styles.spaceList}>
-            {state.spaces.map((space) => (
+            {spaces.map((space) => (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`进入空间：${space.name}`}
@@ -98,6 +105,9 @@ export function HomeScreen({ onOpenSpace }: Readonly<{ onOpenSpace?: (spaceId: s
                 <Text style={styles.arrow}>↗</Text>
               </Pressable>
             ))}
+            {spaces.length === 0 ? (
+              <Text style={styles.emptyText}>当前身份还没有可访问的关系空间。</Text>
+            ) : null}
           </View>
           <Text style={styles.cardFootnote}>{state.pet.name}只在被允许的空间里看见共同语境。</Text>
         </GlassCard>

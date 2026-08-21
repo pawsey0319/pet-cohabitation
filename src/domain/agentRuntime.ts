@@ -57,7 +57,11 @@ function simulatedDays(lastActiveAt: string, now: string): number {
 export function getPetPauseGovernance(space: RelationshipSpace, petId: string) {
   const latestVotes = new Map<string, "pause" | "resume">();
   for (const vote of space.petGovernanceVotes) {
-    if (vote.petId === petId && (vote.decision === "pause" || vote.decision === "resume")) {
+    if (
+      vote.petId === petId &&
+      space.memberIds.includes(vote.voterId) &&
+      (vote.decision === "pause" || vote.decision === "resume")
+    ) {
       latestVotes.set(vote.voterId, vote.decision);
     }
   }
@@ -229,7 +233,9 @@ export function simulateOwnerAbsence(
       petCornerStories: state.petCornerStories,
       delegatedActions: Object.freeze(
         state.delegatedActions.map((action) =>
-          action.status ? action : createDelegatedAction(state.pet, action),
+          action.status
+            ? action
+            : createDelegatedAction(state.pet, { ...action, requestId: action.id }),
         ),
       ),
     });
@@ -257,7 +263,9 @@ export function simulateOwnerAbsence(
     petCornerStories: Object.freeze([...state.petCornerStories, ...generatedStories]),
     delegatedActions: Object.freeze(
       state.delegatedActions.map((action) =>
-        action.status ? action : createDelegatedAction(state.pet, action),
+        action.status
+          ? action
+          : createDelegatedAction(state.pet, { ...action, requestId: action.id }),
       ),
     ),
   });

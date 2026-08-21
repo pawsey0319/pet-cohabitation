@@ -6,6 +6,13 @@ import { MessageBubble } from "../components/MessageBubble";
 import { PetCorner } from "../components/PetCorner";
 import { getPetPauseGovernance } from "../domain/agentRuntime";
 import { useAppState } from "../state/AppState";
+import {
+  isCurrentUserPetOwner,
+  selectAccessibleSpaces,
+  selectActiveAccessibleSpace,
+  selectVisibleDelegatedActions,
+  selectVisiblePetCornerStories,
+} from "../state/selectors";
 import { colors, radii, spacing, typography } from "../theme/tokens";
 
 const MEMBER_LABELS: Readonly<Record<string, string>> = {
@@ -15,17 +22,21 @@ const MEMBER_LABELS: Readonly<Record<string, string>> = {
 
 export function SpaceScreen() {
   const { state, dispatch } = useAppState();
-  const activeSpace = state.spaces.find((space) => space.id === state.activeSpaceId) ?? state.spaces[0];
+  const spaces = selectAccessibleSpaces(state);
+  const activeSpace = selectActiveAccessibleSpace(state);
+  const ownerView = isCurrentUserPetOwner(state);
   const [draft, setDraft] = useState("");
 
   if (!activeSpace) {
-    return <View style={styles.empty}><Text style={styles.emptyText}>还没有关系空间。</Text></View>;
+    return <View style={styles.empty}><Text style={styles.emptyText}>当前身份没有可访问的关系空间。</Text></View>;
   }
 
   const messages = state.messages.filter((message) => message.spaceId === activeSpace.id);
-  const stories = state.petCornerStories.filter((story) => story.spaceId === activeSpace.id);
+  const stories = selectVisiblePetCornerStories(state).filter((story) => story.spaceId === activeSpace.id);
   const experiences = state.pet.experiences.filter((experience) => experience.id.includes(activeSpace.id));
-  const delegations = state.delegatedActions.filter((action) => !action.spaceId || action.spaceId === activeSpace.id);
+  const delegations = selectVisibleDelegatedActions(state).filter(
+    (action) => !action.spaceId || action.spaceId === activeSpace.id,
+  );
   const pendingCount = delegations.filter((action) => action.status === "pending_owner").length;
   const muted = activeSpace.locallyMutedPetIds.includes(state.pet.id);
   const governance = getPetPauseGovernance(activeSpace, state.pet.id);
@@ -56,7 +67,7 @@ export function SpaceScreen() {
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.spaceTabs}>
-        {state.spaces.map((space) => (
+        {spaces.map((space) => (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`选择空间：${space.name}`}
@@ -111,9 +122,15 @@ export function SpaceScreen() {
             <Text style={styles.sectionTitle}>异宠协助</Text>
             <Text style={styles.sectionNote}>查询只使用本空间记忆；代理先经过风险策略。</Text>
             <Pressable accessibilityRole="button" accessibilityLabel={`问${state.pet.name}发生了什么`} onPress={() => dispatch({ type: "QUERY_PET", spaceId: activeSpace.id, requesterId: state.currentUserId, occurredAt: new Date().toISOString() })} style={styles.softButton}><Text style={styles.softButtonText}>问{state.pet.name}发生了什么</Text></Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel="创建暂定提醒" onPress={() => dispatch({ type: "REQUEST_DELEGATION", request: { kind: "tentative_reminder", spaceId: activeSpace.id, summary: "周末接力游戏暂定提醒" } })} style={styles.softButton}><Text style={styles.softButtonText}>创建暂定提醒</Text></Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel="请求真实见面" onPress={() => dispatch({ type: "REQUEST_DELEGATION", request: { kind: "meetup", spaceId: activeSpace.id, summary: "替主人答应周末见面" } })} style={styles.riskButton}><Text style={styles.riskButtonText}>请求真实见面（需策略检查）</Text></Pressable>
-            <Text style={styles.riskNote}>阻断原因：真实见面、长期计划、情感承诺与关系变化会形成主人承诺；位置、健康和敏感信息需本人再次授权；消费与财务不能由异宠决定。</Text>
+            {ownerView ? (
+              <>
+                <Pressable accessibilityRole="button" accessibilityLabel="创建暂定提醒" onPress={() => dispatch({ type: "REQUEST_DELEGATION", request: { kind: "tentative_reminder", spaceId: activeSpace.id, summary: "周末接力游戏暂定提醒" } })} style={styles.softButton}><Text style={styles.softButtonText}>创建暂定提醒</Text></Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel="请求真实见面" onPress={() => dispatch({ type: "REQUEST_DELEGATION", request: { kind: "meetup", spaceId: activeSpace.id, summary: "替主人答应周末见面" } })} style={styles.riskButton}><Text style={styles.riskButtonText}>请求真实见面（需策略检查）</Text></Pressable>
+                <Text style={styles.riskNote}>阻断原因：真实见面、长期计划、情感承诺与关系变化会形成主人承诺；位置、健康和敏感信息需本人再次授权；消费与财务不能由异宠决定。</Text>
+              </>
+            ) : (
+              <Text style={styles.riskNote}>主人代理事项对其他空间成员不可见；你仍可照顾或询问异宠。</Text>
+            )}
           </View>
 
           {delegations.length ? (

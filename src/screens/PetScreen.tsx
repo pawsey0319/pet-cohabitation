@@ -6,6 +6,11 @@ import { PetAvatar } from "../components/PetAvatar";
 import { writeGrowthDiary } from "../domain/evolution";
 import type { SpaceMemory } from "../domain/types";
 import { useAppState, type PetPreferences } from "../state/AppState";
+import {
+  isCurrentUserPetOwner,
+  selectAccessibleSpaces,
+  selectVisiblePetMemories,
+} from "../state/selectors";
 import { colors, radii, spacing, typography } from "../theme/tokens";
 
 const SOURCE_LABELS: Readonly<Record<string, string>> = {
@@ -24,11 +29,12 @@ function memoryDate(occurredAt: string): string {
   return `${date.getUTCFullYear()}/${String(date.getUTCMonth() + 1).padStart(2, "0")}/${String(date.getUTCDate()).padStart(2, "0")}`;
 }
 
-function MemoryCard({ memory, spaceName, onEdit, onDelete }: Readonly<{
+function MemoryCard({ memory, spaceName, editable = true, onEdit, onDelete }: Readonly<{
   memory: SpaceMemory;
   spaceName: string;
-  onEdit: (content: string) => void;
-  onDelete: () => void;
+  editable?: boolean;
+  onEdit?: (content: string) => void;
+  onDelete?: () => void;
 }>) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(memory.content);
@@ -39,11 +45,11 @@ function MemoryCard({ memory, spaceName, onEdit, onDelete }: Readonly<{
       {editing ? (
         <>
           <TextInput placeholder="修改记忆内容" placeholderTextColor={colors.textMuted} value={draft} onChangeText={setDraft} style={styles.memoryInput} />
-          <Pressable accessibilityRole="button" accessibilityLabel="保存记忆" onPress={() => { onEdit(draft); setEditing(false); }} style={styles.saveButton}><Text style={styles.saveText}>保存记忆</Text></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="保存记忆" onPress={() => { onEdit?.(draft); setEditing(false); }} style={styles.saveButton}><Text style={styles.saveText}>保存记忆</Text></Pressable>
         </>
       ) : <Text style={styles.memoryContent}>{memory.content}</Text>}
       <Text style={styles.memoryMeta}>来源：{SOURCE_LABELS[memory.source] ?? memory.source} · {memoryDate(memory.occurredAt)} · {memory.visibility === "owner_only" ? "仅主人" : "本空间成员"}</Text>
-      {!editing ? (
+      {!editing && editable ? (
         <View style={styles.memoryActions}>
           <Pressable accessibilityRole="button" accessibilityLabel={`编辑记忆：${memory.content}`} onPress={() => { setDraft(memory.content); setEditing(true); }}><Text style={styles.editText}>编辑</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel={`删除记忆：${memory.content}`} onPress={onDelete}><Text style={styles.deleteText}>删除</Text></Pressable>
@@ -55,12 +61,62 @@ function MemoryCard({ memory, spaceName, onEdit, onDelete }: Readonly<{
 
 export function PetScreen() {
   const { state, dispatch } = useAppState();
-  const spacesById = new Map(state.spaces.map((space) => [space.id, space.name]));
+  const ownerView = isCurrentUserPetOwner(state);
+  const accessibleSpaces = selectAccessibleSpaces(state);
+  const visibleMemories = selectVisiblePetMemories(state);
+  const spacesById = new Map(accessibleSpaces.map((space) => [space.id, space.name]));
   const nextFrequency: Readonly<Record<PetPreferences["proactiveFrequency"], PetPreferences["proactiveFrequency"]>> = { daily: "low", low: "quiet", quiet: "daily" };
   const formLabel = state.evolutionEvents.length ? `成长形态 · ${state.evolutionEvents.length + 1}` : "初生共生体";
   const canProposeEvolution = state.pet.experiences.some(
     (experience) => !state.consumedEvolutionExperienceIds.includes(experience.id),
   );
+
+  if (!ownerView) {
+    return (
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.hero}>
+          <Text style={styles.kicker}>LIFELONG PET / 共同空间访客</Text>
+          <Text style={styles.display}>公共照顾视图</Text>
+          <Text style={styles.lede}>你可以查看共同空间中允许分享的照顾记录与普通记忆。</Text>
+        </View>
+        <View style={styles.grid}>
+          <GlassCard accent="coral" style={styles.identityCard}>
+            <View style={styles.avatarRow}>
+              <PetAvatar pet={state.pet} size={150} />
+              <View style={styles.identityCopy}>
+                <Text style={styles.petName}>{state.pet.name}</Text>
+                <Text style={styles.currentForm}>共同空间的异宠伙伴</Text>
+                <Text style={styles.sectionNote}>进入共同空间后可照顾或询问{state.pet.name}。</Text>
+              </View>
+            </View>
+          </GlassCard>
+          <GlassCard accent="lavender" style={styles.controlCard}>
+            <Text style={styles.sectionTitle}>主人专属生命档案已锁定</Text>
+            <Text style={styles.sectionNote}>身份锚点、全局记忆、成长日记、进化与相处偏好只由主人查看和管理。</Text>
+          </GlassCard>
+        </View>
+        <View style={styles.grid}>
+          <View style={styles.column}>
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>共同空间记忆</Text>
+              <Text style={styles.sectionNote}>这里只显示你所在空间中可向成员公开的普通记忆。</Text>
+              <View style={styles.memoryList}>
+                {visibleMemories.map((memory) => (
+                  <MemoryCard
+                    editable={false}
+                    key={memory.id}
+                    memory={memory}
+                    spaceName={spacesById.get(memory.spaceId) ?? "共同空间"}
+                  />
+                ))}
+                {visibleMemories.length === 0 ? <Text style={styles.empty}>暂无可分享的共同空间记忆。</Text> : null}
+              </View>
+            </View>
+          </View>
+        </View>
+      </ScrollView>
+    );
+  }
 
   return (
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -119,7 +175,7 @@ export function PetScreen() {
             <Text style={styles.sectionTitle}>可追溯记忆</Text>
             <Text style={styles.sectionNote}>全局记忆只在独处时使用；空间记忆互相隔离。你可以修改或删除自动记忆。</Text>
             <View style={styles.memoryList}>
-              {state.pet.memories.map((memory) => (
+              {visibleMemories.map((memory) => (
                 <MemoryCard
                   key={memory.id}
                   memory={memory}
