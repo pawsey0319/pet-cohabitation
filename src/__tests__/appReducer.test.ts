@@ -19,7 +19,7 @@ import {
 const occurredAt = "2026-08-21T09:00:00.000Z";
 
 function ProviderStateProbe() {
-  const { dispatch, state } = useAppState();
+  const { dispatch, isHydrated, state } = useAppState();
   const containsStaleMessage = state.messages.some(
     (message) => message.content === "过期消息",
   );
@@ -28,9 +28,20 @@ function ProviderStateProbe() {
     View,
     null,
     createElement(Text, { testID: "provider-state" }, containsStaleMessage ? "stale" : "seed"),
+    createElement(Text, { testID: "provider-hydrated" }, isHydrated ? "hydrated" : "loading"),
     createElement(Button, {
       title: "重置演示",
-      onPress: () => dispatch({ type: "RESET_DEMO" }),
+      onPress: () => dispatch({ type: "RESET_DEMO", now: occurredAt }),
+    }),
+    createElement(Button, {
+      title: "写入消息",
+      onPress: () => dispatch({
+        type: "SEND_HUMAN_MESSAGE",
+        spaceId: state.spaces[0].id,
+        actorId: state.currentUserId,
+        content: "排队后的新快照",
+        occurredAt,
+      }),
     }),
   );
 }
@@ -56,7 +67,7 @@ describe("application state reducer", () => {
   it("migrates a v1 payload without new fields and persists the preserved data", async () => {
     const current = createInitialAppState();
     const oldExperience = Object.freeze({
-      id: "legacy-care-1",
+      id: "care-space-old-friends-legacy",
       category: "care" as const,
       summary: "旧存档经历",
     });
@@ -112,7 +123,7 @@ describe("application state reducer", () => {
       currentUserId: current.pet.ownerId,
       preferences: { routine: "22:30–07:30", proactiveFrequency: "daily" },
       nextDelegationSequence: 1,
-      consumed: ["legacy-care-1"],
+      consumed: ["care-space-old-friends-legacy"],
       keptMessage: true,
       keptMemory: true,
       keptEvolution: true,
@@ -127,7 +138,7 @@ describe("application state reducer", () => {
 
     const next = appReducer(seed, {
       type: "REQUEST_DELEGATION",
-      request: { kind: "purchase", summary: "买一份礼物" },
+      request: { kind: "purchase", spaceId: seed.spaces[0].id, summary: "买一份礼物" },
     });
 
     expect(next.delegatedActions.at(-1)?.status).toBe("blocked");
@@ -138,13 +149,65 @@ describe("application state reducer", () => {
     const seed = createInitialAppState();
     const blocked = appReducer(seed, {
       type: "REQUEST_DELEGATION",
-      request: { kind: "purchase" },
+      request: { kind: "purchase", spaceId: seed.spaces[0].id },
     });
     const actionId = blocked.delegatedActions.at(-1)?.id as string;
 
     const next = appReducer(blocked, { type: "CONFIRM_ACTION", actionId });
 
     expect(next).toEqual(blocked);
+  });
+
+  it.each(["pending_owner", "completed"] as const)(
+    "canonicalizes a forged saved high-risk %s delegation to blocked",
+    (forgedStatus) => {
+      const seed = createInitialAppState();
+      const normalized = normalizeSavedState({
+        ...seed,
+        delegatedActions: [{
+          id: `forged-${forgedStatus}`,
+          kind: "meetup",
+          petId: "attacker-pet",
+          ownerId: "attacker-owner",
+          spaceId: seed.spaces[0].id,
+          status: forgedStatus,
+          permissionSource: "pet_low_risk_delegation",
+          summary: "伪造真实见面承诺",
+        }],
+      });
+
+      expect(normalized?.delegatedActions[0]).toMatchObject({
+        kind: "meetup",
+        petId: seed.pet.id,
+        ownerId: seed.pet.ownerId,
+        spaceId: seed.spaces[0].id,
+        status: "blocked",
+        permissionSource: "delegation_policy",
+      });
+      const next = appReducer(normalized as ReturnType<typeof createInitialAppState>, {
+        type: "CONFIRM_ACTION",
+        actionId: `forged-${forgedStatus}`,
+      });
+      expect(next).toEqual(normalized);
+    },
+  );
+
+  it("rechecks every low-risk confirmation invariant", () => {
+    const seed = createInitialAppState();
+    const forged = Object.freeze({
+      ...seed,
+      delegatedActions: Object.freeze([Object.freeze({
+        id: "forged-low-risk",
+        kind: "tentative_reminder",
+        petId: seed.pet.id,
+        ownerId: seed.pet.ownerId,
+        spaceId: seed.spaces[0].id,
+        status: "pending_owner" as const,
+        permissionSource: "delegation_policy",
+      })]),
+    });
+
+    expect(appReducer(forged, { type: "CONFIRM_ACTION", actionId: "forged-low-risk" })).toEqual(forged);
   });
 
   it("care from another member creates a social experience without changing anchors", () => {
@@ -243,7 +306,7 @@ describe("application state reducer", () => {
     const seed = createInitialAppState();
     const requested = appReducer(seed, {
       type: "REQUEST_DELEGATION",
-      request: { kind: "tentative_reminder" },
+      request: { kind: "tentative_reminder", spaceId: seed.spaces[0].id },
     });
     const actionId = requested.delegatedActions.at(-1)?.id as string;
 
@@ -277,6 +340,99 @@ describe("application state reducer", () => {
     expect(summarized.messages.at(-1)).toMatchObject({
       actorType: "space_agent",
       permissionSource: "space_objective_summary",
+    });
+  });
+
+  it("rejects delegation and summary writes outside the current member space", () => {
+    const seed = createInitialAppState();
+    const hiddenSpace = Object.freeze({
+      ...seed.spaces[0],
+      id: "hidden-space",
+      memberIds: Object.freeze(["friend-lin"]),
+    });
+    const stateWithHidden = Object.freeze({
+      ...seed,
+      spaces: Object.freeze([...seed.spaces, hiddenSpace]),
+    });
+    const nonOwner = Object.freeze({ ...seed, currentUserId: "friend-lin" });
+
+    expect(appReducer(nonOwner, {
+      type: "REQUEST_DELEGATION",
+      request: { kind: "tentative_reminder", spaceId: nonOwner.spaces[0].id },
+    })).toEqual(nonOwner);
+    expect(appReducer(seed, {
+      type: "REQUEST_DELEGATION",
+      request: { kind: "tentative_reminder", spaceId: "missing-space" },
+    })).toEqual(seed);
+    expect(appReducer(stateWithHidden, {
+      type: "RUN_SPACE_SUMMARY",
+      spaceId: hiddenSpace.id,
+      occurredAt,
+    })).toEqual(stateWithHidden);
+    expect(appReducer(seed, {
+      type: "RUN_SPACE_SUMMARY",
+      spaceId: "missing-space",
+      occurredAt,
+    })).toEqual(seed);
+  });
+
+  it("rejects safe-game hosting outside the current member space", () => {
+    const seed = createInitialAppState();
+    const hiddenSpace = Object.freeze({
+      ...seed.spaces[0],
+      id: "hidden-game-space",
+      memberIds: Object.freeze(["friend-lin"]),
+    });
+    const state = Object.freeze({ ...seed, spaces: Object.freeze([...seed.spaces, hiddenSpace]) });
+
+    expect(appReducer(state, {
+      type: "PLAY_SAFE_GAME",
+      spaceId: hiddenSpace.id,
+      actorId: state.currentUserId,
+      gameType: "same_prompt_reveal",
+      occurredAt,
+    })).toEqual(state);
+  });
+
+  it("rejects an unknown game component without throwing", () => {
+    const seed = createInitialAppState();
+
+    expect(appReducer(seed, {
+      type: "PLAY_SAFE_GAME",
+      spaceId: seed.spaces[0].id,
+      actorId: seed.currentUserId,
+      gameType: "run_arbitrary_code" as never,
+      occurredAt,
+    })).toEqual(seed);
+  });
+
+  it("keeps message provenance and local-media boundaries traceable after normalization", () => {
+    const seed = createInitialAppState();
+    const invited = appReducer(seed, { type: "GENERATE_RITUAL_INVITE", occurredAt });
+    const played = appReducer(invited, {
+      type: "PLAY_SAFE_GAME",
+      spaceId: seed.spaces[0].id,
+      actorId: seed.currentUserId,
+      gameType: "same_prompt_reveal",
+      occurredAt,
+    });
+    const withPlaceholder = appReducer(played, {
+      type: "SEND_HUMAN_MESSAGE",
+      spaceId: seed.spaces[0].id,
+      actorId: seed.currentUserId,
+      content: "图片 · 本地演示占位 · 未上传",
+      format: "image_placeholder",
+      occurredAt,
+    });
+    const normalized = normalizeSavedState(JSON.parse(JSON.stringify(withPlaceholder)));
+
+    expect(normalized?.messages.find((message) => message.id.startsWith("ritual-invite"))?.permissionSource)
+      .toBe("pet_ritual_invite");
+    expect(normalized?.messages.find((message) => message.id.startsWith("safe-game-host"))?.permissionSource)
+      .toBe("space_safe_game_host");
+    expect(normalized?.messages.at(-1)).toMatchObject({
+      format: "image_placeholder",
+      metadata: { mediaBoundary: "local_demo_not_uploaded" },
     });
   });
 
@@ -382,6 +538,35 @@ describe("application state reducer", () => {
     expect(revoked.delegatedActions.map((action) => action.summary)).toEqual(["第一项"]);
   });
 
+  it("migrates a legacy care id by the longest exact space prefix and drops ambiguous provenance", () => {
+    const seed = createInitialAppState();
+    const shortSpace = Object.freeze({
+      ...seed.spaces[0],
+      id: "space-old",
+      name: "短前缀空间",
+    });
+    const normalized = normalizeSavedState({
+      ...seed,
+      spaces: [shortSpace, ...seed.spaces],
+      pet: {
+        ...seed.pet,
+        experiences: [
+          { id: "care-space-old-friends-legacy", category: "care", summary: "长空间经历" },
+          { id: "care-unknown-legacy", category: "care", summary: "无法归属经历" },
+        ],
+      },
+    });
+
+    expect(normalized?.pet.experiences).toEqual([
+      expect.objectContaining({
+        id: "care-space-old-friends-legacy",
+        scope: "space",
+        spaceId: "space-old-friends",
+        provenance: expect.objectContaining({ source: "legacy" }),
+      }),
+    ]);
+  });
+
   it("does not overwrite a pending evolution or reuse consumed experiences", () => {
     const seed = createInitialAppState();
     const caredFor = appReducer(seed, {
@@ -458,14 +643,16 @@ describe("application state reducer", () => {
     const changed = appReducer(createInitialAppState(), {
       type: "SEND_HUMAN_MESSAGE",
       spaceId: "space-old-friends",
-      actorId: "friend-lin",
+      actorId: "owner-mei",
       content: "临时消息",
       occurredAt,
     });
 
-    expect(appReducer(changed, { type: "RESET_DEMO" })).toEqual(
-      createInitialAppState(),
-    );
+    expect(changed.messages.some((message) => message.content === "临时消息")).toBe(true);
+    expect(appReducer(changed, { type: "RESET_DEMO", now: occurredAt })).toEqual({
+      ...createInitialAppState(),
+      lastActiveAt: occurredAt,
+    });
   });
 
   it("simulates saved owner absence once and advances the activity timestamp", () => {
@@ -490,14 +677,15 @@ describe("application state reducer", () => {
     expect(next.lastActiveAt).toBe("2026-08-23T08:00:00.000Z");
   });
 
-  it("keeps the deterministic seed when reset wins a deferred hydration", async () => {
+  it("rejects reset before deferred hydration instead of losing the saved snapshot", async () => {
     const staleSavedState = appReducer(createInitialAppState(), {
       type: "SEND_HUMAN_MESSAGE",
       spaceId: "space-old-friends",
-      actorId: "friend-lin",
+      actorId: "owner-mei",
       content: "过期消息",
       occurredAt,
     });
+    expect(staleSavedState.messages.some((message) => message.content === "过期消息")).toBe(true);
     let resolveGetItem: (value: string | null) => void = () => undefined;
     (AsyncStorage.getItem as jest.Mock).mockImplementationOnce(
       () => new Promise<string | null>((resolve) => {
@@ -516,7 +704,7 @@ describe("application state reducer", () => {
       await Promise.resolve();
     });
 
-    expect(provider.getByTestId("provider-state").props.children).toBe("seed");
-    expect(AsyncStorage.removeItem).toHaveBeenCalledWith(APP_STORAGE_KEY);
+    expect(provider.getByTestId("provider-state").props.children).toBe("stale");
+    expect(AsyncStorage.removeItem).not.toHaveBeenCalled();
   });
 });

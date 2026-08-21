@@ -72,7 +72,7 @@ describe("critical cohabitation flows", () => {
   it("gives a hydrated non-owner only the shared-space public pet view", async () => {
     const seed = createInitialAppState();
     const privateSpace = Object.freeze({
-      id: "space-lover",
+      id: "space-review-private",
       name: "海边约会空间",
       kind: "lover_pair" as const,
       memberIds: Object.freeze([seed.pet.ownerId]),
@@ -115,6 +115,7 @@ describe("critical cohabitation flows", () => {
 
     expect(screen.getByText("老友小圈")).toBeTruthy();
     expect(screen.queryByText("海边约会空间")).toBeNull();
+    expect(screen.queryByText("海边二人间")).toBeNull();
     expect(screen.queryByText("主人待确认秘密事项")).toBeNull();
 
     await fireEvent.press(screen.getByRole("tab", { name: "异宠" }));
@@ -125,6 +126,7 @@ describe("critical cohabitation flows", () => {
     expect(screen.queryByText(/第一次被叫作灯灯/)).toBeNull();
     expect(screen.queryByText("周六去海边")).toBeNull();
     expect(screen.queryByText("永久身份锚点")).toBeNull();
+    expect(screen.queryByRole("button", { name: "删除本机演示数据" })).toBeNull();
 
     await fireEvent.press(screen.getByRole("tab", { name: "空间" }));
     expect(screen.getAllByText("老友小圈").length).toBeGreaterThan(0);
@@ -132,7 +134,7 @@ describe("critical cohabitation flows", () => {
     expect(screen.queryByText("仅主人空间的海边安排")).toBeNull();
     expect(screen.queryByText("主人待确认秘密事项")).toBeNull();
     await fireEvent.press(screen.getByRole("button", { name: "帮灯灯梳理触角" }));
-    expect(screen.getByText(/friend-lin在老友小圈照顾了灯灯：梳理触角/)).toBeTruthy();
+    expect(screen.getByText(/你在老友小圈照顾了灯灯：梳理触角/)).toBeTruthy();
     await fireEvent.press(screen.getByRole("button", { name: "问灯灯发生了什么" }));
     expect(screen.getByText(/老友小圈的接力游戏/)).toBeTruthy();
   });
@@ -243,5 +245,29 @@ describe("critical cohabitation flows", () => {
     await fireEvent.changeText(screen.getByPlaceholderText("给老友小圈发消息"), "人类聊天仍可发送");
     await fireEvent.press(screen.getByRole("button", { name: "发送消息" }));
     expect(screen.getByText("人类聊天仍可发送")).toBeTruthy();
+  });
+
+  it("requires owner confirmation before deleting local demo data and restores the seed", async () => {
+    await render(<App />);
+    await openOldFriendsSpace();
+    await fireEvent.changeText(screen.getByPlaceholderText("给老友小圈发消息"), "确认后应删除的消息");
+    await fireEvent.press(screen.getByRole("button", { name: "发送消息" }));
+    await fireEvent.press(screen.getByRole("tab", { name: "异宠" }));
+    await fireEvent.press(screen.getByRole("button", { name: "编辑记忆：老友小圈的接力游戏约在周末继续" }));
+    await fireEvent.changeText(screen.getByPlaceholderText("修改记忆内容"), "确认后应删除的记忆");
+    await fireEvent.press(screen.getByRole("button", { name: "保存记忆" }));
+
+    await fireEvent.press(screen.getByRole("button", { name: "删除本机演示数据" }));
+    expect(screen.getByRole("button", { name: "确认删除本机演示数据" })).toBeTruthy();
+    await fireEvent.press(screen.getByRole("button", { name: "取消删除" }));
+    expect(screen.getByText("确认后应删除的记忆")).toBeTruthy();
+
+    await fireEvent.press(screen.getByRole("button", { name: "删除本机演示数据" }));
+    await fireEvent.press(screen.getByRole("button", { name: "确认删除本机演示数据" }));
+    expect(screen.getByText("老友小圈的接力游戏约在周末继续")).toBeTruthy();
+    expect(screen.queryByText("确认后应删除的记忆")).toBeNull();
+    await fireEvent.press(screen.getByRole("tab", { name: "空间" }));
+    expect(screen.queryByText("确认后应删除的消息")).toBeNull();
+    await waitFor(() => expect(AsyncStorage.removeItem).toHaveBeenCalledWith(APP_STORAGE_KEY));
   });
 });

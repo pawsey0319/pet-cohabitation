@@ -4,7 +4,9 @@ import { colors, radii, spacing } from "../theme/tokens";
 
 const blockedReasons: Readonly<Record<string, string>> = {
   meetup: "真实见面必须由本人确认，异宠不能代替主人承诺。",
+  emotional_commitment: "情感承诺必须由本人表达，异宠不能替主人确认。",
   relationship_change: "关系变化与情感承诺必须由本人表达。",
+  location_share: "位置分享属于敏感信息，需要本人再次授权。",
   location: "位置属于敏感信息，需要本人再次授权。",
   purchase: "消费与财务决定不能交给异宠确认。",
   finance: "财务信息与操作必须由本人处理。",

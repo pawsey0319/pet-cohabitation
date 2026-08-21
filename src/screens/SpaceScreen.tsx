@@ -4,6 +4,8 @@ import { AgentCard } from "../components/AgentCard";
 import { DelegationCard } from "../components/DelegationCard";
 import { MessageBubble } from "../components/MessageBubble";
 import { PetCorner } from "../components/PetCorner";
+import { SafeGamePanel } from "../components/SafeGamePanel";
+import type { MessageFormat } from "../domain/types";
 import { getPetPauseGovernance } from "../domain/agentRuntime";
 import { useAppState } from "../state/AppState";
 import {
@@ -15,32 +17,33 @@ import {
 } from "../state/selectors";
 import { colors, radii, spacing, typography } from "../theme/tokens";
 
-const MEMBER_LABELS: Readonly<Record<string, string>> = {
-  "owner-mei": "梅",
-  "friend-lin": "林",
-};
-
 export function SpaceScreen() {
   const { state, dispatch } = useAppState();
   const spaces = selectAccessibleSpaces(state);
   const activeSpace = selectActiveAccessibleSpace(state);
   const ownerView = isCurrentUserPetOwner(state);
   const [draft, setDraft] = useState("");
+  const [replyToMessageId, setReplyToMessageId] = useState<string | null>(null);
+  const [mood, setMood] = useState<"平静" | "开心">("平静");
+  const [communicationIntent, setCommunicationIntent] = useState<"share" | "seek_comfort">("share");
 
   if (!activeSpace) {
     return <View style={styles.empty}><Text style={styles.emptyText}>当前身份没有可访问的关系空间。</Text></View>;
   }
 
   const messages = state.messages.filter((message) => message.spaceId === activeSpace.id);
+  const latestMessage = messages[messages.length - 1];
   const stories = selectVisiblePetCornerStories(state).filter((story) => story.spaceId === activeSpace.id);
-  const experiences = state.pet.experiences.filter((experience) => experience.id.includes(activeSpace.id));
+  const experiences = state.pet.experiences.filter(
+    (experience) => experience.scope === "space" && experience.spaceId === activeSpace.id,
+  );
   const delegations = selectVisibleDelegatedActions(state).filter(
     (action) => !action.spaceId || action.spaceId === activeSpace.id,
   );
   const pendingCount = delegations.filter((action) => action.status === "pending_owner").length;
   const muted = activeSpace.locallyMutedPetIds.includes(state.pet.id);
   const governance = getPetPauseGovernance(activeSpace, state.pet.id);
-  const currentMemberLabel = MEMBER_LABELS[state.currentUserId] ?? state.currentUserId;
+  const currentMemberLabel = activeSpace.memberNames[state.currentUserId] ?? state.currentUserId;
   const currentVote = [...activeSpace.petGovernanceVotes].reverse().find(
     (vote) => vote.petId === state.pet.id && vote.voterId === state.currentUserId,
   );
@@ -54,8 +57,29 @@ export function SpaceScreen() {
       actorId: state.currentUserId,
       content: draft,
       occurredAt: new Date().toISOString(),
+      format: "text",
+      metadata: {
+        replyToMessageId: replyToMessageId ?? undefined,
+        mood,
+        communicationIntent,
+      },
     });
     setDraft("");
+    setReplyToMessageId(null);
+  };
+
+  const sendMediaPlaceholder = (format: Exclude<MessageFormat, "text">) => {
+    dispatch({
+      type: "SEND_HUMAN_MESSAGE",
+      spaceId: activeSpace.id,
+      actorId: state.currentUserId,
+      content: format === "image_placeholder"
+        ? "图片 · 本地演示占位 · 未上传"
+        : "短语音 · 本地演示占位 · 未上传",
+      occurredAt: new Date().toISOString(),
+      format,
+      metadata: { mood, communicationIntent },
+    });
   };
 
   return (
@@ -86,7 +110,14 @@ export function SpaceScreen() {
             <Text style={styles.sectionTitle}>空间消息</Text>
             <Text style={styles.sectionNote}>三类内容使用独立身份、来源与叙述边界。</Text>
             <View style={styles.timeline}>
-              {messages.map((message) => <MessageBubble key={message.id} message={message} />)}
+              {messages.map((message) => (
+                <MessageBubble
+                  currentUserId={state.currentUserId}
+                  key={message.id}
+                  memberNames={activeSpace.memberNames}
+                  message={message}
+                />
+              ))}
             </View>
             <View style={styles.composer}>
               <TextInput
@@ -99,6 +130,29 @@ export function SpaceScreen() {
               />
               <Pressable accessibilityRole="button" accessibilityLabel="发送消息" onPress={send} style={styles.send}><Text style={styles.sendText}>发送</Text></Pressable>
             </View>
+            <View style={styles.composerTools}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="引用最近一条消息"
+                disabled={!latestMessage}
+                onPress={() => latestMessage && setReplyToMessageId(latestMessage.id)}
+                style={[styles.toolButton, !latestMessage && styles.toolButtonDisabled]}
+              ><Text style={styles.toolText}>引用最近消息</Text></Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`心情：${mood}`}
+                onPress={() => setMood((value) => value === "平静" ? "开心" : "平静")}
+                style={styles.toolButton}
+              ><Text style={styles.toolText}>心情：{mood}</Text></Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`沟通意图：${communicationIntent === "share" ? "分享" : "寻求安慰"}`}
+                onPress={() => setCommunicationIntent((value) => value === "share" ? "seek_comfort" : "share")}
+                style={styles.toolButton}
+              ><Text style={styles.toolText}>意图：{communicationIntent === "share" ? "分享" : "寻求安慰"}</Text></Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel="添加图片演示占位" onPress={() => sendMediaPlaceholder("image_placeholder")} style={styles.toolButton}><Text style={styles.toolText}>图片占位</Text></Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel="添加短语音演示占位" onPress={() => sendMediaPlaceholder("voice_placeholder")} style={styles.toolButton}><Text style={styles.toolText}>短语音占位</Text></Pressable>
+            </View>
           </View>
 
           <AgentCard
@@ -106,9 +160,21 @@ export function SpaceScreen() {
             onSummarize={() => dispatch({ type: "RUN_SPACE_SUMMARY", spaceId: activeSpace.id, occurredAt: new Date().toISOString() })}
           />
 
+          <SafeGamePanel
+            onPlay={(gameType) => dispatch({
+              type: "PLAY_SAFE_GAME",
+              spaceId: activeSpace.id,
+              actorId: state.currentUserId,
+              gameType,
+              occurredAt: new Date().toISOString(),
+            })}
+          />
+
           <PetCorner
             petName={state.pet.name}
             ownerId={state.pet.ownerId}
+            currentUserId={state.currentUserId}
+            memberNames={activeSpace.memberNames}
             spaceName={activeSpace.name}
             stories={stories}
             experiences={experiences}
@@ -185,6 +251,10 @@ const styles = StyleSheet.create({
   sectionNote: { marginTop: spacing.xs, color: colors.textMuted, lineHeight: 20 },
   timeline: { marginTop: spacing.md, gap: spacing.sm },
   composer: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
+  composerTools: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs, marginTop: spacing.sm },
+  toolButton: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, backgroundColor: colors.canvasRaised, borderColor: colors.line, borderWidth: 1, borderRadius: radii.pill },
+  toolButtonDisabled: { opacity: 0.45 },
+  toolText: { color: colors.textMuted, fontSize: 11, fontWeight: "800" },
   input: { flex: 1, minHeight: 46, paddingHorizontal: spacing.md, color: colors.text, backgroundColor: colors.canvasRaised, borderColor: colors.line, borderWidth: 1, borderRadius: radii.sm },
   send: { justifyContent: "center", paddingHorizontal: spacing.md, backgroundColor: colors.coral, borderRadius: radii.sm },
   sendText: { color: colors.textDark, fontWeight: "900" },

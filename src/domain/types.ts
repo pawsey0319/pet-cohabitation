@@ -45,12 +45,24 @@ export type PetWithStatus = UserPet & Readonly<{
 }>;
 
 export type AgentActorType = "human" | "pet" | "space_agent";
+export type MessageFormat = "text" | "image_placeholder" | "voice_placeholder";
+export type CommunicationIntent = "share" | "seek_comfort";
+export type SafeGameType = "same_prompt_reveal" | "guess_choice" | "relay";
+
+export type SpaceMessageMetadata = Readonly<{
+  replyToMessageId?: string;
+  replyPreview?: string;
+  mood?: string;
+  communicationIntent?: CommunicationIntent;
+  mediaBoundary?: "local_demo_not_uploaded";
+}>;
 
 export type RelationshipSpace = Readonly<{
   id: string;
   name: string;
   kind: RelationshipKind;
   memberIds: readonly string[];
+  memberNames: Readonly<Record<string, string>>;
   locallyMutedPetIds: readonly string[];
   petGovernanceVotes: readonly PetGovernanceVote[];
 }>;
@@ -75,6 +87,8 @@ export type SpaceMessage = Readonly<{
   permissionSource: string;
   content: string;
   occurredAt: string;
+  format?: MessageFormat;
+  metadata?: SpaceMessageMetadata;
 }>;
 
 export type AgentCard = Readonly<{
@@ -120,6 +134,13 @@ export type GrowthExperience = Readonly<{
   id: string;
   category: ExperienceCategory;
   summary: string;
+  scope?: "space" | "global";
+  spaceId?: string;
+  provenance?: Readonly<{
+    source: "care" | "game" | "legacy";
+    actorId: string;
+    occurredAt: string;
+  }>;
 }>;
 
 export type EvolutionEvent = Readonly<{
@@ -141,6 +162,7 @@ export type DelegatedAction = Readonly<{
   kind: string;
   id?: string;
   petId?: string;
+  ownerId?: string;
   spaceId?: string;
   status?: DelegatedActionStatus;
   permissionSource?: string;
@@ -150,6 +172,14 @@ export type DelegatedAction = Readonly<{
 export type PetRuntimePreferences = Readonly<{
   routine: "22:30–07:30" | "23:30–08:00";
   proactiveFrequency: "daily" | "low" | "quiet";
+}>;
+
+export type RitualSettings = Readonly<{
+  enabled: boolean;
+  spaceId: string;
+  time: string;
+  frequency: "daily" | "weekly";
+  timezone: string;
 }>;
 
 export type RuntimeState = Readonly<{

@@ -61,6 +61,7 @@ function MemoryCard({ memory, spaceName, editable = true, onEdit, onDelete }: Re
 
 export function PetScreen() {
   const { state, dispatch } = useAppState();
+  const [confirmingReset, setConfirmingReset] = useState(false);
   const ownerView = isCurrentUserPetOwner(state);
   const accessibleSpaces = selectAccessibleSpaces(state);
   const visibleMemories = selectVisiblePetMemories(state);
@@ -186,6 +187,23 @@ export function PetScreen() {
               ))}
             </View>
           </View>
+        </View>
+      </View>
+      <View style={styles.grid}>
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>本机演示数据</Text>
+          <Text style={styles.sectionNote}>只删除这台设备上的演示消息、记忆与成长记录，不影响任何真实云端数据。</Text>
+          {confirmingReset ? (
+            <View style={styles.memoryActions}>
+              <Pressable accessibilityRole="button" accessibilityLabel="确认删除本机演示数据" onPress={() => {
+                setConfirmingReset(false);
+                dispatch({ type: "RESET_DEMO", now: new Date().toISOString() });
+              }} style={styles.saveButton}><Text style={styles.saveText}>确认删除</Text></Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel="取消删除" onPress={() => setConfirmingReset(false)} style={styles.controlButton}><Text style={styles.controlText}>取消</Text></Pressable>
+            </View>
+          ) : (
+            <Pressable accessibilityRole="button" accessibilityLabel="删除本机演示数据" onPress={() => setConfirmingReset(true)} style={styles.controlButton}><Text style={styles.deleteText}>删除本机演示数据</Text></Pressable>
+          )}
         </View>
       </View>
     </ScrollView>

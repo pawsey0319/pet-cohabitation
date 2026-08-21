@@ -174,6 +174,7 @@ export function createDelegatedAction(
     id: request.requestId ?? `delegated-${pet.id}-${request.kind}`,
     kind: request.kind,
     petId: pet.id,
+    ownerId: pet.ownerId,
     spaceId: request.spaceId,
     status,
     permissionSource: status === "blocked" ? "delegation_policy" : "pet_low_risk_delegation",

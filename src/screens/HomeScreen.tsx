@@ -1,4 +1,5 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import type { AppPet } from "../state/AppState";
 import { useAppState } from "../state/AppState";
 import {
@@ -15,7 +16,7 @@ import { colors, radii, spacing, typography } from "../theme/tokens";
 function relationshipLabel(space: RelationshipSpace): string {
   if (space.kind === "lover_pair") return "亲密搭档";
   if (space.kind === "friend_circle") return "朋友小圈";
-  return "两人空间";
+  return "好友双人";
 }
 
 function pendingSummary(action: DelegatedAction, pet: AppPet): string {
@@ -37,13 +38,18 @@ export function PetStatusPill({ status }: Readonly<{ status: PetStatus }>) {
 }
 
 export function HomeScreen({ onOpenSpace }: Readonly<{ onOpenSpace?: (spaceId: string) => void }>) {
-  const { state } = useAppState();
+  const { dispatch, state } = useAppState();
   const spaces = selectAccessibleSpaces(state);
   const pendingActions = selectVisibleDelegatedActions(state).filter(
     (action) => action.status === "pending_owner",
   );
   const visibleStories = selectVisiblePetCornerStories(state);
   const recentStory = visibleStories[visibleStories.length - 1];
+  const [ritualTime, setRitualTime] = useState(state.ritualSettings.time);
+  const [ritualTimezone, setRitualTimezone] = useState(state.ritualSettings.timezone);
+  const [ritualFrequency, setRitualFrequency] = useState(state.ritualSettings.frequency);
+  const ritualSpace = spaces.find((space) => space.id === state.ritualSettings.spaceId) ?? spaces[0];
+  const ritualFrequencyLabel = ritualFrequency === "daily" ? "每天" : "每周";
 
   return (
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -141,9 +147,57 @@ export function HomeScreen({ onOpenSpace }: Readonly<{ onOpenSpace?: (spaceId: s
         </GlassCard>
 
         <GlassCard accent="coral" style={[styles.supportCard, styles.ritualCard]}>
-          <Text style={styles.ritualTime}>21:30</Text>
+          <Text style={styles.ritualTime}>{state.ritualSettings.time}</Text>
           <Text style={styles.sectionTitle}>今晚碰个面</Text>
           <Text style={styles.ritualPrompt}>留十分钟，问问彼此：今天哪一刻最想被看见？</Text>
+          {state.ritualSettings.enabled ? (
+            <>
+              <TextInput
+                accessibilityLabel="碰面时间"
+                onChangeText={setRitualTime}
+                placeholder="碰面时间"
+                placeholderTextColor={colors.textMuted}
+                style={styles.ritualInput}
+                value={ritualTime}
+              />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`频率：${ritualFrequencyLabel}`}
+                onPress={() => setRitualFrequency((value) => value === "daily" ? "weekly" : "daily")}
+                style={styles.ritualButton}
+              >
+                <Text style={styles.ritualButtonText}>频率：{ritualFrequencyLabel}</Text>
+              </Pressable>
+              <TextInput
+                accessibilityLabel="时区"
+                onChangeText={setRitualTimezone}
+                placeholder="时区"
+                placeholderTextColor={colors.textMuted}
+                style={styles.ritualInput}
+                value={ritualTimezone}
+              />
+              <Text style={styles.ritualMeta}>已保存：{state.ritualSettings.frequency === "daily" ? "每天" : "每周"} · {state.ritualSettings.time} · {state.ritualSettings.timezone}</Text>
+              <View style={styles.ritualActions}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="保存碰面设置"
+                  onPress={() => ritualSpace && dispatch({
+                    type: "UPDATE_RITUAL_SETTINGS",
+                    settings: {
+                      enabled: true,
+                      spaceId: ritualSpace.id,
+                      time: ritualTime,
+                      frequency: ritualFrequency,
+                      timezone: ritualTimezone,
+                    },
+                  })}
+                  style={styles.ritualButton}
+                ><Text style={styles.ritualButtonText}>保存设置</Text></Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel={`请${state.pet.name}发出邀请`} onPress={() => dispatch({ type: "GENERATE_RITUAL_INVITE", occurredAt: new Date().toISOString() })} style={styles.ritualButton}><Text style={styles.ritualButtonText}>请{state.pet.name}邀请</Text></Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel="关闭碰面邀请" onPress={() => dispatch({ type: "DISABLE_RITUAL" })} style={styles.ritualButton}><Text style={styles.ritualButtonText}>关闭</Text></Pressable>
+              </View>
+            </>
+          ) : <Text style={styles.ritualMeta}>碰面邀请已关闭</Text>}
           <View style={styles.ritualFooter}>
             <View style={styles.ritualFaces}>
               <View style={[styles.face, styles.faceFront]}>
@@ -452,5 +506,32 @@ const styles = StyleSheet.create({
     color: colors.coralSoft,
     fontSize: typography.eyebrow,
     fontWeight: "700",
+  },
+  ritualInput: {
+    minHeight: 42,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    color: colors.text,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderColor: colors.coralSoft,
+    borderWidth: 1,
+    borderRadius: radii.sm,
+  },
+  ritualActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  ritualButton: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderColor: colors.coralSoft,
+    borderWidth: 1,
+    borderRadius: radii.sm,
+  },
+  ritualButtonText: {
+    color: colors.text,
+    fontWeight: "800",
   },
 });

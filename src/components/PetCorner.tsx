@@ -5,6 +5,8 @@ import { colors, radii, spacing, typography } from "../theme/tokens";
 type PetCornerProps = Readonly<{
   petName: string;
   ownerId: string;
+  currentUserId: string;
+  memberNames: Readonly<Record<string, string>>;
   spaceName: string;
   stories: readonly PetCornerStory[];
   experiences: readonly GrowthExperience[];
@@ -12,18 +14,25 @@ type PetCornerProps = Readonly<{
   onInteract: () => void;
 }>;
 
-function friendlySummary(summary: string, ownerId: string): string {
-  return summary.replace(ownerId, "你");
+function friendlySummary(
+  experience: GrowthExperience,
+  currentUserId: string,
+  memberNames: Readonly<Record<string, string>>,
+): string {
+  const actorId = experience.provenance?.actorId;
+  if (!actorId) return experience.summary;
+  const actorLabel = actorId === currentUserId ? "你" : memberNames[actorId] ?? actorId;
+  return experience.summary.replace(actorId, actorLabel);
 }
 
-export function PetCorner({ petName, ownerId, spaceName, stories, experiences, onCare, onInteract }: PetCornerProps) {
+export function PetCorner({ petName, currentUserId, memberNames, spaceName, stories, experiences, onCare, onInteract }: PetCornerProps) {
   return (
     <View style={styles.card}>
       <Text style={styles.eyebrow}>PET CORNER / 仅带回高光</Text>
       <Text style={styles.title}>宠物角故事</Text>
       {stories.length ? stories.slice(-2).map((story) => <Text key={story.id} style={styles.story}>• {story.content}</Text>) : <Text style={styles.empty}>{petName}今天在{spaceName}安静整理小玩具。</Text>}
       <Text style={styles.subtitle}>照顾与互动</Text>
-      {experiences.length ? experiences.slice(-2).map((experience) => <Text key={experience.id} style={styles.story}>{friendlySummary(experience.summary, ownerId)}</Text>) : <Text style={styles.empty}>还没有新的照顾记录。</Text>}
+      {experiences.length ? experiences.slice(-2).map((experience) => <Text key={experience.id} style={styles.story}>{friendlySummary(experience, currentUserId, memberNames)}</Text>) : <Text style={styles.empty}>还没有新的照顾记录。</Text>}
       <View style={styles.actions}>
         <Pressable accessibilityRole="button" accessibilityLabel={`帮${petName}梳理触角`} onPress={onCare} style={styles.primary}><Text style={styles.primaryText}>梳理触角</Text></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel={`和${petName}击掌互动`} onPress={onInteract} style={styles.secondary}><Text style={styles.secondaryText}>击掌互动</Text></Pressable>
