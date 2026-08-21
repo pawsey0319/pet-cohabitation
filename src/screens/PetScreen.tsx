@@ -192,7 +192,7 @@ export function PetScreen() {
       <View style={styles.grid}>
         <View testID="local-demo-reset-card" style={[styles.sectionCard, styles.resetCard]}>
           <Text style={styles.sectionTitle}>本机演示数据</Text>
-          <Text style={styles.sectionNote}>只删除这台设备上的演示消息、记忆与成长记录，不影响任何真实云端数据。</Text>
+          <Text style={styles.sectionNote}>确认后清除这台设备上的旧主演示档案和隐藏诊断备份，再恢复初始演示；不会触及任何云端数据。</Text>
           {confirmingReset ? (
             <View style={styles.memoryActions}>
               <Pressable accessibilityRole="button" accessibilityLabel="确认删除本机演示数据" onPress={() => {

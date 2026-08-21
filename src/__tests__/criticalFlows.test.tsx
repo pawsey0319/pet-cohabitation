@@ -8,7 +8,7 @@ jest.mock("react-native-safe-area-context", () =>
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import App from "../../App";
-import { APP_STORAGE_KEY, createInitialAppState } from "../state/AppState";
+import { APP_INVALID_BACKUP_KEY, APP_STORAGE_KEY, createInitialAppState } from "../state/AppState";
 
 async function openOldFriendsSpace() {
   await fireEvent.press(screen.getByText("老友小圈"));
@@ -259,6 +259,7 @@ describe("critical cohabitation flows", () => {
 
     await fireEvent.press(screen.getByRole("button", { name: "删除本机演示数据" }));
     expect(screen.getByRole("button", { name: "确认删除本机演示数据" })).toBeTruthy();
+    expect(screen.getByText(/清除这台设备上的旧主演示档案和隐藏诊断备份/)).toBeTruthy();
     await fireEvent.press(screen.getByRole("button", { name: "取消删除" }));
     expect(screen.getByText("确认后应删除的记忆")).toBeTruthy();
 
@@ -269,5 +270,6 @@ describe("critical cohabitation flows", () => {
     await fireEvent.press(screen.getByRole("tab", { name: "空间" }));
     expect(screen.queryByText("确认后应删除的消息")).toBeNull();
     await waitFor(() => expect(AsyncStorage.removeItem).toHaveBeenCalledWith(APP_STORAGE_KEY));
+    await waitFor(() => expect(AsyncStorage.removeItem).toHaveBeenCalledWith(APP_INVALID_BACKUP_KEY));
   });
 });

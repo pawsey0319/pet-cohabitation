@@ -525,6 +525,65 @@ describe("provider persistence security", () => {
     expect(AsyncStorage.removeItem).not.toHaveBeenCalled();
   });
 
+  it("removes the owner diagnostic backup with the old local snapshot before persisting a fresh seed", async () => {
+    const seed = createInitialAppState();
+    const oldContent = "确认删除后不可保留的本机消息";
+    const oldSnapshot = JSON.stringify({
+      ...seed,
+      lastActiveAt: fixedNow,
+      messages: [...seed.messages, {
+        id: "old-local-message",
+        spaceId: seed.spaces[0].id,
+        actorType: "human",
+        actorId: seed.currentUserId,
+        permissionSource: "member_message",
+        content: oldContent,
+        occurredAt: fixedNow,
+        format: "text",
+      }],
+    });
+    const oldDiagnosticBackup = "{\"raw\":\"diagnostic backup\"}";
+    const localStore = new Map<string, string>([
+      [APP_STORAGE_KEY, oldSnapshot],
+      [APP_INVALID_BACKUP_KEY, oldDiagnosticBackup],
+    ]);
+    const operations: string[] = [];
+    (AsyncStorage.getItem as jest.Mock).mockImplementation((key: string) =>
+      Promise.resolve(localStore.get(key) ?? null),
+    );
+    (AsyncStorage.setItem as jest.Mock).mockImplementation((key: string, value: string) => {
+      localStore.set(key, value);
+      operations.push(`set:${key}`);
+      return Promise.resolve();
+    });
+    (AsyncStorage.removeItem as jest.Mock).mockImplementation((key: string) => {
+      localStore.delete(key);
+      operations.push(`remove:${key}`);
+      return Promise.resolve();
+    });
+
+    const provider = await render(
+      createElement(AppProvider, { now: () => fixedNow }, createElement(StateProbe)),
+    );
+    await waitFor(() => expect(provider.getByTestId("hydration-status").props.children).toBe("hydrated"));
+    await waitFor(() => expect(operations).toContain(`set:${APP_STORAGE_KEY}`));
+    operations.length = 0;
+
+    await fireEvent.press(provider.getByText("重置演示"));
+
+    await waitFor(() => expect(operations).toEqual([
+      `remove:${APP_STORAGE_KEY}`,
+      `remove:${APP_INVALID_BACKUP_KEY}`,
+      `set:${APP_STORAGE_KEY}`,
+    ]));
+    expect(localStore.get(APP_INVALID_BACKUP_KEY)).toBeUndefined();
+    const persistedSeed = JSON.parse(localStore.get(APP_STORAGE_KEY) ?? "");
+    expect(persistedSeed.messages.map((message: { content: string }) => message.content)).not.toContain(oldContent);
+    expect(persistedSeed.messages.map((message: { content: string }) => message.content))
+      .toContain("周末想继续接力游戏吗？");
+    expect(provider.getByTestId("snapshot").props.children).not.toContain(oldContent);
+  });
+
   it("orders an old write, owner reset removal, and the final post-reset snapshot", async () => {
     let resolveOldWrite: () => void = () => undefined;
     let stored: string | null = null;
@@ -564,6 +623,7 @@ describe("provider persistence security", () => {
     await waitFor(() => expect(operations).toEqual([
       "old-set-start",
       "old-set-finish",
+      "remove",
       "remove",
       "final-set",
     ]));

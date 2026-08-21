@@ -1249,7 +1249,10 @@ export function AppProvider({ children, now = () => new Date().toISOString() }: 
       }
       hydrationGeneration.current += 1;
       stateRef.current = resetState;
-      void enqueueStorageWrite(() => AsyncStorage.removeItem(APP_STORAGE_KEY));
+      void enqueueStorageWrite(async () => {
+        await AsyncStorage.removeItem(APP_STORAGE_KEY);
+        await AsyncStorage.removeItem(APP_INVALID_BACKUP_KEY);
+      });
       setState(resetState);
       return;
     }
