@@ -184,6 +184,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function serializableEquals(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((item, index) => serializableEquals(item, right[index]));
+  }
+  if (!isRecord(left) || !isRecord(right)) return false;
+  const leftKeys = Object.keys(left).filter((key) => left[key] !== undefined).sort();
+  const rightKeys = Object.keys(right).filter((key) => right[key] !== undefined).sort();
+  return leftKeys.length === rightKeys.length &&
+    leftKeys.every((key, index) => key === rightKeys[index] && serializableEquals(left[key], right[key]));
+}
+
 function isStringArray(value: unknown): value is readonly string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
@@ -191,6 +205,10 @@ function isStringArray(value: unknown): value is readonly string[] {
 const RELATIONSHIP_KINDS = new Set(["lover_pair", "friend_pair", "friend_circle"]);
 const ACTOR_TYPES = new Set(["human", "pet", "space_agent"]);
 const EXPERIENCE_CATEGORIES = new Set(["care", "work", "social", "shared"]);
+const MESSAGE_FORMATS = new Set(["text", "image_placeholder", "voice_placeholder"]);
+const PET_ROUTINES = new Set(["22:30–07:30", "23:30–08:00"]);
+const PROACTIVE_FREQUENCIES = new Set(["daily", "low", "quiet"]);
+const RITUAL_FREQUENCIES = new Set(["daily", "weekly"]);
 
 function normalizeSpace(value: unknown) {
   if (
@@ -203,14 +221,25 @@ function normalizeSpace(value: unknown) {
   ) {
     return null;
   }
-  const votes = Array.isArray(value.petGovernanceVotes)
-    ? value.petGovernanceVotes.filter((vote) =>
+  const votesByMember = new Map<string, Readonly<{ voterId: string; decision: "pause" | "resume"; petId: string }>>();
+  if (Array.isArray(value.petGovernanceVotes)) {
+    for (const vote of value.petGovernanceVotes) {
+      if (
         isRecord(vote) &&
         typeof vote.voterId === "string" &&
-        typeof vote.decision === "string" &&
-        ["pause", "resume", "mute_locally", "unmute_locally"].includes(vote.decision),
-      )
-    : [];
+        value.memberIds.includes(vote.voterId) &&
+        (vote.decision === "pause" || vote.decision === "resume") &&
+        typeof vote.petId === "string"
+      ) {
+        votesByMember.set(`${vote.petId}:${vote.voterId}`, Object.freeze({
+          voterId: vote.voterId,
+          decision: vote.decision,
+          petId: vote.petId,
+        }));
+      }
+    }
+  }
+  const votes = [...votesByMember.values()];
   const memberNames = isRecord(value.memberNames) ? value.memberNames : null;
   return Object.freeze({
     id: value.id,
@@ -228,11 +257,7 @@ function normalizeSpace(value: unknown) {
     locallyMutedPetIds: Object.freeze(
       isStringArray(value.locallyMutedPetIds) ? [...new Set(value.locallyMutedPetIds)] : [],
     ),
-    petGovernanceVotes: Object.freeze(votes.map((vote) => Object.freeze({
-      voterId: vote.voterId as string,
-      decision: vote.decision as PetGovernanceDecision,
-      ...(typeof vote.petId === "string" ? { petId: vote.petId } : {}),
-    }))),
+    petGovernanceVotes: Object.freeze(votes),
   });
 }
 
@@ -241,6 +266,7 @@ function normalizeExperience(
   spaces: readonly NonNullable<ReturnType<typeof normalizeSpace>>[] = [],
   fallbackActorId = "unknown",
   fallbackOccurredAt = "1970-01-01T00:00:00.000Z",
+  petId = "unknown-pet",
 ): GrowthExperience | null {
   if (
     !isRecord(value) ||
@@ -253,14 +279,14 @@ function normalizeExperience(
   }
   const id = value.id;
   const rawProvenance = isRecord(value.provenance) ? value.provenance : null;
-  const validProvenance = Boolean(rawProvenance) &&
-    (rawProvenance?.source === "care" || rawProvenance?.source === "game" || rawProvenance?.source === "legacy") &&
-    typeof rawProvenance?.actorId === "string" &&
-    typeof rawProvenance?.occurredAt === "string";
+  const modern = value.scope !== undefined;
   const explicitSpace = value.scope === "space" && typeof value.spaceId === "string"
     ? spaces.find((space) => space.id === value.spaceId)
     : undefined;
-  const legacySpace = value.category === "care"
+  if (value.scope === "space" && !explicitSpace) return null;
+  if (modern && value.scope !== "space" && value.scope !== "global") return null;
+  if (value.scope === "global" && value.spaceId !== undefined) return null;
+  const legacySpace = !modern && value.category === "care"
     ? [...spaces]
         .sort((left, right) => right.id.length - left.id.length)
         .find((space) => id.startsWith(`care-${space.id}-`))
@@ -269,17 +295,30 @@ function normalizeExperience(
   if (value.category === "care" && !space) {
     return null;
   }
-  const scope = space ? "space" as const : value.scope === "global" ? "global" as const : "global" as const;
+  const source = rawProvenance?.source;
+  const actorId = rawProvenance?.actorId;
+  const occurredAt = rawProvenance?.occurredAt;
+  const validModernProvenance = modern &&
+    (source === "care" || source === "game" || source === "legacy") &&
+    typeof actorId === "string" &&
+    typeof occurredAt === "string" &&
+    (space
+      ? source === "game"
+        ? space.memberIds.includes(actorId) || actorId === petId
+        : space.memberIds.includes(actorId)
+      : source === "legacy" && (actorId === fallbackActorId || actorId === petId));
+  if (modern && !validModernProvenance) return null;
+  const scope = space ? "space" as const : "global" as const;
   return Object.freeze({
     id,
     category: value.category as GrowthExperience["category"],
     summary: value.summary,
     scope,
     ...(space ? { spaceId: space.id } : {}),
-    provenance: Object.freeze(validProvenance ? {
-      source: rawProvenance?.source as "care" | "game" | "legacy",
-      actorId: rawProvenance?.actorId as string,
-      occurredAt: rawProvenance?.occurredAt as string,
+    provenance: Object.freeze(validModernProvenance ? {
+      source: source as "care" | "game" | "legacy",
+      actorId: actorId as string,
+      occurredAt: occurredAt as string,
     } : {
       source: "legacy" as const,
       actorId: fallbackActorId,
@@ -293,6 +332,7 @@ function normalizeEvolutionEvent(
   spaces: readonly NonNullable<ReturnType<typeof normalizeSpace>>[] = [],
   fallbackActorId = "unknown",
   fallbackOccurredAt = "1970-01-01T00:00:00.000Z",
+  petId = "unknown-pet",
 ): EvolutionEvent | null {
   if (
     !isRecord(value) ||
@@ -309,6 +349,7 @@ function normalizeEvolutionEvent(
     spaces,
     fallbackActorId,
     fallbackOccurredAt,
+    petId,
   )).filter(
     (source): source is GrowthExperience => Boolean(source),
   );
@@ -357,18 +398,33 @@ export function normalizeSavedStateWithIssues(value: unknown): NormalizedSavedSt
 
   const rawMemories = Array.isArray(rawPet.memories) ? rawPet.memories : [];
   if (!Array.isArray(rawPet.memories)) repaired = true;
-  const memories = rawMemories.filter((memory) =>
-    isRecord(memory) &&
-    typeof memory.id === "string" &&
-    typeof memory.spaceId === "string" &&
-    (memory.spaceId === "global" || spaceById.has(memory.spaceId)) &&
-    memory.ownerId === rawPet.ownerId &&
-    typeof memory.source === "string" &&
-    typeof memory.occurredAt === "string" &&
-    typeof memory.content === "string" &&
-    (memory.sensitivity === "normal" || memory.sensitivity === "sensitive") &&
-    (memory.visibility === "space_members" || memory.visibility === "owner_only"),
-  );
+  const seenMemoryIds = new Set<string>();
+  const memories = rawMemories.flatMap((memory) => {
+    if (
+      !isRecord(memory) ||
+      typeof memory.id !== "string" ||
+      seenMemoryIds.has(memory.id) ||
+      typeof memory.spaceId !== "string" ||
+      !(memory.spaceId === "global" || spaceById.has(memory.spaceId)) ||
+      memory.ownerId !== rawPet.ownerId ||
+      typeof memory.source !== "string" ||
+      typeof memory.occurredAt !== "string" ||
+      typeof memory.content !== "string" ||
+      !(memory.sensitivity === "normal" || memory.sensitivity === "sensitive") ||
+      !(memory.visibility === "space_members" || memory.visibility === "owner_only")
+    ) return [];
+    seenMemoryIds.add(memory.id);
+    return [Object.freeze({
+      id: memory.id,
+      spaceId: memory.spaceId,
+      ownerId: memory.ownerId,
+      source: memory.source,
+      occurredAt: memory.occurredAt,
+      content: memory.content,
+      sensitivity: memory.sensitivity,
+      visibility: memory.visibility,
+    })];
+  });
   if (memories.length !== rawMemories.length) repaired = true;
 
   const migrationOccurredAt = typeof value.lastActiveAt === "string"
@@ -376,14 +432,19 @@ export function normalizeSavedStateWithIssues(value: unknown): NormalizedSavedSt
     : fallback.lastActiveAt;
   const rawExperiences = Array.isArray(rawPet.experiences) ? rawPet.experiences : [];
   if (rawPet.experiences !== undefined && !Array.isArray(rawPet.experiences)) repaired = true;
-  const experiences = rawExperiences.map((experience) => normalizeExperience(
-    experience,
-    spaces,
-    rawPet.ownerId as string,
-    migrationOccurredAt,
-  )).filter(
-    (experience): experience is GrowthExperience => Boolean(experience),
-  );
+  const seenExperienceIds = new Set<string>();
+  const experiences = rawExperiences.flatMap((experience) => {
+    const normalized = normalizeExperience(
+      experience,
+      spaces,
+      rawPet.ownerId as string,
+      migrationOccurredAt,
+      rawPet.id as string,
+    );
+    if (!normalized || seenExperienceIds.has(normalized.id)) return [];
+    seenExperienceIds.add(normalized.id);
+    return [normalized];
+  });
   if (experiences.length !== rawExperiences.length) repaired = true;
 
   const pet = Object.freeze({
@@ -400,16 +461,18 @@ export function normalizeSavedStateWithIssues(value: unknown): NormalizedSavedSt
       signatureOrgan: rawAnchors.signatureOrgan as string,
     }),
     abstractTraits: Object.freeze([...rawPet.abstractTraits]),
-    memories: Object.freeze(memories.map((memory) => Object.freeze({ ...memory }))) as AppPet["memories"],
+    memories: Object.freeze(memories) as AppPet["memories"],
     experiences: Object.freeze(experiences),
   });
 
   const rawMessages = Array.isArray(value.messages) ? value.messages : [];
   if (!Array.isArray(value.messages)) repaired = true;
-  const messages = rawMessages.filter((message) => {
+  const seenMessageIds = new Set<string>();
+  const messageCandidates = rawMessages.flatMap((message) => {
     if (
       !isRecord(message) ||
       typeof message.id !== "string" ||
+      seenMessageIds.has(message.id) ||
       typeof message.spaceId !== "string" ||
       !spaceById.has(message.spaceId) ||
       typeof message.actorType !== "string" ||
@@ -417,10 +480,10 @@ export function normalizeSavedStateWithIssues(value: unknown): NormalizedSavedSt
       typeof message.actorId !== "string" ||
       typeof message.content !== "string" ||
       typeof message.occurredAt !== "string"
-    ) return false;
+    ) return [];
     const space = spaceById.get(message.spaceId);
-    return message.actorType !== "human" || Boolean(space?.memberIds.includes(message.actorId));
-  }).map((message) => {
+    if (message.actorType === "human" && !space?.memberIds.includes(message.actorId)) return [];
+    seenMessageIds.add(message.id);
     const actorType = message.actorType as SpaceMessage["actorType"];
     const rawMetadata = isRecord(message.metadata) ? message.metadata : null;
     const format = message.format === "image_placeholder" || message.format === "voice_placeholder"
@@ -439,24 +502,41 @@ export function normalizeSavedStateWithIssues(value: unknown): NormalizedSavedSt
         : message.permissionSource === "space_safe_game_host"
           ? "space_safe_game_host"
           : "space_objective_summary";
-    return Object.freeze({
-      id: message.id as string,
-      spaceId: message.spaceId as string,
+    const metadataWithoutReply: SpaceMessageMetadata = Object.freeze({
+      ...(typeof rawMetadata?.mood === "string" && rawMetadata.mood.trim()
+        ? { mood: rawMetadata.mood.trim() }
+        : {}),
+      ...(rawMetadata?.communicationIntent === "share" || rawMetadata?.communicationIntent === "seek_comfort"
+        ? { communicationIntent: rawMetadata.communicationIntent }
+        : {}),
+      ...(format !== "text" ? { mediaBoundary: "local_demo_not_uploaded" as const } : {}),
+    });
+    const base: SpaceMessage = Object.freeze({
+      id: message.id,
+      spaceId: message.spaceId,
       actorType,
-      actorId: actorType === "pet" ? pet.id : message.actorId as string,
+      actorId: actorType === "pet" ? pet.id : message.actorId,
       permissionSource,
-      content: message.content as string,
-      occurredAt: message.occurredAt as string,
+      content: message.content,
+      occurredAt: message.occurredAt,
       format,
-      ...(rawMetadata || format !== "text" ? { metadata: Object.freeze({
-        ...(typeof rawMetadata?.replyToMessageId === "string" ? { replyToMessageId: rawMetadata.replyToMessageId } : {}),
-        ...(typeof rawMetadata?.replyPreview === "string" ? { replyPreview: rawMetadata.replyPreview } : {}),
-        ...(typeof rawMetadata?.mood === "string" ? { mood: rawMetadata.mood } : {}),
-        ...(rawMetadata?.communicationIntent === "share" || rawMetadata?.communicationIntent === "seek_comfort"
-          ? { communicationIntent: rawMetadata.communicationIntent }
-          : {}),
-        ...(format !== "text" ? { mediaBoundary: "local_demo_not_uploaded" as const } : {}),
-      }) } : {}),
+      ...(Object.keys(metadataWithoutReply).length ? { metadata: metadataWithoutReply } : {}),
+    });
+    return [Object.freeze({ base, rawMetadata })];
+  });
+  const baseMessageById = new Map(messageCandidates.map((candidate) => [candidate.base.id, candidate.base]));
+  const messages = messageCandidates.map(({ base, rawMetadata }) => {
+    const replyTarget = typeof rawMetadata?.replyToMessageId === "string"
+      ? baseMessageById.get(rawMetadata.replyToMessageId)
+      : undefined;
+    if (!replyTarget || replyTarget.spaceId !== base.spaceId) return base;
+    return Object.freeze({
+      ...base,
+      metadata: Object.freeze({
+        ...base.metadata,
+        replyToMessageId: replyTarget.id,
+        replyPreview: replyTarget.content,
+      }),
     });
   });
   if (messages.length !== rawMessages.length) repaired = true;
@@ -519,13 +599,14 @@ export function normalizeSavedStateWithIssues(value: unknown): NormalizedSavedSt
     spaces,
     pet.ownerId,
     migrationOccurredAt,
+    pet.id,
   )).filter(
     (event): event is EvolutionEvent => Boolean(event),
   );
   if (evolutionEvents.length !== rawEvolutionEvents.length) repaired = true;
   const pendingEvolution = value.pendingEvolution === null || value.pendingEvolution === undefined
     ? null
-    : normalizeEvolutionEvent(value.pendingEvolution, spaces, pet.ownerId, migrationOccurredAt);
+    : normalizeEvolutionEvent(value.pendingEvolution, spaces, pet.ownerId, migrationOccurredAt, pet.id);
   if (value.pendingEvolution && !pendingEvolution) repaired = true;
   const consumedFromEvents = evolutionEvents.flatMap((event) => event.sources.map((source) => source.id));
   const consumed = Array.isArray(value.consumedEvolutionExperienceIds)
@@ -552,11 +633,15 @@ export function normalizeSavedStateWithIssues(value: unknown): NormalizedSavedSt
   const lastActiveAt = typeof value.lastActiveAt === "string" ? value.lastActiveAt : fallback.lastActiveAt;
   if (lastActiveAt !== value.lastActiveAt) repaired = true;
   const rawRitual = isRecord(value.ritualSettings) ? value.ritualSettings : null;
-  const ritualSpaceId = typeof rawRitual?.spaceId === "string" && spaceById.has(rawRitual.spaceId)
+  const ritualSpaceId = typeof rawRitual?.spaceId === "string" &&
+    spaceById.get(rawRitual.spaceId)?.memberIds.includes(currentUserId)
     ? rawRitual.spaceId
     : spaces.find((space) => space.memberIds.includes(currentUserId))?.id ?? fallback.ritualSettings.spaceId;
+  const ritualTargetAccessible = spaces.some(
+    (space) => space.id === ritualSpaceId && space.memberIds.includes(currentUserId),
+  );
   const ritualSettings: RitualSettings = Object.freeze({
-    enabled: typeof rawRitual?.enabled === "boolean" ? rawRitual.enabled : true,
+    enabled: ritualTargetAccessible && typeof rawRitual?.enabled === "boolean" ? rawRitual.enabled : false,
     spaceId: ritualSpaceId,
     time: typeof rawRitual?.time === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(rawRitual.time)
       ? rawRitual.time
@@ -568,24 +653,26 @@ export function normalizeSavedStateWithIssues(value: unknown): NormalizedSavedSt
   });
   if (!rawRitual) repaired = true;
 
+  const normalizedState: AppState = Object.freeze({
+    pet,
+    spaces: Object.freeze(spaces),
+    messages: Object.freeze(messages),
+    petCornerStories: Object.freeze(petCornerStories),
+    delegatedActions,
+    lastActiveAt,
+    petPreferences: validPreferences(value.petPreferences),
+    activeSpaceId,
+    pendingEvolution,
+    evolutionEvents: Object.freeze(evolutionEvents),
+    currentUserId,
+    nextDelegationSequence,
+    consumedEvolutionExperienceIds: Object.freeze([...new Set(consumed)]),
+    ritualSettings,
+  });
+
   return Object.freeze({
-    repaired,
-    state: Object.freeze({
-      pet,
-      spaces: Object.freeze(spaces),
-      messages: Object.freeze(messages),
-      petCornerStories: Object.freeze(petCornerStories),
-      delegatedActions,
-      lastActiveAt,
-      petPreferences: validPreferences(value.petPreferences),
-      activeSpaceId,
-      pendingEvolution,
-      evolutionEvents: Object.freeze(evolutionEvents),
-      currentUserId,
-      nextDelegationSequence,
-      consumedEvolutionExperienceIds: Object.freeze([...new Set(consumed)]),
-      ritualSettings,
-    }),
+    repaired: repaired || !serializableEquals(value, normalizedState),
+    state: normalizedState,
   });
 }
 
@@ -616,7 +703,11 @@ function appendMessage(state: AppState, message: SpaceMessage): AppState {
 export function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
     case "SEND_HUMAN_MESSAGE": {
-      if (!isCurrentSpaceMember(state, action.spaceId, action.actorId) || !action.content.trim()) {
+      if (
+        !isCurrentSpaceMember(state, action.spaceId, action.actorId) ||
+        !action.content.trim() ||
+        (action.format !== undefined && !MESSAGE_FORMATS.has(action.format))
+      ) {
         return state;
       }
 
@@ -844,7 +935,11 @@ export function appReducer(state: AppState, action: AppAction): AppState {
 
     case "CAST_PET_GOVERNANCE_VOTE": {
       const space = findSpace(state, action.spaceId);
-      if (!space || !isCurrentSpaceMember(state, action.spaceId, action.voterId)) {
+      if (
+        !space ||
+        !isCurrentSpaceMember(state, action.spaceId, action.voterId) ||
+        (action.decision !== "pause" && action.decision !== "resume")
+      ) {
         return state;
       }
       const updatedSpace = applyPetGovernance(space, state.pet.id, {
@@ -903,7 +998,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     }
 
     case "SET_PET_ROUTINE":
-      if (state.currentUserId !== state.pet.ownerId) {
+      if (state.currentUserId !== state.pet.ownerId || !PET_ROUTINES.has(action.routine)) {
         return state;
       }
       return Object.freeze({
@@ -912,7 +1007,10 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       });
 
     case "SET_PET_PROACTIVE_FREQUENCY":
-      if (state.currentUserId !== state.pet.ownerId) {
+      if (
+        state.currentUserId !== state.pet.ownerId ||
+        !PROACTIVE_FREQUENCIES.has(action.frequency)
+      ) {
         return state;
       }
       return Object.freeze({
@@ -935,7 +1033,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         !space ||
         !space.memberIds.includes(state.currentUserId) ||
         !/^([01]\d|2[0-3]):[0-5]\d$/.test(action.settings.time) ||
-        !action.settings.timezone.trim()
+        !action.settings.timezone.trim() ||
+        !RITUAL_FREQUENCIES.has(action.settings.frequency)
       ) {
         return state;
       }
@@ -948,7 +1047,12 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case "GENERATE_RITUAL_INVITE": {
       const settings = state.ritualSettings;
       const space = findSpace(state, settings.spaceId);
-      if (!settings.enabled || !space || !space.memberIds.includes(state.currentUserId)) {
+      if (
+        !settings.enabled ||
+        !space ||
+        !space.memberIds.includes(state.currentUserId) ||
+        !RITUAL_FREQUENCIES.has(settings.frequency)
+      ) {
         return state;
       }
       const frequency = settings.frequency === "daily" ? "每天" : "每周";
@@ -963,11 +1067,16 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       });
     }
 
-    case "DISABLE_RITUAL":
+    case "DISABLE_RITUAL": {
+      const space = findSpace(state, state.ritualSettings.spaceId);
+      if (!space || !space.memberIds.includes(state.currentUserId)) {
+        return state;
+      }
       return Object.freeze({
         ...state,
         ritualSettings: Object.freeze({ ...state.ritualSettings, enabled: false }),
       });
+    }
 
     case "PLAY_SAFE_GAME": {
       const space = findSpace(state, action.spaceId);
@@ -1060,7 +1169,12 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     }
 
     case "RESET_DEMO":
-      return Object.freeze({ ...createInitialAppState(), lastActiveAt: action.now });
+      return state.currentUserId !== state.pet.ownerId
+        ? state
+        : Object.freeze({ ...createInitialAppState(), lastActiveAt: action.now });
+
+    default:
+      return state;
   }
 }
 
@@ -1093,10 +1207,11 @@ type AppProviderProps = PropsWithChildren<Readonly<{
 export function AppProvider({ children, now = () => new Date().toISOString() }: AppProviderProps) {
   const [state, setState] = useState<AppState>(createInitialAppState);
   const [isHydrated, setIsHydrated] = useState(false);
-  const resetRequested = useRef(false);
   const hydrationGeneration = useRef(0);
   const nowRef = useRef(now);
   const writeQueue = useRef<Promise<void>>(Promise.resolve());
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   const enqueueStorageWrite = useCallback((operation: () => Promise<void>) => {
     writeQueue.current = writeQueue.current.catch(() => undefined).then(operation);
@@ -1108,11 +1223,22 @@ export function AppProvider({ children, now = () => new Date().toISOString() }: 
       return;
     }
     if (action.type === "RESET_DEMO") {
-      resetRequested.current = true;
+      const resetState = appReducer(stateRef.current, action);
+      if (resetState === stateRef.current) {
+        return;
+      }
       hydrationGeneration.current += 1;
+      stateRef.current = resetState;
+      void enqueueStorageWrite(() => AsyncStorage.removeItem(APP_STORAGE_KEY));
+      setState(resetState);
+      return;
     }
-    setState((current) => appReducer(current, action));
-  }, [isHydrated]);
+    setState((current) => {
+      const next = appReducer(current, action);
+      stateRef.current = next;
+      return next;
+    });
+  }, [enqueueStorageWrite, isHydrated]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1138,7 +1264,11 @@ export function AppProvider({ children, now = () => new Date().toISOString() }: 
           result = Object.freeze({ state: null, repaired: true });
         }
         if (result.repaired) {
-          await AsyncStorage.setItem(APP_INVALID_BACKUP_KEY, saved);
+          try {
+            await AsyncStorage.setItem(APP_INVALID_BACKUP_KEY, saved);
+          } catch {
+            // Recovery backup failure must not discard an otherwise valid normalized snapshot.
+          }
         }
         if (result.state) {
           setState(hydrateSavedState(result.state, hydrationNow));
@@ -1161,12 +1291,6 @@ export function AppProvider({ children, now = () => new Date().toISOString() }: 
 
   useEffect(() => {
     if (!isHydrated) {
-      return;
-    }
-
-    if (resetRequested.current) {
-      resetRequested.current = false;
-      void enqueueStorageWrite(() => AsyncStorage.removeItem(APP_STORAGE_KEY));
       return;
     }
 

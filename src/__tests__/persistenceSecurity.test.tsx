@@ -15,6 +15,7 @@ import {
   APP_STORAGE_KEY,
   AppProvider,
   createInitialAppState,
+  normalizeSavedState,
   useAppState,
 } from "../state/AppState";
 
@@ -30,6 +31,7 @@ function StateProbe() {
         spaces: state.spaces.map((space) => space.name),
         messages: state.messages.map((message) => message.content),
       })}</Text>
+      <Button title="重置演示" onPress={() => dispatch({ type: "RESET_DEMO", now: fixedNow })} />
       <Button title="写入新快照" onPress={() => dispatch({
         type: "SEND_HUMAN_MESSAGE",
         spaceId: state.spaces[0].id,
@@ -37,6 +39,16 @@ function StateProbe() {
         content: "排队后的新快照",
         occurredAt: fixedNow,
       })} />
+      <Button title="重置并立即写入" onPress={() => {
+        dispatch({ type: "RESET_DEMO", now: fixedNow });
+        dispatch({
+          type: "SEND_HUMAN_MESSAGE",
+          spaceId: state.spaces[0].id,
+          actorId: state.currentUserId,
+          content: "重置后的即时消息",
+          occurredAt: fixedNow,
+        });
+      }} />
     </View>
   );
 }
@@ -169,5 +181,199 @@ describe("provider persistence security", () => {
     expect(within(card).getByText("已阻断")).toBeTruthy();
     expect(within(card).queryByRole("button", { name: "本人确认" })).toBeNull();
     expect(within(card).queryByText("已确认")).toBeNull();
+  });
+
+  it("drops a forged cross-space reply preview before a friend can render it", async () => {
+    const seed = createInitialAppState();
+    const forgedPreview = "隐藏海边空间的私密回复文案";
+    const raw = {
+      ...seed,
+      currentUserId: "friend-lin",
+      activeSpaceId: seed.spaces[0].id,
+      lastActiveAt: fixedNow,
+      messages: [
+        ...seed.messages,
+        {
+          id: "forged-cross-space-reply",
+          spaceId: seed.spaces[0].id,
+          actorType: "human",
+          actorId: "friend-lin",
+          permissionSource: "member_message",
+          content: "老友空间中的正常回复",
+          occurredAt: fixedNow,
+          format: "text",
+          metadata: {
+            replyToMessageId: "message-lover-1",
+            replyPreview: forgedPreview,
+          },
+        },
+      ],
+    };
+
+    const normalized = normalizeSavedState(raw);
+    const normalizedReply = normalized?.messages.find((message) => message.id === "forged-cross-space-reply");
+    expect(JSON.stringify(normalizedReply)).not.toContain(forgedPreview);
+    expect(normalizedReply?.metadata?.replyToMessageId).toBeUndefined();
+
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValueOnce(JSON.stringify(raw));
+    await render(<App />);
+    await waitFor(() => expect(screen.getByRole("tab", { name: "空间" })).toBeTruthy());
+    await fireEvent.press(screen.getByRole("tab", { name: "空间" }));
+    expect(screen.getByText("老友空间中的正常回复")).toBeTruthy();
+    expect(screen.queryByText(forgedPreview)).toBeNull();
+  });
+
+  it("hydrates repaired valid history even when writing the invalid backup fails", async () => {
+    const seed = createInitialAppState();
+    const keptContent = "备份失败也要保留的有效历史";
+    const raw = JSON.stringify({
+      ...seed,
+      lastActiveAt: fixedNow,
+      messages: [
+        ...seed.messages,
+        {
+          id: "kept-after-backup-failure",
+          spaceId: seed.spaces[0].id,
+          actorType: "human",
+          actorId: seed.currentUserId,
+          permissionSource: "forged-source-needs-repair",
+          content: keptContent,
+          occurredAt: fixedNow,
+        },
+        { id: "invalid-message-that-forces-backup", spaceId: 7 },
+      ],
+    });
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValueOnce(raw);
+    (AsyncStorage.setItem as jest.Mock).mockImplementation((key: string) =>
+      key === APP_INVALID_BACKUP_KEY ? Promise.reject(new Error("backup unavailable")) : Promise.resolve(),
+    );
+
+    const provider = await render(
+      createElement(AppProvider, { now: () => fixedNow }, createElement(StateProbe)),
+    );
+    await waitFor(() => expect(provider.getByTestId("hydration-status").props.children).toBe("hydrated"));
+    expect(provider.getByTestId("snapshot").props.children).toContain(keptContent);
+  });
+
+  it("backs up an exact raw payload when same-length nested fields are canonicalized", async () => {
+    const seed = createInitialAppState();
+    const raw = JSON.stringify({
+      ...seed,
+      lastActiveAt: fixedNow,
+      spaces: seed.spaces.map((space, index) => index === 0 ? {
+        ...space,
+        petGovernanceVotes: [{ voterId: "exited-member", petId: seed.pet.id, decision: "pause" }],
+      } : space),
+      messages: seed.messages.map((message, index) => index === 0 ? {
+        ...message,
+        permissionSource: "forged-space-source",
+      } : message),
+      delegatedActions: [
+        {
+          id: "same-id",
+          kind: "tentative_reminder",
+          petId: seed.pet.id,
+          ownerId: seed.pet.ownerId,
+          spaceId: seed.spaces[0].id,
+          status: "pending_owner",
+          permissionSource: "pet_low_risk_delegation",
+        },
+        {
+          id: "same-id",
+          kind: "tentative_reminder",
+          petId: seed.pet.id,
+          ownerId: seed.pet.ownerId,
+          spaceId: seed.spaces[0].id,
+          status: "pending_owner",
+          permissionSource: "pet_low_risk_delegation",
+        },
+      ],
+    });
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValueOnce(raw);
+
+    const provider = await render(
+      createElement(AppProvider, { now: () => fixedNow }, createElement(StateProbe)),
+    );
+    await waitFor(() => expect(provider.getByTestId("hydration-status").props.children).toBe("hydrated"));
+    expect(AsyncStorage.setItem).toHaveBeenCalledWith(APP_INVALID_BACKUP_KEY, raw);
+  });
+
+  it("does not remove persisted data when a non-owner dispatches reset directly", async () => {
+    const seed = createInitialAppState();
+    const keptContent = "非主人不能删除的消息";
+    const friendState = {
+      ...seed,
+      currentUserId: "friend-lin",
+      lastActiveAt: fixedNow,
+      messages: [...seed.messages, {
+        id: "friend-kept-message",
+        spaceId: seed.spaces[0].id,
+        actorType: "human",
+        actorId: "friend-lin",
+        permissionSource: "member_message",
+        content: keptContent,
+        occurredAt: fixedNow,
+        format: "text",
+      }],
+    };
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValueOnce(JSON.stringify(friendState));
+
+    const provider = await render(
+      createElement(AppProvider, { now: () => fixedNow }, createElement(StateProbe)),
+    );
+    await waitFor(() => expect(provider.getByTestId("hydration-status").props.children).toBe("hydrated"));
+    (AsyncStorage.removeItem as jest.Mock).mockClear();
+    await fireEvent.press(provider.getByText("重置演示"));
+
+    expect(provider.getByTestId("snapshot").props.children).toContain(keptContent);
+    expect(AsyncStorage.removeItem).not.toHaveBeenCalled();
+  });
+
+  it("orders an old write, owner reset removal, and the final post-reset snapshot", async () => {
+    let resolveOldWrite: () => void = () => undefined;
+    let stored: string | null = null;
+    const operations: string[] = [];
+    let appWriteCount = 0;
+    (AsyncStorage.setItem as jest.Mock).mockImplementation((key: string, value: string) => {
+      if (key !== APP_STORAGE_KEY) return Promise.resolve();
+      appWriteCount += 1;
+      if (appWriteCount === 1) {
+        operations.push("old-set-start");
+        return new Promise<void>((resolve) => {
+          resolveOldWrite = () => {
+            stored = value;
+            operations.push("old-set-finish");
+            resolve();
+          };
+        });
+      }
+      stored = value;
+      operations.push("final-set");
+      return Promise.resolve();
+    });
+    (AsyncStorage.removeItem as jest.Mock).mockImplementation(() => {
+      stored = null;
+      operations.push("remove");
+      return Promise.resolve();
+    });
+
+    const provider = await render(
+      createElement(AppProvider, { now: () => fixedNow }, createElement(StateProbe)),
+    );
+    await waitFor(() => expect(operations).toEqual(["old-set-start"]));
+    await fireEvent.press(provider.getByText("重置并立即写入"));
+    expect(provider.getByTestId("snapshot").props.children).toContain("重置后的即时消息");
+
+    resolveOldWrite();
+    await waitFor(() => expect(operations).toEqual([
+      "old-set-start",
+      "old-set-finish",
+      "remove",
+      "final-set",
+    ]));
+    expect(stored).not.toBeNull();
+    expect(JSON.parse(stored ?? "").messages.some(
+      (message: { content: string }) => message.content === "重置后的即时消息",
+    )).toBe(true);
   });
 });

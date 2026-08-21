@@ -406,6 +406,37 @@ describe("application state reducer", () => {
     })).toEqual(seed);
   });
 
+  it.each([
+    ["unknown message format", (seed: ReturnType<typeof createInitialAppState>) => ({
+      type: "SEND_HUMAN_MESSAGE",
+      spaceId: seed.spaces[0].id,
+      actorId: seed.currentUserId,
+      content: "非法格式不应写入",
+      format: "uploaded_video",
+      occurredAt,
+    })],
+    ["unknown governance decision", (seed: ReturnType<typeof createInitialAppState>) => ({
+      type: "CAST_PET_GOVERNANCE_VOTE",
+      spaceId: seed.spaces[0].id,
+      voterId: seed.currentUserId,
+      decision: "ban_forever",
+    })],
+    ["unknown routine", () => ({ type: "SET_PET_ROUTINE", routine: "always-awake" })],
+    ["unknown proactive frequency", () => ({
+      type: "SET_PET_PROACTIVE_FREQUENCY",
+      frequency: "spam",
+    })],
+    ["unknown ritual frequency", (seed: ReturnType<typeof createInitialAppState>) => ({
+      type: "UPDATE_RITUAL_SETTINGS",
+      settings: { ...seed.ritualSettings, frequency: "hourly" },
+    })],
+    ["unknown action type", () => ({ type: "ERASE_ALL_SPACES" })],
+  ] as const)("rejects %s at the runtime reducer boundary", (_label, makeAction) => {
+    const seed = createInitialAppState();
+
+    expect(appReducer(seed, makeAction(seed) as never)).toEqual(seed);
+  });
+
   it("keeps message provenance and local-media boundaries traceable after normalization", () => {
     const seed = createInitialAppState();
     const invited = appReducer(seed, { type: "GENERATE_RITUAL_INVITE", occurredAt });
@@ -567,6 +598,72 @@ describe("application state reducer", () => {
     ]);
   });
 
+  it("drops modern space experiences with a missing space or forged provenance actor", () => {
+    const seed = createInitialAppState();
+    const normalized = normalizeSavedState({
+      ...seed,
+      pet: {
+        ...seed.pet,
+        experiences: [
+          {
+            id: "care-space-old-friends-modern-missing",
+            category: "care",
+            summary: "不能借前缀回填的现代经历",
+            scope: "space",
+            spaceId: "missing-space",
+            provenance: { source: "care", actorId: seed.currentUserId, occurredAt },
+          },
+          {
+            id: "care-space-old-friends-forged-actor",
+            category: "care",
+            summary: "外部角色伪造的照顾经历",
+            scope: "space",
+            spaceId: seed.spaces[0].id,
+            provenance: { source: "care", actorId: "outsider", occurredAt },
+          },
+          {
+            id: "game-space-old-friends-pet",
+            category: "shared",
+            summary: "异宠自己的合法游戏素材",
+            scope: "space",
+            spaceId: seed.spaces[0].id,
+            provenance: { source: "game", actorId: seed.pet.id, occurredAt },
+          },
+        ],
+      },
+      evolutionEvents: [{
+        petName: seed.pet.name,
+        sources: [{
+          id: "care-space-old-friends-event-forged",
+          category: "care",
+          summary: "伪造来源不得进入进化",
+          scope: "space",
+          spaceId: seed.spaces[0].id,
+          provenance: { source: "care", actorId: "outsider", occurredAt },
+        }],
+        ownerInfluence: "伪造祝福",
+        decisionBy: "pet",
+        visualTrait: "伪造形态",
+      }],
+    });
+
+    expect(normalized?.pet.experiences.map((experience) => experience.summary)).toEqual([
+      "异宠自己的合法游戏素材",
+    ]);
+    expect(normalized?.evolutionEvents).toEqual([]);
+  });
+
+  it("rejects disabling a ritual whose target is hidden from the current user", () => {
+    const seed = createInitialAppState();
+    const friendState = Object.freeze({
+      ...seed,
+      currentUserId: "friend-lin",
+      ritualSettings: Object.freeze({ ...seed.ritualSettings, spaceId: "space-lover", enabled: true }),
+    });
+
+    expect(appReducer(friendState, { type: "DISABLE_RITUAL" })).toEqual(friendState);
+  });
+
   it("does not overwrite a pending evolution or reuse consumed experiences", () => {
     const seed = createInitialAppState();
     const caredFor = appReducer(seed, {
@@ -653,6 +750,13 @@ describe("application state reducer", () => {
       ...createInitialAppState(),
       lastActiveAt: occurredAt,
     });
+  });
+
+  it("rejects reset when the current user is not the pet owner", () => {
+    const seed = createInitialAppState();
+    const friendState = Object.freeze({ ...seed, currentUserId: "friend-lin" });
+
+    expect(appReducer(friendState, { type: "RESET_DEMO", now: occurredAt })).toEqual(friendState);
   });
 
   it("simulates saved owner absence once and advances the activity timestamp", () => {

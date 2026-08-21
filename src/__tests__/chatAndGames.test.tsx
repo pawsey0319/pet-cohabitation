@@ -49,6 +49,8 @@ describe("traceable chat metadata and safe co-created games", () => {
     expect(screen.getAllByText("空间主 Agent · 游戏主持")).toHaveLength(3);
     expect(screen.getAllByText(/人类素材/).length).toBeGreaterThanOrEqual(3);
     expect(screen.getAllByText(/异宠素材/).length).toBeGreaterThanOrEqual(3);
+    expect(screen.getAllByText("来源：共同游戏异宠素材")).toHaveLength(3);
+    expect(screen.getAllByText("来源：共同游戏主持")).toHaveLength(3);
     expect(screen.getByText(/仅组合预设安全素材，不执行任意代码/)).toBeTruthy();
   });
 });

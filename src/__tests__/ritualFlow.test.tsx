@@ -8,6 +8,7 @@ jest.mock("react-native-safe-area-context", () =>
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import App from "../../App";
+import { APP_STORAGE_KEY, createInitialAppState } from "../state/AppState";
 
 describe("tonight ritual settings", () => {
   beforeEach(async () => {
@@ -43,5 +44,31 @@ describe("tonight ritual settings", () => {
     await fireEvent.press(screen.getByRole("button", { name: "关闭碰面邀请" }));
     expect(screen.getByText("碰面邀请已关闭")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "请灯灯发出邀请" })).toBeNull();
+  });
+
+  it("rehomes a friend's hidden ritual target to a space they can access", async () => {
+    const seed = createInitialAppState();
+    await AsyncStorage.setItem(APP_STORAGE_KEY, JSON.stringify({
+      ...seed,
+      currentUserId: "friend-lin",
+      lastActiveAt: new Date().toISOString(),
+      ritualSettings: {
+        enabled: true,
+        spaceId: "space-lover",
+        time: "20:45",
+        frequency: "weekly",
+        timezone: "Asia/Shanghai",
+      },
+    }));
+    (AsyncStorage.setItem as jest.Mock).mockClear();
+
+    await render(<App />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "请灯灯发出邀请" })).toBeTruthy());
+    await fireEvent.press(screen.getByRole("button", { name: "请灯灯发出邀请" }));
+    await fireEvent.press(screen.getByRole("tab", { name: "空间" }));
+
+    expect(screen.getByText(/20:45.*Asia\/Shanghai/)).toBeTruthy();
+    expect(screen.getAllByText("老友小圈").length).toBeGreaterThan(0);
+    expect(screen.queryByText("海边二人间")).toBeNull();
   });
 });

@@ -17,6 +17,16 @@ function messageLabel(
   return `成员消息 · ${memberNames[message.actorId] ?? message.actorId}`;
 }
 
+function sourceLabel(message: SpaceMessage): string {
+  if (message.permissionSource === "pet_ritual_invite") return "来源：共同碰面设置";
+  if (message.permissionSource === "pet_safe_game_contribution") return "来源：共同游戏异宠素材";
+  if (message.permissionSource === "space_safe_game_host") return "来源：共同游戏主持";
+  if (message.permissionSource === "member_game_contribution") return "来源：共同游戏成员素材";
+  if (message.actorType === "human") return "来源：空间成员";
+  if (message.actorType === "pet") return "来源：本空间记忆舱";
+  return "来源：客观消息计数";
+}
+
 export function MessageBubble({ message, currentUserId, memberNames }: Readonly<{
   message: SpaceMessage;
   currentUserId: string;
@@ -40,15 +50,7 @@ export function MessageBubble({ message, currentUserId, memberNames }: Readonly<
       ) : null}
       <Text style={styles.content}>{message.content}</Text>
       {message.metadata?.mediaBoundary ? <Text style={styles.metadata}>边界：本地演示占位，未上传</Text> : null}
-      <Text style={styles.source}>
-        {message.actorType === "human"
-          ? "来源：空间成员"
-          : message.actorType === "pet"
-            ? message.permissionSource === "pet_ritual_invite"
-              ? "来源：共同碰面设置"
-              : "来源：本空间记忆舱"
-            : "来源：客观消息计数"}
-      </Text>
+      <Text style={styles.source}>{sourceLabel(message)}</Text>
     </View>
   );
 }

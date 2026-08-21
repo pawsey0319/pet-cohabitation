@@ -77,4 +77,31 @@ describe("multi-space source isolation", () => {
     expect(screen.getByText("短空间的照顾记录")).toBeTruthy();
     expect(screen.queryByText("长空间的照顾记录")).toBeNull();
   });
+
+  it("does not render a modern space experience with forged actor provenance", async () => {
+    const seed = createInitialAppState();
+    const forgedSummary = "外部角色伪造的共同经历";
+    await AsyncStorage.setItem(APP_STORAGE_KEY, JSON.stringify({
+      ...seed,
+      lastActiveAt: new Date().toISOString(),
+      pet: {
+        ...seed.pet,
+        experiences: [{
+          id: "game-space-old-friends-forged",
+          category: "shared",
+          summary: forgedSummary,
+          scope: "space",
+          spaceId: seed.spaces[0].id,
+          provenance: { source: "game", actorId: "outsider", occurredAt: "2026-08-21T08:00:00.000Z" },
+        }],
+      },
+    }));
+    (AsyncStorage.setItem as jest.Mock).mockClear();
+
+    await render(<App />);
+    await waitFor(() => expect(screen.getByRole("tab", { name: "异宠" })).toBeTruthy());
+    await fireEvent.press(screen.getByRole("tab", { name: "异宠" }));
+    expect(screen.queryByText(forgedSummary)).toBeNull();
+    expect(screen.getByText("第一篇故事正在发生。")).toBeTruthy();
+  });
 });
