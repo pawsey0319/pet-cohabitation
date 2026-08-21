@@ -37,6 +37,22 @@ export type UserPet = Readonly<{
   memories: readonly SpaceMemory[];
 }>;
 
+export type ExperienceCategory = "care" | "work" | "social" | "shared";
+
+export type GrowthExperience = Readonly<{
+  id: string;
+  category: ExperienceCategory;
+  summary: string;
+}>;
+
+export type EvolutionEvent = Readonly<{
+  petName: string;
+  sources: readonly GrowthExperience[];
+  ownerInfluence: string;
+  decisionBy: "pet";
+  visualTrait: string | null;
+}>;
+
 export type PetContext = Readonly<{
   petId: string;
   identityAnchors: IdentityAnchors;
