@@ -2,32 +2,49 @@
   "name": "pet-cohabitation-mvp",
   "version": "1.0.0",
   "private": true,
-  "main": "expo/AppEntry.js",
+  "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
     "web": "expo start --web",
     "test": "jest",
+    "test:ci": "jest --runInBand",
+    "test:e2e": "playwright test",
+    "bootstrap:admin": "node scripts/bootstrap-admin.mjs",
     "typecheck": "tsc --noEmit",
     "export:web": "expo export --platform web"
   },
   "dependencies": {
     "@expo/metro-runtime": "57.0.12",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/netinfo": "12.0.1",
+    "@supabase/supabase-js": "^2.112.3",
     "expo": "57.0.15",
+    "expo-audio": "~57.0.4",
+    "expo-constants": "~57.0.13",
+    "expo-image-manipulator": "~57.0.12",
+    "expo-image-picker": "~57.0.12",
     "expo-linear-gradient": "57.0.1",
+    "expo-linking": "~57.0.7",
+    "expo-router": "~57.0.15",
+    "expo-sqlite": "~57.0.1",
     "expo-status-bar": "57.0.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.2",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-svg": "15.15.4",
-    "react-native-web": "0.21.2"
+    "react-native-web": "0.21.2",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@testing-library/react-native": "14.0.1",
     "@types/jest": "29.5.14",
     "@types/react": "~19.2.4",
     "jest-expo": "57.0.4",
+    "metro": "^0.84.5",
+    "metro-config": "^0.84.5",
+    "metro-transform-worker": "^0.84.5",
     "typescript": "6.0.3"
   }
 }

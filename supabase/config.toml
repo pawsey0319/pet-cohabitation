@@ -1,0 +1,50 @@
+project_id = "pet-cohabitation"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 17
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "http://localhost:8081"
+additional_redirect_urls = ["http://localhost:8081/**", "http://localhost:3000/**"]
+enable_signup = false
+
+[storage]
+enabled = true
+file_size_limit = "8MiB"
+
+[functions.register-with-invite]
+verify_jwt = false
+
+[functions.pet-chat]
+verify_jwt = true
+
+[functions.generate-pet-candidate]
+verify_jwt = true
+
+[functions.confirm-pet]
+verify_jwt = true
+
+[functions.handle-space-message]
+verify_jwt = true
+
+[functions.space-agent]
+verify_jwt = true
+
+[functions.evolve-pet]
+verify_jwt = true
+
+[functions.pet-interaction]
+verify_jwt = true

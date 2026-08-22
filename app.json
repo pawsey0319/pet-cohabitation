@@ -3,7 +3,8 @@
     "name": "异宠共生空间",
     "slug": "pet-cohabitation",
     "version": "1.0.0",
-    "description": "一只成长型异宠陪伴熟人关系空间的本地纵向原型。",
+    "description": "轻量真实聊天与可培养生成式异宠 Demo。",
+    "scheme": "pet-cohabitation",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#16142D",
@@ -14,9 +15,17 @@
       "shortName": "异宠共生",
       "lang": "zh-CN",
       "themeColor": "#16142D",
-      "description": "一只成长型异宠陪伴熟人关系空间的本地纵向原型。",
+      "description": "轻量真实聊天与可培养生成式异宠 Demo。",
       "display": "standalone",
       "orientation": "portrait"
-    }
+    },
+    "experiments": {
+      "typedRoutes": true
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      "expo-audio"
+    ]
   }
 }
