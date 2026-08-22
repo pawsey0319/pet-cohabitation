@@ -9,6 +9,8 @@
     "test": "jest",
     "test:ci": "jest --runInBand",
     "test:e2e": "playwright test",
+    "test:integration": "node scripts/supabase-integration.mjs",
+    "check:models": "node scripts/check-model-provider.mjs",
     "bootstrap:admin": "node scripts/bootstrap-admin.mjs",
     "typecheck": "tsc --noEmit",
     "export:web": "expo export --platform web"

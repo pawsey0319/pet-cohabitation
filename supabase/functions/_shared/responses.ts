@@ -8,7 +8,9 @@ export function json(request: Request, body: unknown, status = 200): Response {
 }
 
 export function errorResponse(request: Request, reason: unknown, fallbackStatus = 400): Response {
-  const message = reason instanceof Error ? reason.message : "unknown_error";
+  const message = reason instanceof Error ? reason.message
+    : reason && typeof reason === "object" && "message" in reason && typeof reason.message === "string" ? reason.message
+    : "unknown_error";
   const status = /unauthenticated|invalid token/i.test(message) ? 401
     : /forbidden|not_space_member|admin_required|service_role/i.test(message) ? 403
     : /quota|limit|closed|confirmed|already/i.test(message) ? 409

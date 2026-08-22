@@ -34,6 +34,7 @@ EXPO_PUBLIC_DEMO_MODE=false
 ```dotenv
 MODEL_MOCK_MODE=true
 ALLOWED_ORIGINS=http://localhost:8081,http://localhost:8082,http://localhost:3000
+DEMO_PURGE_SECRET=只用于本地测试的随机长字符串
 ```
 
 分别启动两个终端：
@@ -78,6 +79,14 @@ ALLOWED_ORIGINS=http://localhost:8082
 
 文本端需要兼容 `chat/completions` JSON 输出；图像端需要兼容 `images/generations`，父图进化需要兼容 `images/edits`。图像响应可为 URL 或 base64，函数会统一存入私有 Storage。
 
+先把六个模型变量只放入当前终端，再运行兼容检查：
+
+```powershell
+npm run check:models
+```
+
+只有 `chat/completions`、`images/generations`、`images/edits` 和错误标准化四项全部显示通过，才把函数环境中的 `MODEL_MOCK_MODE` 改为 `false`。脚本不会打印密钥、原始 prompt 或生成图片。
+
 ## 3. Supabase 云端
 
 创建 Supabase 项目后：
@@ -94,12 +103,16 @@ npx supabase db push
 npx supabase secrets set --env-file supabase/functions/.env.production
 ```
 
+生产函数环境还必须加入随机生成的 `DEMO_PURGE_SECRET`。该文件已被 Git 忽略，仍应在写入 Secrets 后删除本地副本。
+
 逐个部署函数：
 
 ```powershell
-$functions = @("register-with-invite","pet-chat","generate-pet-candidate","confirm-pet","handle-space-message","space-agent","evolve-pet","pet-interaction")
+$functions = @("register-with-invite","pet-chat","generate-pet-candidate","confirm-pet","handle-space-message","space-agent","evolve-pet","pet-interaction","export-my-data","delete-account","purge-demo-data")
 $functions | ForEach-Object { npx supabase functions deploy $_ }
 ```
+
+候选生成、群聊异宠路由和重大进化会先返回任务 ID，再通过 `EdgeRuntime.waitUntil()` 在后台执行；客户端通过 Realtime 订阅状态。因此必须保留迁移中对任务表的 Realtime publication，并在本地保留 `[edge_runtime] policy = "per_worker"`。实现依据见 [Supabase 后台任务文档](https://supabase.com/docs/guides/functions/background-tasks)。
 
 在 Supabase 控制台确认：
 
@@ -107,6 +120,7 @@ $functions | ForEach-Object { npx supabase functions deploy $_ }
 - 关闭公开邮箱注册；注册只走 `register-with-invite` 的 Service Role 创建流程。
 - 不把 Service Role、文本或图像模型密钥复制到 Vercel。
 - `chat-media` 和 `pet-portraits` 保持 private。
+- 数据库区域选择 Singapore，并在 `demo_settings` 中设置测试人数上限、测试结束时间和 30 天保留期。
 
 首位云端管理员同样运行 `npm run bootstrap:admin`，但环境变量使用云项目 URL 和 Service Role。命令完成后立即清理当前终端中的敏感变量。
 
@@ -129,15 +143,24 @@ npx vercel --prod
 
 部署后把正式域名写回 Supabase Edge Function 的 `ALLOWED_ORIGINS` Secret，并重新部署函数。不要用通配符放开生产 CORS。
 
-## 5. 上线前检查
+Vercel 官方说明其站点在中国大陆可能变慢或不可达，因此免费 `*.vercel.app` 只用于第一轮测试。发布前必须在电信、联通、移动网络分别验证；两家以上失败时停止扩量。参考 [Vercel 官方说明](https://vercel.com/kb/guide/accessing-vercel-hosted-sites-from-mainland-china)。
+
+## 5. 配置测试数据自动清理
+
+`purge-demo-data` 只接受带 `x-demo-purge-secret` 的服务端请求。先在 `demo_settings.test_ends_at` 设置测试结束时间；函数会在“结束时间 + purge_after_days”之前保持静默，到期后匿名化消息并删除所有非管理员测试账号。
+
+云端使用 `pg_cron` + `pg_net` 每天调用一次该函数，并把项目 URL、Publishable Key 和 `DEMO_PURGE_SECRET` 存入 Supabase Vault，不能把清理密钥直接写进 SQL。具体配置方式见 [Supabase 定时调用 Edge Function 文档](https://supabase.com/docs/guides/functions/schedule-functions)。部署后先手动调用一次，预期在保留期内返回 `retention_active`。
+
+## 6. 上线前检查
 
 ```powershell
 npm run test:ci
 npm run typecheck
+npm run check:models
 npm run export:web
 npx supabase db lint --level warning
 ```
 
 本地 E2E 还需要运行 Supabase、Edge Functions 和 8082 Web 服务，并向测试进程提供 `SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`。Service Role 只用于测试夹具创建和清理，不会进入浏览器 bundle。
 
-当前仓库没有生产 E2EE、推送、备份恢复和合规删除工作流，不能仅凭通过这些检查就宣称生产就绪。
+线上开放顺序固定为 3 人 24 小时、8 人 3 天、最多 20 人 7 天。模型失败率超过 5%、出现安全阻断项、重复正式进化，或两家以上运营商无法访问时立即停止扩量。当前仓库没有生产 E2EE、推送、备份恢复和应用商店发布能力，不能把这个测试 Demo 宣称为生产级通讯产品。

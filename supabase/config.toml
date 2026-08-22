@@ -25,6 +25,9 @@ enable_signup = false
 enabled = true
 file_size_limit = "8MiB"
 
+[edge_runtime]
+policy = "per_worker"
+
 [functions.register-with-invite]
 verify_jwt = false
 
@@ -48,3 +51,12 @@ verify_jwt = true
 
 [functions.pet-interaction]
 verify_jwt = true
+
+[functions.export-my-data]
+verify_jwt = true
+
+[functions.delete-account]
+verify_jwt = true
+
+[functions.purge-demo-data]
+verify_jwt = false

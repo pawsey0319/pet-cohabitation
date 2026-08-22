@@ -10,6 +10,28 @@ const service = createClient(url, serviceKey, { auth: { persistSession: false, a
 const anon = () => createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
 const suffix = Date.now();
 
+async function waitForRow(table, id, terminal = ["succeeded", "failed"], timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await service.from(table).select("*").eq("id", id).single();
+    if (result.error) throw result.error;
+    if (terminal.includes(result.data.status)) return result.data;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`${table}:${id} did not reach ${terminal.join("/")} within ${timeoutMs}ms`);
+}
+
+async function waitForMatchingRow(table, id, predicate, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await service.from(table).select("*").eq("id", id).single();
+    if (result.error) throw result.error;
+    if (predicate(result.data)) return result.data;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`${table}:${id} did not reach the expected state within ${timeoutMs}ms`);
+}
+
 async function createUser(index, admin = false) {
   const email = `integration-${suffix}-${index}@example.test`;
   const password = `Demo-pass-${suffix}-${index}`;
@@ -77,10 +99,28 @@ async function main() {
     const row = await owner.client.from("pet_private_threads").insert({ pet_id: pet.data.id, owner_id: owner.id, role: "owner", content: `孵化对话 ${turn}` });
     assert.equal(row.error, null, row.error?.message);
   }
-  const generation = await owner.client.functions.invoke("generate-pet-candidate", { body: { instruction: "安静但有奇怪的感知器官", explore: false } });
+  const generationRequestId = crypto.randomUUID();
+  const generationBody = { instruction: "安静但有奇怪的感知器官", explore: false, request_id: generationRequestId };
+  const [generation, concurrentGeneration] = await Promise.all([
+    owner.client.functions.invoke("generate-pet-candidate", { body: generationBody }),
+    owner.client.functions.invoke("generate-pet-candidate", { body: generationBody }),
+  ]);
   if (generation.error?.context) throw new Error(`generate-pet-candidate: ${await generation.error.context.text()}`);
-  assert.equal(generation.error, null, generation.error?.message); assert.equal(generation.data.parent_asset_id, null);
-  const confirm = await owner.client.functions.invoke("confirm-pet", { body: { asset_id: generation.data.id } });
+  assert.equal(generation.error, null, generation.error?.message);
+  assert.equal(concurrentGeneration.error, null, concurrentGeneration.error?.message);
+  assert.equal(concurrentGeneration.data.session_id, generation.data.session_id, "concurrent generation created a second task");
+  assert.match(generation.data.session_id, /^[0-9a-f-]{36}$/);
+  const generatedSession = await waitForRow("pet_generation_sessions", generation.data.session_id);
+  assert.equal(generatedSession.status, "succeeded", generatedSession.error_code);
+  const generatedAsset = await service.from("pet_visual_assets").select("*").eq("generation_session_id", generatedSession.id).single();
+  assert.equal(generatedAsset.error, null, generatedAsset.error?.message);
+  assert.equal(generatedAsset.data.parent_asset_id, null);
+  const duplicateGeneration = await owner.client.functions.invoke("generate-pet-candidate", { body: generationBody });
+  assert.equal(duplicateGeneration.error, null, duplicateGeneration.error?.message);
+  assert.equal(duplicateGeneration.data.session_id, generation.data.session_id, "idempotent generation created a second task");
+  const generatedAssets = await service.from("pet_visual_assets").select("id", { count: "exact" }).eq("generation_session_id", generation.data.session_id);
+  assert.equal(generatedAssets.count, 1, "idempotent generation created two assets");
+  const confirm = await owner.client.functions.invoke("confirm-pet", { body: { asset_id: generatedAsset.data.id } });
   assert.equal(confirm.error, null, confirm.error?.message);
   const directPetEdit = await owner.client.from("pets").update({ status: "incubating", current_asset_id: null, confirmed_at: null }).eq("id", pet.data.id);
   assert.equal(directPetEdit.error, null);
@@ -96,12 +136,36 @@ async function main() {
   const consentBefore = await owner.client.rpc("is_observation_enabled", { target_space_id: pair.data, target_pet_id: pet.data.id });
   assert.equal(consentBefore.data, true);
 
-  const routed = await member2.client.functions.invoke("handle-space-message", { body: { message_id: sent.data.id, cue_pet_ids: [pet.data.id] } });
+  const [routed, concurrentRoute] = await Promise.all([
+    member2.client.functions.invoke("handle-space-message", { body: { message_id: sent.data.id, cue_pet_ids: [pet.data.id] } }),
+    member2.client.functions.invoke("handle-space-message", { body: { message_id: sent.data.id, cue_pet_ids: [pet.data.id] } }),
+  ]);
   assert.equal(routed.error, null, routed.error?.message);
+  assert.equal(concurrentRoute.error, null, concurrentRoute.error?.message);
+  assert.equal(concurrentRoute.data.job_id, routed.data.job_id, "concurrent routing created a second task");
+  const routedJob = await waitForRow("agent_jobs", routed.data.job_id);
+  assert.equal(routedJob.status, "succeeded", routedJob.error_code);
+  const duplicateRoute = await member2.client.functions.invoke("handle-space-message", { body: { message_id: sent.data.id, cue_pet_ids: [pet.data.id] } });
+  assert.equal(duplicateRoute.error, null, duplicateRoute.error?.message);
+  assert.equal(duplicateRoute.data.job_id, routed.data.job_id, "same message created a second routing task");
   const petReplies = await service.from("messages").select("id").eq("space_id", pair.data).eq("actor_kind", "pet");
   assert.equal(petReplies.data.length, 1);
   const replyRuns = await service.from("model_runs").select("id").eq("space_id", pair.data).eq("run_kind", "explicit_pet_reply");
   assert.equal(replyRuns.data.length, 1, "one explicit cue generated more than one full reply call");
+  const feedback = await member2.client.from("agent_message_feedback").insert({ message_id: petReplies.data[0].id, rating: "natural" });
+  assert.equal(feedback.error, null, feedback.error?.message);
+  const repeatedFeedback = await member2.client.from("agent_message_feedback").insert({ message_id: petReplies.data[0].id, rating: "irrelevant" });
+  assert.ok(repeatedFeedback.error, "same user submitted feedback twice for one Agent message");
+  const nonAdminMetrics = await owner.client.rpc("admin_demo_metrics");
+  assert.ok(nonAdminMetrics.error, "non-admin read aggregate admin metrics");
+  const adminMetrics = await admin.client.rpc("admin_demo_metrics");
+  assert.equal(adminMetrics.error, null, adminMetrics.error?.message);
+  assert.ok(Number(adminMetrics.data.registered_users) >= 1);
+  assert.equal(JSON.stringify(adminMetrics.data).includes("孵化对话"), false, "admin metrics leaked private content");
+  const adminRawFeedback = await admin.client.from("agent_message_feedback").select("message_id,rating");
+  assert.equal(adminRawFeedback.data.length, 0, "admin could read individual Agent feedback rows");
+  const adminPrivateThread = await admin.client.from("pet_private_threads").select("id").eq("owner_id", owner.id);
+  assert.equal(adminPrivateThread.data.length, 0, "admin could read another user's pet private thread");
 
   const observationRows = await owner.client.rpc("list_space_pet_observation", { target_space_id: pair.data });
   assert.equal(observationRows.error, null, observationRows.error?.message);
@@ -123,6 +187,8 @@ async function main() {
   const pausedCueMessage = await owner.client.from("messages").insert({ client_id: `paused-cue-${suffix}`, space_id: pair.data, sender_id: owner.id, actor_kind: "human", actor_name: "测试成员owner", kind: "text", text: "@测试宠 现在能回答吗？" }).select("id").single();
   const pausedCue = await owner.client.functions.invoke("handle-space-message", { body: { message_id: pausedCueMessage.data.id, cue_pet_ids: [pet.data.id] } });
   assert.equal(pausedCue.error, null, pausedCue.error?.message);
+  const pausedJob = await waitForRow("agent_jobs", pausedCue.data.job_id);
+  assert.equal(pausedJob.status, "succeeded", pausedJob.error_code);
   const pausedNotice = await service.from("messages").select("text").eq("space_id", pair.data).eq("permission_source", "pet_participation_paused");
   assert.equal(pausedNotice.data.length, 1, "paused explicit cue was not explained in chat");
   await member2.client.rpc("vote_pet_pause", { target_space_id: pair.data, target_pet_id: pet.data.id, decision: false });
@@ -138,16 +204,27 @@ async function main() {
   const forgottenSignal = await service.from("pet_style_signals").select("active").eq("id", styleSignal.data.id).single();
   assert.equal(forgottenSignal.data.active, false);
 
-  const evolution = await owner.client.functions.invoke("evolve-pet", { body: { blessing: "愿你继续按自己的方式认识世界" } });
+  const [evolution, concurrentEvolution] = await Promise.all([
+    owner.client.functions.invoke("evolve-pet", { body: { blessing: "愿你继续按自己的方式认识世界" } }),
+    owner.client.functions.invoke("evolve-pet", { body: { blessing: "愿你继续按自己的方式认识世界" } }),
+  ]);
   if (evolution.error?.context) throw new Error(`evolve-pet: ${await evolution.error.context.text()}`);
   assert.equal(evolution.error, null, evolution.error?.message);
-  assert.equal(evolution.data.parent_asset_id, generation.data.id);
-  const eventId = evolution.data.evolution_event_id;
+  assert.equal(concurrentEvolution.error, null, concurrentEvolution.error?.message);
+  assert.equal(concurrentEvolution.data.event_id, evolution.data.event_id, "concurrent evolution created a second event");
+  const eventId = evolution.data.event_id;
+  const evolvedEvent = await waitForRow("pet_evolution_events", eventId);
+  assert.equal(evolvedEvent.status, "succeeded", evolvedEvent.error_code);
+  const evolvedAsset = await service.from("pet_visual_assets").select("*").eq("id", evolvedEvent.official_asset_id).single();
+  assert.equal(evolvedAsset.data.parent_asset_id, generatedAsset.data.id);
   const repaired = await owner.client.functions.invoke("evolve-pet", { body: { event_id: eventId, continuity_repair: true } });
   if (repaired.error?.context) throw new Error(`evolve-pet repair: ${await repaired.error.context.text()}`);
   assert.equal(repaired.error, null, repaired.error?.message);
-  assert.equal(repaired.data.parent_asset_id, generation.data.id);
-  const oldOfficial = await service.from("pet_visual_assets").select("superseded_at").eq("id", evolution.data.id).single();
+  const repairedEvent = await waitForMatchingRow("pet_evolution_events", eventId, (row) => row.continuity_repair_used && row.status === "succeeded");
+  assert.equal(repairedEvent.status, "succeeded", repairedEvent.error_code);
+  const repairedAsset = await service.from("pet_visual_assets").select("parent_asset_id").eq("id", repairedEvent.official_asset_id).single();
+  assert.equal(repairedAsset.data.parent_asset_id, generatedAsset.data.id);
+  const oldOfficial = await service.from("pet_visual_assets").select("superseded_at").eq("id", evolvedAsset.data.id).single();
   assert.ok(oldOfficial.data.superseded_at, "continuity repair did not supersede the disconnected result");
   const secondRepair = await owner.client.functions.invoke("evolve-pet", { body: { event_id: eventId, continuity_repair: true } });
   assert.ok(secondRepair.error, "continuity repair was used more than once");
@@ -162,7 +239,42 @@ async function main() {
   const reservations = await Promise.all([1, 2, 3].map((index) => service.rpc("reserve_model_run", { target_run_kind: quotaKind, target_daily_limit: 2, target_owner_id: owner.id, target_prompt_hash: String(index), target_provider: "test", target_model: "test" })));
   assert.equal(reservations.filter((result) => !result.error).length, 2, "atomic quota admitted too many concurrent runs");
 
-  console.log(JSON.stringify({ signupInvite: "passed", pairLimit: "passed", circleLimit: "passed", rls: "passed", chatConstraints: "passed", petLock: "passed", consent: "passed", petRouter: "passed", petCorner: "passed", petGovernance: "passed", styleFeedback: "passed", evolutionContinuity: "passed", newMemberPausesObservation: "passed", atomicQuota: "passed" }, null, 2));
+  const exported = await owner.client.functions.invoke("export-my-data", { body: {} });
+  if (exported.error?.context) throw new Error(`export-my-data: ${await exported.error.context.text()}`);
+  assert.equal(exported.error, null, exported.error?.message);
+  assert.equal(exported.data.profile.id, owner.id);
+  assert.ok(exported.data.authored_messages.length >= 1);
+  assert.ok(exported.data.authored_messages.every((message) => message.id && !Object.hasOwn(message, "sender_id")), "export exposed an unexpected identity field");
+
+  const deletedUser = owner;
+  const beforeDeletion = { data: { id: sent.data.id } };
+  const deleted = await deletedUser.client.functions.invoke("delete-account", { body: { password: deletedUser.password } });
+  if (deleted.error?.context) throw new Error(`delete-account: ${await deleted.error.context.text()}`);
+  assert.equal(deleted.error, null, deleted.error?.message);
+  assert.equal((await service.from("profiles").select("id").eq("id", deletedUser.id)).data.length, 0, "deleted account profile still exists");
+  assert.equal((await service.auth.admin.getUserById(deletedUser.id)).data.user, null, "deleted auth account still exists");
+  const redactedMessage = await service.from("messages").select("sender_id,text,deleted_at").eq("id", beforeDeletion.data.id).single();
+  assert.equal(redactedMessage.data.sender_id, null);
+  assert.equal(redactedMessage.data.text, "[消息已由已注销用户删除]");
+  assert.ok(redactedMessage.data.deleted_at);
+  const transferredPair = await service.from("spaces").select("created_by").eq("id", pair.data).single();
+  assert.equal(transferredPair.data.created_by, member2.id, "owned shared space was not transferred to a remaining member");
+  assert.equal((await service.from("spaces").select("id").eq("id", otherSpace.data)).data.length, 0, "owner-only space survived account deletion");
+
+  if (process.env.DEMO_PURGE_SECRET) {
+    const retention = await service.from("demo_settings").update({ test_ends_at: new Date(Date.now() - 2 * 86_400_000).toISOString(), purge_after_days: 1 }).eq("id", true);
+    assert.equal(retention.error, null, retention.error?.message);
+    const purge = await fetch(`${url}/functions/v1/purge-demo-data`, { method: "POST", headers: { apikey: anonKey, "x-demo-purge-secret": process.env.DEMO_PURGE_SECRET } });
+    const purgeText = await purge.text();
+    assert.equal(purge.status, 200, purgeText);
+    const purgeResult = JSON.parse(purgeText);
+    assert.equal(purgeResult.failed.length, 0, JSON.stringify(purgeResult.failed));
+    assert.ok(purgeResult.purged >= 1);
+    const remainingTesters = await service.from("profiles").select("id", { count: "exact", head: true }).eq("is_admin", false);
+    assert.equal(remainingTesters.count, 0, "retention purge left non-admin test accounts behind");
+  }
+
+  console.log(JSON.stringify({ signupInvite: "passed", pairLimit: "passed", circleLimit: "passed", rls: "passed", chatConstraints: "passed", petLock: "passed", consent: "passed", petRouter: "passed", idempotentJobs: "passed", agentFeedback: "passed", aggregateAdminMetrics: "passed", petCorner: "passed", petGovernance: "passed", styleFeedback: "passed", evolutionContinuity: "passed", newMemberPausesObservation: "passed", atomicQuota: "passed", exportOwnData: "passed", deleteOwnAccount: "passed", retentionPurge: process.env.DEMO_PURGE_SECRET ? "passed" : "skipped" }, null, 2));
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });

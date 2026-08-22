@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { isLocalDemoMode, requireSupabase } from "../lib/supabase";
-import type { AppProfile, ChatMessage, ChatSpace, PetCornerStory, PetObservationStatus, QueuedMessage, RelationshipKind } from "./types";
+import type { AgentFeedbackRating, AgentJob, AppProfile, ChatMessage, ChatSpace, PetCornerStory, PetObservationStatus, QueuedMessage, RelationshipKind } from "./types";
 
 const LOCAL_CHAT_KEY = "pet-cohabitation-local-chat-v2";
 
@@ -27,6 +27,9 @@ export interface ChatRepository {
   interactWithPet(spaceId: string, petId: string, action: "care" | "feed" | "play", note?: string): Promise<PetCornerStory>;
   setPetLocalMute(spaceId: string, petId: string, muted: boolean): Promise<void>;
   votePetPause(spaceId: string, petId: string, paused: boolean): Promise<void>;
+  listAgentJobs(spaceId: string): Promise<readonly AgentJob[]>;
+  retryAgentDispatch(messageId: string): Promise<AgentJob>;
+  feedbackAgentMessage(messageId: string, spaceId: string, rating: AgentFeedbackRating): Promise<void>;
 }
 
 function seedLocalState(user: AppProfile): LocalState {
@@ -203,6 +206,9 @@ class LocalChatRepository implements ChatRepository {
   }
   async setPetLocalMute(spaceId: string, petId: string, muted: boolean): Promise<void> { const state = await loadLocal(this.profile); await saveLocal({ ...state, observationConsents: { ...state.observationConsents, [`mute:${spaceId}:${petId}`]: muted } }, spaceId); }
   async votePetPause(spaceId: string, petId: string, paused: boolean): Promise<void> { const state = await loadLocal(this.profile); await saveLocal({ ...state, observationConsents: { ...state.observationConsents, [`vote:${spaceId}:${petId}`]: paused } }, spaceId); }
+  async listAgentJobs(): Promise<readonly AgentJob[]> { return []; }
+  async retryAgentDispatch(messageId: string): Promise<AgentJob> { return { id: `local-job-${messageId}`, kind: "route_space_pets", scopeId: "local", sourceMessageId: messageId, status: "succeeded", errorCode: null, attempts: 1, createdAt: new Date().toISOString(), completedAt: new Date().toISOString() }; }
+  async feedbackAgentMessage(): Promise<void> { return; }
 }
 
 function reactionsFromRows(rows: readonly Record<string, unknown>[] | null | undefined): Readonly<Record<string, readonly string[]>> {
@@ -232,6 +238,7 @@ function mapRemoteMessage(row: Record<string, any>): ChatMessage {
     createdAt: row.created_at,
     deliveryState: "sent",
     reactions: reactionsFromRows(row.message_reactions),
+    deletedAt: row.deleted_at ?? null,
   };
 }
 
@@ -286,14 +293,14 @@ class SupabaseChatRepository implements ChatRepository {
     const { data, error } = await client.from("messages").insert(payload).select("*, profiles:sender_id(nickname), message_reactions(emoji,user_id)").single();
     if (error && error.code !== "23505") throw error;
     if (data) {
-      void client.functions.invoke("handle-space-message", { body: { message_id: data.id } }).catch(() => undefined);
+      await client.functions.invoke("handle-space-message", { body: { message_id: data.id } }).catch(() => undefined);
       return mapRemoteMessage(data);
     }
     const existing = await client.from("messages")
       .select("*, profiles:sender_id(nickname), message_reactions(emoji,user_id)")
       .eq("sender_id", input.senderId).eq("client_id", input.clientId).single();
     if (existing.error) throw existing.error;
-    void client.functions.invoke("handle-space-message", { body: { message_id: existing.data.id } }).catch(() => undefined);
+    await client.functions.invoke("handle-space-message", { body: { message_id: existing.data.id } }).catch(() => undefined);
     return mapRemoteMessage(existing.data);
   }
 
@@ -312,6 +319,7 @@ class SupabaseChatRepository implements ChatRepository {
     const channels: RealtimeChannel[] = [
       client.channel(`messages:${spaceId}`).on("postgres_changes", { event: "*", schema: "public", table: "messages", filter: `space_id=eq.${spaceId}` }, onChange).subscribe(),
       client.channel(`reactions:${spaceId}`).on("postgres_changes", { event: "*", schema: "public", table: "message_reactions", filter: `space_id=eq.${spaceId}` }, onChange).subscribe(),
+      client.channel(`agent-jobs:${spaceId}`).on("postgres_changes", { event: "*", schema: "public", table: "agent_jobs", filter: `scope_id=eq.${spaceId}` }, onChange).subscribe(),
     ];
     return () => { channels.forEach((channel) => { void client.removeChannel(channel); }); };
   }
@@ -380,6 +388,22 @@ class SupabaseChatRepository implements ChatRepository {
   }
   async setPetLocalMute(spaceId: string, petId: string, muted: boolean): Promise<void> { const { error } = await requireSupabase().rpc("set_pet_local_mute", { target_space_id: spaceId, target_pet_id: petId, decision: muted }); if (error) throw error; }
   async votePetPause(spaceId: string, petId: string, paused: boolean): Promise<void> { const { error } = await requireSupabase().rpc("vote_pet_pause", { target_space_id: spaceId, target_pet_id: petId, decision: paused }); if (error) throw error; }
+  async listAgentJobs(spaceId: string): Promise<readonly AgentJob[]> {
+    const { data, error } = await requireSupabase().from("agent_jobs").select("id,job_kind,scope_id,source_message_id,status,error_code,attempts,created_at,completed_at").eq("scope_kind", "space").eq("scope_id", spaceId).order("created_at", { ascending: false }).limit(50);
+    if (error) throw error;
+    return (data ?? []).map((row) => ({ id: row.id, kind: row.job_kind, scopeId: row.scope_id, sourceMessageId: row.source_message_id, status: row.status, errorCode: row.error_code, attempts: row.attempts, createdAt: row.created_at, completedAt: row.completed_at }));
+  }
+  async retryAgentDispatch(messageId: string): Promise<AgentJob> {
+    const { data, error } = await requireSupabase().functions.invoke("handle-space-message", { body: { message_id: messageId } });
+    if (error) throw error;
+    return { id: data.job_id, kind: "route_space_pets", scopeId: "", sourceMessageId: messageId, status: data.status, errorCode: null, attempts: 0, createdAt: new Date().toISOString(), completedAt: null };
+  }
+  async feedbackAgentMessage(messageId: string, spaceId: string, rating: AgentFeedbackRating): Promise<void> {
+    const user = (await requireSupabase().auth.getUser()).data.user;
+    if (!user) throw new Error("未登录");
+    const { error } = await requireSupabase().from("agent_message_feedback").insert({ message_id: messageId, space_id: spaceId, user_id: user.id, rating });
+    if (error) throw error;
+  }
 }
 
 export function createChatRepository(profile: AppProfile): ChatRepository {

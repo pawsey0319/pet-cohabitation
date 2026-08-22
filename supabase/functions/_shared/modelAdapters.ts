@@ -26,15 +26,56 @@ function required(name: string): string {
 function endpoint(base: string, path: string): string { return `${base.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`; }
 function mockMode(): boolean { return Deno.env.get("MODEL_MOCK_MODE") === "true"; }
 
+async function fetchWithRetry(factory: () => Promise<Response>): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const response = await factory();
+      if (attempt === 1 && (response.status === 429 || response.status >= 500)) {
+        await response.body?.cancel().catch(() => undefined);
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        continue;
+      }
+      return response;
+    } catch (reason) {
+      lastError = reason;
+      if (attempt === 2) throw reason;
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    }
+  }
+  throw lastError ?? new Error("model_request_failed");
+}
+
+function normalizedRequestError(kind: "text" | "image", reason: unknown): Error {
+  if (reason instanceof Error && (reason.name === "TimeoutError" || reason.name === "AbortError")) return new Error(`${kind}_model_timeout`);
+  if (reason instanceof Error && /_model_(timeout|content_blocked|rate_limited|http_\d+)$/.test(reason.message)) return reason;
+  return new Error(`${kind}_model_network_error`);
+}
+
+async function responseError(kind: "text" | "image", response: Response): Promise<Error> {
+  let providerCode = "";
+  try {
+    const payload = await response.clone().json();
+    providerCode = String(payload?.error?.code ?? payload?.error?.type ?? payload?.code ?? "").toLowerCase();
+  } catch { /* Response bodies are intentionally not logged. */ }
+  if (response.status === 408 || response.status === 504) return new Error(`${kind}_model_timeout`);
+  if (response.status === 429) return new Error(`${kind}_model_rate_limited`);
+  if (/content|safety|moderation|policy/.test(providerCode)) return new Error(`${kind}_model_content_blocked`);
+  return new Error(`${kind}_model_http_${response.status}`);
+}
+
 async function chatJson<T>(messages: readonly ChatMessage[], schema: z.ZodType<T>): Promise<T> {
   if (mockMode()) throw new Error("mock_result_required");
-  const response = await fetch(endpoint(required("TEXT_API_BASE_URL"), "chat/completions"), {
-    method: "POST",
-    headers: { Authorization: `Bearer ${required("TEXT_API_KEY")}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: required("TEXT_MODEL"), messages, temperature: 0.55, response_format: { type: "json_object" } }),
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!response.ok) throw new Error(`text_model_http_${response.status}`);
+  let response: Response;
+  try {
+    response = await fetchWithRetry(() => fetch(endpoint(required("TEXT_API_BASE_URL"), "chat/completions"), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${required("TEXT_API_KEY")}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: required("TEXT_MODEL"), messages, temperature: 0.55, response_format: { type: "json_object" } }),
+      signal: AbortSignal.timeout(30_000),
+    }));
+  } catch (reason) { throw normalizedRequestError("text", reason); }
+  if (!response.ok) throw await responseError("text", response);
   const payload = await response.json();
   const content = payload?.choices?.[0]?.message?.content;
   if (typeof content !== "string") throw new Error("text_model_missing_content");
@@ -112,8 +153,10 @@ async function normalizeImagePayload(payload: unknown): Promise<GeneratedImage> 
   const item = (payload as { data?: Array<{ b64_json?: string; url?: string }> })?.data?.[0];
   if (item?.b64_json) return { bytes: decodeBase64(item.b64_json), mimeType: "image/png" };
   if (item?.url) {
-    const response = await fetch(item.url, { signal: AbortSignal.timeout(30_000) });
-    if (!response.ok) throw new Error(`image_download_http_${response.status}`);
+    let response: Response;
+    try { response = await fetch(item.url, { signal: AbortSignal.timeout(30_000) }); }
+    catch (reason) { throw normalizedRequestError("image", reason); }
+    if (!response.ok) throw await responseError("image", response);
     const type = response.headers.get("content-type")?.split(";")[0];
     const mimeType = type === "image/jpeg" || type === "image/webp" ? type : "image/png";
     return { bytes: new Uint8Array(await response.arrayBuffer()), mimeType };
@@ -138,11 +181,13 @@ export class ImageModelAdapter {
       const form = new FormData();
       form.append("model", required("IMAGE_MODEL")); form.append("prompt", input.prompt); form.append("size", "1024x1024"); form.append("response_format", "b64_json");
       form.append("image", new Blob([input.parent.bytes], { type: input.parent.mimeType }), `parent.${input.parent.mimeType.split("/")[1]}`);
-      response = await fetch(endpoint(base, "images/edits"), { method: "POST", headers: { Authorization: `Bearer ${apiKey}` }, body: form, signal: AbortSignal.timeout(90_000) });
+      try { response = await fetchWithRetry(() => fetch(endpoint(base, "images/edits"), { method: "POST", headers: { Authorization: `Bearer ${apiKey}` }, body: form, signal: AbortSignal.timeout(90_000) })); }
+      catch (reason) { throw normalizedRequestError("image", reason); }
     } else {
-      response = await fetch(endpoint(base, "images/generations"), { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: required("IMAGE_MODEL"), prompt: input.prompt, size: "1024x1024", response_format: "b64_json" }), signal: AbortSignal.timeout(90_000) });
+      try { response = await fetchWithRetry(() => fetch(endpoint(base, "images/generations"), { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: required("IMAGE_MODEL"), prompt: input.prompt, size: "1024x1024", response_format: "b64_json" }), signal: AbortSignal.timeout(90_000) })); }
+      catch (reason) { throw normalizedRequestError("image", reason); }
     }
-    if (!response.ok) throw new Error(`image_model_http_${response.status}`);
+    if (!response.ok) throw await responseError("image", response);
     return normalizeImagePayload(await response.json());
   }
 

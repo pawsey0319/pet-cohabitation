@@ -1,5 +1,6 @@
 import { z } from "npm:zod@4";
 import { optionsResponse } from "../_shared/cors.ts";
+import { assertRegistrationAllowed } from "../_shared/demoSettings.ts";
 import { sha256 } from "../_shared/hash.ts";
 import { errorResponse, json } from "../_shared/responses.ts";
 import { anonClient, requirePost, serviceClient } from "../_shared/supabase.ts";
@@ -17,6 +18,7 @@ Deno.serve(async (request) => {
     requirePost(request);
     const input = Input.parse(await request.json());
     const service = serviceClient();
+    await assertRegistrationAllowed(service);
     const codeHash = await sha256(input.inviteCode.toUpperCase());
     const { data: created, error: createError } = await service.auth.admin.createUser({
       email: input.email.toLowerCase(), password: input.password, email_confirm: true,

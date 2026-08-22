@@ -49,7 +49,7 @@ test("two browser accounts invite, chat, reply, react and receive an Agent summa
     createdSpaceId = new URL(pageA.url()).pathname.split("/").at(-1)!;
 
     await pageA.getByPlaceholder("发消息…").fill("你好，这是浏览器甲发来的消息");
-    await pageA.getByRole("button", { name: "发送消息" }).click();
+    await pageA.getByPlaceholder("发消息…").press("Enter");
     await expect(pageA.getByText("你好，这是浏览器甲发来的消息")).toBeVisible();
 
     await pageA.getByRole("button", { name: "聊天更多功能" }).click();
@@ -98,7 +98,7 @@ test("owner incubates, confirms and evolves the same pet", async ({ browser }) =
     for (let turn = 1; turn <= 5; turn += 1) {
       const input = page.getByPlaceholder("说说你喜欢怎样相处…");
       await input.fill(`第 ${turn} 次相处：我喜欢先观察，再说出真实感受。`);
-      await page.getByText("发送", { exact: true }).click();
+      await input.press("Enter");
       await expect(page.getByText(`${turn} / 5 轮`)).toBeVisible();
     }
     await page.getByRole("button", { name: "生成第一张候选" }).click();

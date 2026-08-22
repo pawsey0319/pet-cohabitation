@@ -2,6 +2,8 @@ export type RelationshipKind = "friend_pair" | "lover_pair" | "friend_circle";
 export type MessageKind = "text" | "image" | "voice" | "system";
 export type ActorKind = "human" | "pet" | "space_agent";
 export type DeliveryState = "pending" | "sent" | "failed";
+export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "blocked";
+export type AgentFeedbackRating = "natural" | "irrelevant" | "intrusive" | "unsafe";
 
 export type AppProfile = Readonly<{
   id: string;
@@ -40,6 +42,19 @@ export type ChatMessage = Readonly<{
   createdAt: string;
   deliveryState: DeliveryState;
   reactions: Readonly<Record<string, readonly string[]>>;
+  deletedAt?: string | null;
+}>;
+
+export type AgentJob = Readonly<{
+  id: string;
+  kind: string;
+  scopeId: string;
+  sourceMessageId: string | null;
+  status: JobStatus;
+  errorCode: string | null;
+  attempts: number;
+  createdAt: string;
+  completedAt: string | null;
 }>;
 
 export type QueuedMessage = Readonly<{
@@ -137,5 +152,42 @@ export type PetEvolutionEvent = Readonly<{
   status: "queued" | "running" | "succeeded" | "failed" | "blocked";
   failedAttempts: number;
   continuityRepairUsed: boolean;
+  errorCode?: string | null;
   createdAt: string;
+}>;
+
+export type PetGenerationSession = Readonly<{
+  id: string;
+  status: JobStatus;
+  instruction: string;
+  baseAssetId: string | null;
+  explore: boolean;
+  attempts: number;
+  errorCode: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}>;
+
+export type DemoSettings = Readonly<{
+  registrationEnabled: boolean;
+  imageGenerationEnabled: boolean;
+  implicitPetRepliesEnabled: boolean;
+  maxRegisteredUsers: number;
+  globalDailyImageLimit: number;
+  testEndsAt: string | null;
+  purgeAfterDays: number;
+}>;
+
+export type AdminDemoMetrics = Readonly<{
+  registeredUsers: number;
+  spaces: number;
+  jobsToday: number;
+  jobsSucceededToday: number;
+  jobsFailedToday: number;
+  modelRunsToday: number;
+  imageRunsToday: number;
+  modelSuccessRate: number;
+  averageLatencyMs: number;
+  feedback: Readonly<Record<string, number>>;
+  recentErrors: readonly Readonly<{ error_code: string; total: number }>[];
 }>;

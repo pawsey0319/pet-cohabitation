@@ -8,6 +8,7 @@ coverage/
 .env
 .env.local
 .env.*.local
+supabase/functions/.env.production
 playwright-report/
 test-results/
 supabase/.temp/
