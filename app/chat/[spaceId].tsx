@@ -3,7 +3,7 @@ import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, 
 import * as ImagePicker from "expo-image-picker";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, type TextInputKeyPressEvent, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSession } from "../../src/auth/SessionProvider";
 import { AsyncStorageOutboxStore, createClientId, MessageOutbox } from "../../src/chat/outbox";
@@ -128,6 +128,21 @@ export default function ChatScreen() {
     await flush();
   };
 
+  const sendTextMessage = () => {
+    const message = text.trim();
+    if (!message) return;
+    void enqueueAndSend({ kind: "text", text: message });
+  };
+
+  const handleComposerKeyPress = (event: TextInputKeyPressEvent) => {
+    if (Platform.OS !== "web" || event.nativeEvent.key !== "Enter") return;
+    const nativeEvent = event.nativeEvent as typeof event.nativeEvent & { isComposing?: boolean; keyCode?: number; shiftKey?: boolean };
+    const shiftKey = (event as unknown as { shiftKey?: boolean }).shiftKey ?? nativeEvent.shiftKey;
+    if (shiftKey || nativeEvent.isComposing || nativeEvent.keyCode === 229) return;
+    event.preventDefault();
+    sendTextMessage();
+  };
+
   const pickImage = async () => {
     setMenu(false); const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.82, allowsEditing: false });
     if (result.canceled) return; const asset = result.assets[0];
@@ -172,7 +187,7 @@ export default function ChatScreen() {
       )}
       {replying ? <View style={styles.replying}><View style={{ flex: 1 }}><Text style={styles.replyingLabel}>回复 {replying.actorName}</Text><Text numberOfLines={1} style={styles.replyingText}>{replying.text ?? `[${replying.kind}]`}</Text></View><Pressable onPress={() => setReplying(null)}><Text style={styles.close}>×</Text></Pressable></View> : null}
       {recorderState.isRecording ? <View style={styles.recording}><View style={styles.recordDot} /><Text style={styles.recordText}>正在录音 {Math.min(60, Math.round(recorderState.durationMillis / 1000))} / 60 秒</Text><Pressable onPress={() => void stopVoice()}><Text style={styles.stopText}>停止并发送</Text></Pressable></View> : (
-        <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 9) }]}><Pressable accessibilityRole="button" accessibilityLabel="添加图片语音或玩法" onPress={() => setMenu(true)} style={styles.plus}><Text style={styles.plusText}>＋</Text></Pressable><TextInput accessibilityLabel="消息内容" value={text} onChangeText={setText} multiline maxLength={4000} placeholder="发消息…" placeholderTextColor={colors.textMuted} style={styles.composerInput} /><Pressable accessibilityRole="button" accessibilityLabel="发送消息" disabled={!text.trim()} onPress={() => void enqueueAndSend({ kind: "text", text: text.trim() })} style={[styles.send, !text.trim() && styles.sendDisabled]}><Text style={styles.sendText}>发送</Text></Pressable></View>
+        <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 9) }]}><Pressable accessibilityRole="button" accessibilityLabel="添加图片语音或玩法" onPress={() => setMenu(true)} style={styles.plus}><Text style={styles.plusText}>＋</Text></Pressable><TextInput accessibilityLabel="消息内容" value={text} onChangeText={setText} onKeyPress={handleComposerKeyPress} onSubmitEditing={sendTextMessage} multiline submitBehavior={Platform.OS === "web" ? "newline" : "submit"} returnKeyType="send" maxLength={4000} placeholder="发消息…" placeholderTextColor={colors.textMuted} style={styles.composerInput} /><Pressable accessibilityRole="button" accessibilityLabel="发送消息" disabled={!text.trim()} onPress={sendTextMessage} style={[styles.send, !text.trim() && styles.sendDisabled]}><Text style={styles.sendText}>发送</Text></Pressable></View>
       )}
       <Modal visible={menu} transparent animationType="fade" onRequestClose={() => setMenu(false)}><Pressable style={styles.overlay} onPress={() => setMenu(false)}><View style={styles.menuGrid}><Pressable onPress={() => void pickImage()} style={styles.menuItem}><Text style={styles.menuIcon}>▧</Text><Text style={styles.menuLabel}>图片</Text></Pressable><Pressable onPress={() => void startVoice()} style={styles.menuItem}><Text style={styles.menuIcon}>◉</Text><Text style={styles.menuLabel}>短语音</Text></Pressable><Pressable onPress={() => { setMenu(false); void invitePeople(); }} style={styles.menuItem}><Text style={styles.menuIcon}>＋</Text><Text style={styles.menuLabel}>邀请成员</Text></Pressable><Pressable onPress={() => { setMenu(false); void repository.summarizeSpace(spaceId).then(loadLatest).catch((reason) => setError(reason instanceof Error ? reason.message : "总结失败")); }} style={styles.menuItem}><Text style={styles.menuIcon}>A</Text><Text style={styles.menuLabel}>群聊总结</Text></Pressable><Pressable onPress={openCorner} style={styles.menuItem}><Text style={styles.menuIcon}>✦</Text><Text style={styles.menuLabel}>宠物角</Text></Pressable><Pressable onPress={openObservation} style={styles.menuItem}><Text style={styles.menuIcon}>◎</Text><Text style={styles.menuLabel}>观察授权</Text></Pressable></View></Pressable></Modal>
       <Modal visible={Boolean(invite)} transparent animationType="fade" onRequestClose={() => setInvite(null)}><View style={styles.overlayCenter}><View style={styles.inviteCard}><Text style={styles.inviteTitle}>7 天空间邀请</Text><Text selectable style={styles.inviteLink}>{invite}</Text><Text style={styles.inviteNote}>双人空间只能补足至 2 人，群空间最多 20 人；上限由数据库事务强制执行。</Text><AppButton label="完成" onPress={() => setInvite(null)} /></View></View></Modal>
