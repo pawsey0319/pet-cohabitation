@@ -63,7 +63,7 @@ function MessageRow({ message, mine, signedUrl, selected, onSelect, onReply, onR
 }
 
 export default function ChatScreen() {
-  const { spaceId } = useLocalSearchParams<{ spaceId: string }>(); const { profile, isLoading: sessionLoading } = useSession(); const insets = useSafeAreaInsets(); const netInfo = useNetInfo();
+  const { spaceId } = useLocalSearchParams<{ spaceId: string }>(); const { profile, isLoading: sessionLoading, isLocalDemo } = useSession(); const insets = useSafeAreaInsets(); const netInfo = useNetInfo();
   const repository = useMemo(() => profile ? createChatRepository(profile) : null, [profile]); const outbox = useMemo(() => new MessageOutbox(new AsyncStorageOutboxStore()), []);
   const [messages, setMessages] = useState<readonly ChatMessage[]>([]); const [loading, setLoading] = useState(true); const [loadingOlder, setLoadingOlder] = useState(false); const [hasOlder, setHasOlder] = useState(true);
   const [text, setText] = useState(""); const [replying, setReplying] = useState<ChatMessage | null>(null); const [selectedId, setSelectedId] = useState<string | null>(null); const [error, setError] = useState<string | null>(null);
@@ -161,7 +161,7 @@ export default function ChatScreen() {
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={0} style={styles.page}>
-      <View style={[styles.header, { paddingTop: insets.top + 6 }]}><Pressable accessibilityRole="button" accessibilityLabel="返回会话列表" onPress={() => router.back()} style={styles.headerButton}><Text style={styles.headerButtonText}>‹</Text></Pressable><View style={styles.headerTitleWrap}><Text style={styles.headerTitle}>关系空间</Text><Text style={styles.headerStatus}>{connected ? "实时连接" : "离线 · 消息会稍后重试"}</Text></View><Pressable accessibilityRole="button" accessibilityLabel="聊天更多功能" onPress={() => setMenu(true)} style={styles.headerButton}><Text style={styles.more}>•••</Text></Pressable></View>
+      <View style={[styles.header, { paddingTop: insets.top + 6 }]}><Pressable accessibilityRole="button" accessibilityLabel="返回会话列表" onPress={() => router.back()} style={styles.headerButton}><Text style={styles.headerButtonText}>‹</Text></Pressable><View style={styles.headerTitleWrap}><Text style={styles.headerTitle}>关系空间</Text><Text style={styles.headerStatus}>{isLocalDemo ? "本地演示" : connected ? "实时连接" : "离线 · 消息会稍后重试"}</Text></View><Pressable accessibilityRole="button" accessibilityLabel="聊天更多功能" onPress={() => setMenu(true)} style={styles.headerButton}><Text style={styles.more}>•••</Text></Pressable></View>
       {error ? <Pressable onPress={() => setError(null)} style={styles.errorBar}><Text style={styles.errorBarText}>{error}</Text></Pressable> : null}
       {loading ? <View style={styles.center}><ActivityIndicator color={colors.coral} /></View> : (
         <FlatList ref={listRef} data={messages} keyExtractor={(item) => `${item.senderId}:${item.clientId}`} contentContainerStyle={styles.messages}

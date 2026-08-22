@@ -61,7 +61,7 @@ npm run test:e2e
 npx supabase db lint --level warning
 ```
 
-当前自动化包含 147 个领域/UI 测试、数据库集成验收，以及两个真实浏览器账号的邀请、聊天、回复、回应、Agent 摘要和异宠孵化—确认—进化流程。完整验收点见 [验收清单](docs/acceptance.md)。
+当前自动化包含 148 个领域/UI 测试、数据库集成验收，以及两个真实浏览器账号的邀请、聊天、回复、回应、Agent 摘要和异宠孵化—确认—进化流程。完整验收点见 [验收清单](docs/acceptance.md)。
 
 ## 目录
 

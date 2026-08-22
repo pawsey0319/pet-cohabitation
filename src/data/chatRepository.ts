@@ -147,7 +147,10 @@ class LocalChatRepository implements ChatRepository {
 
   async markRead(spaceId: string): Promise<void> {
     const state = await loadLocal(this.profile);
-    await saveLocal({ ...state, spaces: state.spaces.map((space) => space.id === spaceId ? { ...space, unreadCount: 0 } : space) }, spaceId);
+    if (!state.spaces.some((space) => space.id === spaceId && space.unreadCount > 0)) return;
+    // Read-state changes must not notify the message subscription. Otherwise
+    // ChatScreen reloads, marks read again, and creates an endless local loop.
+    await AsyncStorage.setItem(LOCAL_CHAT_KEY, JSON.stringify({ ...state, spaces: state.spaces.map((space) => space.id === spaceId ? { ...space, unreadCount: 0 } : space) }));
   }
 
   subscribe(spaceId: string, onChange: () => void): Unsubscribe {
