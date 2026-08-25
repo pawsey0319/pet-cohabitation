@@ -9,7 +9,7 @@ import { colors, radii, spacing } from "../../src/theme/tokens";
 import { Surface } from "../../src/ui/common";
 
 function mapSettings(row: Record<string, any>): DemoSettings {
-  return { registrationEnabled: row.registration_enabled, imageGenerationEnabled: row.image_generation_enabled, implicitPetRepliesEnabled: row.implicit_pet_replies_enabled, maxRegisteredUsers: row.max_registered_users, globalDailyImageLimit: row.global_daily_image_limit, testEndsAt: row.test_ends_at, purgeAfterDays: row.purge_after_days };
+  return { registrationEnabled: row.registration_enabled, imageGenerationEnabled: row.image_generation_enabled, implicitPetRepliesEnabled: row.implicit_pet_replies_enabled, maxRegisteredUsers: row.max_registered_users, globalDailyImageLimit: row.global_daily_image_limit, testEndsAt: row.test_ends_at, purgeAfterDays: row.purge_after_days, evolutionThresholdMode: row.evolution_threshold_mode ?? "standard" };
 }
 
 function mapMetrics(row: Record<string, any>): AdminDemoMetrics {
@@ -27,7 +27,7 @@ export default function AdminStatusScreen() {
   const load = useCallback(async () => {
     if (isLocalDemoMode) {
       setMetrics({ registeredUsers: 1, spaces: 2, jobsToday: 0, jobsSucceededToday: 0, jobsFailedToday: 0, modelRunsToday: 0, imageRunsToday: 0, modelSuccessRate: 100, averageLatencyMs: 0, feedback: {}, recentErrors: [] });
-      setSettings({ registrationEnabled: true, imageGenerationEnabled: true, implicitPetRepliesEnabled: true, maxRegisteredUsers: 21, globalDailyImageLimit: 400, testEndsAt: null, purgeAfterDays: 30 });
+      setSettings({ registrationEnabled: true, imageGenerationEnabled: true, implicitPetRepliesEnabled: true, maxRegisteredUsers: 21, globalDailyImageLimit: 400, testEndsAt: null, purgeAfterDays: 30, evolutionThresholdMode: "standard" });
       setBusy(false);
       return;
     }
@@ -49,9 +49,9 @@ export default function AdminStatusScreen() {
   if (!profile) return <Redirect href="/login" />;
   if (!profile.isAdmin) return <Redirect href="/me" />;
 
-  const update = async (patch: Record<string, boolean>) => {
+  const update = async (patch: Record<string, boolean | string>) => {
     if (isLocalDemoMode) {
-      setSettings((current) => current ? { ...current, registrationEnabled: patch.registration_enabled ?? current.registrationEnabled, imageGenerationEnabled: patch.image_generation_enabled ?? current.imageGenerationEnabled, implicitPetRepliesEnabled: patch.implicit_pet_replies_enabled ?? current.implicitPetRepliesEnabled } : current);
+      setSettings((current) => current ? { ...current, registrationEnabled: typeof patch.registration_enabled === "boolean" ? patch.registration_enabled : current.registrationEnabled, imageGenerationEnabled: typeof patch.image_generation_enabled === "boolean" ? patch.image_generation_enabled : current.imageGenerationEnabled, implicitPetRepliesEnabled: typeof patch.implicit_pet_replies_enabled === "boolean" ? patch.implicit_pet_replies_enabled : current.implicitPetRepliesEnabled, evolutionThresholdMode: patch.evolution_threshold_mode === "accelerated" ? "accelerated" : patch.evolution_threshold_mode === "standard" ? "standard" : current.evolutionThresholdMode } : current);
       return;
     }
     setBusy(true);
@@ -69,6 +69,7 @@ export default function AdminStatusScreen() {
       <View style={styles.control}><View style={styles.controlText}><Text style={styles.controlTitle}>允许邀请码注册</Text><Text style={styles.controlNote}>关闭后现有账号仍可登录</Text></View><Switch value={settings.registrationEnabled} disabled={busy} onValueChange={(value) => void update({ registration_enabled: value })} /></View>
       <View style={styles.control}><View style={styles.controlText}><Text style={styles.controlTitle}>允许图像生成</Text><Text style={styles.controlNote}>关闭后私聊和人类聊天继续可用</Text></View><Switch value={settings.imageGenerationEnabled} disabled={busy} onValueChange={(value) => void update({ image_generation_enabled: value })} /></View>
       <View style={styles.control}><View style={styles.controlText}><Text style={styles.controlTitle}>允许异宠隐式回应</Text><Text style={styles.controlNote}>明确 @ 异宠仍可回应</Text></View><Switch value={settings.implicitPetRepliesEnabled} disabled={busy} onValueChange={(value) => void update({ implicit_pet_replies_enabled: value })} /></View>
+      <View style={styles.control}><View style={styles.controlText}><Text style={styles.controlTitle}>加速验证自动进化</Text><Text style={styles.controlNote}>{settings.evolutionThresholdMode === "accelerated" ? "3 个活跃日 / 12 次有效互动 / 3 类经历" : "正式节奏：14 个活跃日 / 30 次有效互动 / 3 类经历"}</Text></View><Switch value={settings.evolutionThresholdMode === "accelerated"} disabled={busy} onValueChange={(value) => void update({ evolution_threshold_mode: value ? "accelerated" : "standard" })} /></View>
     </Surface> : null}
     <Surface style={styles.controls}><Text style={styles.sectionTitle}>今日任务</Text><Text style={styles.copy}>成功 {metrics?.jobsSucceededToday ?? 0} · 失败 {metrics?.jobsFailedToday ?? 0} · 总计 {metrics?.jobsToday ?? 0}</Text>{metrics?.recentErrors.length ? metrics.recentErrors.map((item) => <View key={item.error_code} style={styles.errorRow}><Text numberOfLines={1} style={styles.errorCode}>{item.error_code}</Text><Text style={styles.errorCount}>{item.total}</Text></View>) : <Text style={styles.good}>暂无模型错误</Text>}</Surface>
     <Surface style={styles.controls}><Text style={styles.sectionTitle}>异宠回应反馈</Text><Text style={styles.copy}>自然 {metrics?.feedback.natural ?? 0} · 不相关 {metrics?.feedback.irrelevant ?? 0} · 打扰 {metrics?.feedback.intrusive ?? 0} · 越界 {metrics?.feedback.unsafe ?? 0}</Text></Surface>

@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { isLocalDemoMode, requireSupabase } from "../lib/supabase";
 import { DAILY_CANDIDATE_LIMIT, canGenerateInitialCandidate } from "../pets/rules";
-import type { AppProfile, PetEvolutionEvent, PetExperience, PetGenerationSession, PetPrivateMessage, PetRecord, PetVisualAsset, StyleSignal } from "./types";
+import type { AppProfile, PetEvolutionEvent, PetExperience, PetGenerationSession, PetMotionState, PetPrivateMessage, PetRecallSource, PetRecord, PetRuntimeState, PetVisualAsset, StyleSignal } from "./types";
 
 const LOCAL_PET_KEY = "pet-cohabitation-local-pet-v2";
 
@@ -15,6 +15,7 @@ type LocalPetState = Readonly<{
   experiences?: readonly PetExperience[];
   evolutionEvents?: readonly PetEvolutionEvent[];
   generationSessions?: readonly PetGenerationSession[];
+  runtimeState?: PetRuntimeState | null;
 }>;
 
 export interface PetRepository {
@@ -32,7 +33,9 @@ export interface PetRepository {
   createSignedAssetUrl(path: string): Promise<string>;
   listExperiences(): Promise<readonly PetExperience[]>;
   listEvolutionEvents(): Promise<readonly PetEvolutionEvent[]>;
-  evolve(input: { blessing?: string; eventId?: string; continuityRepair?: boolean }): Promise<PetEvolutionEvent>;
+  getRuntimeState(): Promise<PetRuntimeState | null>;
+  performAction(action: "care" | "feed" | "play" | "rest"): Promise<PetRuntimeState>;
+  retryEvolution(eventId: string, continuityRepair?: boolean): Promise<PetEvolutionEvent>;
   subscribe(onChange: () => void): () => void;
 }
 
@@ -64,7 +67,8 @@ class LocalPetRepository implements PetRepository {
     const messages = [...state.messages, owner, pet];
     const signals = turn === 3 && !state.signals.length ? [...state.signals, { id: "local-signal-1", tendency: "先观察，再温和回应", rationale: "你连续几次先描述感受，再提出期待。", sourceKind: "pet_private" as const, sourceLabel: "异宠私聊", confidence: .72, createdAt: now, feedback: null }] : state.signals;
     const experiences = state.pet.status === "confirmed" ? [{ id: `local-exp-${Date.now()}`, category: "shared" as const, summary: `你和${state.pet.name}聊了一段只属于彼此的话：${content.slice(0, 180)}`, spaceId: null, occurredAt: now }, ...(state.experiences ?? [])] : state.experiences;
-    await saveLocal({ ...state, messages, signals, experiences }); return pet;
+    const runtimeState: PetRuntimeState = { petId: state.pet.id, state: "happy", sourceKind: "private_chat", sourceId: pet.id, startedAt: now, expiresAt: new Date(Date.now() + 8_000).toISOString() };
+    await saveLocal({ ...state, messages, signals, experiences, runtimeState }); return pet;
   }
   async listAssets() { return (await loadLocal()).assets; }
   async listGenerationSessions() { return (await loadLocal()).generationSessions ?? []; }
@@ -90,15 +94,30 @@ class LocalPetRepository implements PetRepository {
   async createSignedAssetUrl(path: string) { return path; }
   async listExperiences() { return (await loadLocal()).experiences ?? []; }
   async listEvolutionEvents() { return (await loadLocal()).evolutionEvents ?? []; }
-  async evolve(input: { blessing?: string; eventId?: string; continuityRepair?: boolean }) {
+  async getRuntimeState() {
+    const state = await loadLocal(); const runtime = state.runtimeState;
+    if (!runtime) return state.pet ? { petId: state.pet.id, state: "idle" as const, sourceKind: "system" as const, sourceId: null, startedAt: new Date().toISOString(), expiresAt: null } : null;
+    return runtime.expiresAt && Date.parse(runtime.expiresAt) <= Date.now() ? { ...runtime, state: "idle" as const, sourceKind: "system" as const, sourceId: null, expiresAt: null } : runtime;
+  }
+  async performAction(action: "care" | "feed" | "play" | "rest") {
+    const state = await loadLocal(); if (!state.pet || state.pet.status !== "confirmed") throw new Error("请先确认异宠");
+    const now = new Date().toISOString(); const details: Record<typeof action, { motion: PetMotionState; category: PetExperience["category"]; duration: number; summary: string }> = {
+      care: { motion: "happy", category: "care", duration: 8, summary: `你陪${state.pet.name}安静待了一会儿，它慢慢放松下来。` },
+      feed: { motion: "eating", category: "care", duration: 12, summary: `你递给${state.pet.name}一份想象中的小点心，它认真记住了气味。` },
+      play: { motion: "playing", category: "social", duration: 12, summary: `你和${state.pet.name}玩了一场追光游戏，它学会了新的转身动作。` },
+      rest: { motion: "sleeping", category: "shared", duration: 30, summary: `你替${state.pet.name}整理好小窝，它安心睡着了。` },
+    };
+    const detail = details[action]; const experience: PetExperience = { id: `local-exp-${Date.now()}`, category: detail.category, summary: detail.summary, spaceId: null, occurredAt: now };
+    const runtimeState: PetRuntimeState = { petId: state.pet.id, state: detail.motion, sourceKind: "owner_action", sourceId: experience.id, startedAt: now, expiresAt: new Date(Date.now() + detail.duration * 1_000).toISOString() };
+    await saveLocal({ ...state, experiences: [experience, ...(state.experiences ?? [])], runtimeState }); return runtimeState;
+  }
+  async retryEvolution(eventId: string, continuityRepair = false) {
     const state = await loadLocal(); if (!state.pet?.currentAssetId) throw new Error("请先确认异宠");
-    const existing = input.eventId ? (state.evolutionEvents ?? []).find((event) => event.id === input.eventId) : null;
-    if (!existing && !(state.experiences ?? []).some((experience) => Date.parse(experience.occurredAt) > Date.parse(state.pet!.confirmedAt ?? "1970-01-01"))) throw new Error("确认后先和它相处一次，再开启重大进化");
-    if (existing?.officialAssetId && !input.continuityRepair) throw new Error("这个进化事件已经有正式结果");
-    if (input.continuityRepair && (!existing?.officialAssetId || existing.continuityRepairUsed)) throw new Error("连续性修复不可用");
-    const parentId = existing?.parentAssetId ?? state.pet.currentAssetId; const eventId = existing?.id ?? `local-evolution-${Date.now()}`;
-    const asset: PetVisualAsset = { id: `local-evolved-${Date.now()}`, petId: state.pet.id, storagePath: `local-evolved-${Date.now()}-${encodeURIComponent(input.blessing ?? "成长")}`, parentAssetId: parentId, evolutionEventId: eventId, isDraft: false, createdAt: new Date().toISOString() };
-    const event: PetEvolutionEvent = { id: eventId, parentAssetId: parentId, officialAssetId: asset.id, ownerBlessing: existing?.ownerBlessing ?? input.blessing ?? null, status: "succeeded", failedAttempts: existing?.failedAttempts ?? 0, continuityRepairUsed: Boolean(input.continuityRepair || existing?.continuityRepairUsed), createdAt: existing?.createdAt ?? new Date().toISOString() };
+    const existing = (state.evolutionEvents ?? []).find((event) => event.id === eventId); if (!existing) throw new Error("进化事件不存在");
+    if (existing.officialAssetId && !continuityRepair) throw new Error("这个进化事件已经有正式结果");
+    if (continuityRepair && (!existing.officialAssetId || existing.continuityRepairUsed)) throw new Error("连续性修复不可用");
+    const asset: PetVisualAsset = { id: `local-evolved-${Date.now()}`, petId: state.pet.id, storagePath: `local-evolved-${Date.now()}-continuity`, parentAssetId: existing.parentAssetId, evolutionEventId: eventId, isDraft: false, createdAt: new Date().toISOString() };
+    const event: PetEvolutionEvent = { ...existing, officialAssetId: asset.id, status: "succeeded", continuityRepairUsed: continuityRepair || existing.continuityRepairUsed };
     await saveLocal({ ...state, pet: { ...state.pet, currentAssetId: asset.id }, assets: [...state.assets, asset], evolutionEvents: [event, ...(state.evolutionEvents ?? []).filter((item) => item.id !== eventId)] }); return event;
   }
   subscribe(): () => void { return () => undefined; }
@@ -107,7 +126,9 @@ class LocalPetRepository implements PetRepository {
 function mapPet(row: Record<string, any>, turns: number, remainingToday: number): PetRecord { return { id: row.id, ownerId: row.owner_id, name: row.name, status: row.status, conversationTurns: turns, currentAssetId: row.current_asset_id, confirmedAt: row.confirmed_at, generationsRemainingToday: remainingToday }; }
 function mapAsset(row: Record<string, any>): PetVisualAsset { return { id: row.id, petId: row.pet_id, storagePath: row.storage_path, parentAssetId: row.parent_asset_id, evolutionEventId: row.evolution_event_id, isDraft: row.is_draft, createdAt: row.created_at }; }
 function mapGeneration(row: Record<string, any>): PetGenerationSession { return { id: row.id, status: row.status, instruction: row.instruction, baseAssetId: row.base_asset_id, explore: row.explore, attempts: Number(row.attempts ?? 0), errorCode: row.error_code ?? null, createdAt: row.created_at, completedAt: row.completed_at ?? null }; }
-function mapEvolution(row: Record<string, any>): PetEvolutionEvent { return { id: row.id, parentAssetId: row.parent_asset_id, officialAssetId: row.official_asset_id, ownerBlessing: row.owner_blessing, status: row.status, failedAttempts: row.failed_attempts, continuityRepairUsed: row.continuity_repair_used, errorCode: row.error_code ?? null, createdAt: row.created_at }; }
+function mapRecallSources(value: unknown): readonly PetRecallSource[] { return Array.isArray(value) ? value.map((source: Record<string, any>) => ({ spaceId: source.space_id, spaceName: source.space_name, messageId: source.message_id, createdAt: source.created_at })).filter((source) => source.spaceId && source.messageId) : []; }
+function mapEvolution(row: Record<string, any>): PetEvolutionEvent { return { id: row.id, parentAssetId: row.parent_asset_id, officialAssetId: row.official_asset_id, ownerBlessing: row.owner_blessing, status: row.status, failedAttempts: row.failed_attempts, continuityRepairUsed: row.continuity_repair_used, errorCode: row.error_code ?? null, createdAt: row.created_at, growthSnapshot: row.growth_snapshot ?? {} }; }
+function mapRuntime(row: Record<string, any>): PetRuntimeState { return { petId: row.pet_id, state: row.expires_at && Date.parse(row.expires_at) <= Date.now() ? "idle" : row.state, sourceKind: row.source_kind, sourceId: row.source_id ?? null, startedAt: row.started_at, expiresAt: row.expires_at ?? null }; }
 
 class SupabasePetRepository implements PetRepository {
   async getPet() {
@@ -118,8 +139,8 @@ class SupabasePetRepository implements PetRepository {
     return mapPet(data, turns.count ?? 0, Number(quota.data ?? 0));
   }
   async createPet(name: string) { const client = requireSupabase(); const user = (await client.auth.getUser()).data.user; if (!user) throw new Error("未登录"); const { data, error } = await client.from("pets").insert({ owner_id: user.id, name: name.trim() }).select("*").single(); if (error) throw error; return mapPet(data, 0, DAILY_CANDIDATE_LIMIT); }
-  async listPrivateMessages() { const { data, error } = await requireSupabase().from("pet_private_threads").select("id,role,content,created_at").order("created_at"); if (error) throw error; return (data ?? []).map((row) => ({ id: row.id, role: row.role, content: row.content, createdAt: row.created_at })); }
-  async chat(content: string): Promise<PetPrivateMessage> { const { data, error } = await requireSupabase().functions.invoke("pet-chat", { body: { content } }); if (error) throw error; return { id: data.id, role: "pet", content: data.content, createdAt: data.created_at }; }
+  async listPrivateMessages() { const { data, error } = await requireSupabase().from("pet_private_threads").select("id,role,content,created_at,recall_sources").order("created_at"); if (error) throw error; return (data ?? []).map((row) => ({ id: row.id, role: row.role, content: row.content, createdAt: row.created_at, recallSources: mapRecallSources(row.recall_sources) })); }
+  async chat(content: string): Promise<PetPrivateMessage> { const { data, error } = await requireSupabase().functions.invoke("pet-chat", { body: { content } }); if (error) throw error; return { id: data.id, role: "pet", content: data.content, createdAt: data.created_at, recallSources: mapRecallSources(data.recall_sources) }; }
   async listAssets() { const { data, error } = await requireSupabase().from("pet_visual_assets").select("*").order("created_at"); if (error) throw error; return (data ?? []).map(mapAsset); }
   async listGenerationSessions() { const { data, error } = await requireSupabase().from("pet_generation_sessions").select("id,status,instruction,base_asset_id,explore,attempts,error_code,created_at,completed_at").order("created_at", { ascending: false }).limit(30); if (error) throw error; return (data ?? []).map(mapGeneration); }
   async generateCandidate(instruction: string, baseAssetId?: string | null, explore = false) { const { data, error } = await requireSupabase().functions.invoke("generate-pet-candidate", { body: { instruction, base_asset_id: baseAssetId ?? null, explore, request_id: crypto.randomUUID() } }); if (error) throw error; const row = await requireSupabase().from("pet_generation_sessions").select("*").eq("id", data.session_id).single(); if (row.error) throw row.error; return mapGeneration(row.data); }
@@ -129,11 +150,13 @@ class SupabasePetRepository implements PetRepository {
   async feedback(signalId: string, feedback: "accepted" | "corrected" | "forgotten", correction?: string) { const { error } = await requireSupabase().from("pet_style_feedback").upsert({ signal_id: signalId, feedback_kind: feedback, correction: correction ?? null }, { onConflict: "signal_id" }); if (error) throw error; }
   async createSignedAssetUrl(path: string) { const { data, error } = await requireSupabase().storage.from("pet-portraits").createSignedUrl(path, 900); if (error) throw error; return data.signedUrl; }
   async listExperiences(): Promise<readonly PetExperience[]> { const { data, error } = await requireSupabase().from("pet_experiences").select("id,category,summary,space_id,occurred_at").order("occurred_at", { ascending: false }).limit(50); if (error) throw error; return (data ?? []).map((row) => ({ id: row.id, category: row.category, summary: row.summary, spaceId: row.space_id, occurredAt: row.occurred_at })); }
-  async listEvolutionEvents(): Promise<readonly PetEvolutionEvent[]> { const { data, error } = await requireSupabase().from("pet_evolution_events").select("id,parent_asset_id,official_asset_id,owner_blessing,status,failed_attempts,continuity_repair_used,error_code,created_at").order("created_at", { ascending: false }); if (error) throw error; return (data ?? []).map(mapEvolution); }
-  async evolve(input: { blessing?: string; eventId?: string; continuityRepair?: boolean }): Promise<PetEvolutionEvent> { const { data, error } = await requireSupabase().functions.invoke("evolve-pet", { body: { blessing: input.blessing ?? "", event_id: input.eventId, continuity_repair: input.continuityRepair ?? false } }); if (error) throw error; const row = await requireSupabase().from("pet_evolution_events").select("*").eq("id", data.event_id).single(); if (row.error) throw row.error; return mapEvolution(row.data); }
+  async listEvolutionEvents(): Promise<readonly PetEvolutionEvent[]> { const { data, error } = await requireSupabase().from("pet_evolution_events").select("id,parent_asset_id,official_asset_id,owner_blessing,status,failed_attempts,continuity_repair_used,error_code,created_at,growth_snapshot").order("created_at", { ascending: false }); if (error) throw error; return (data ?? []).map(mapEvolution); }
+  async getRuntimeState(): Promise<PetRuntimeState | null> { const { data, error } = await requireSupabase().from("pet_runtime_states").select("pet_id,state,source_kind,source_id,started_at,expires_at").maybeSingle(); if (error) throw error; return data ? mapRuntime(data) : null; }
+  async performAction(action: "care" | "feed" | "play" | "rest"): Promise<PetRuntimeState> { const client = requireSupabase(); const petId = (await this.getPet())?.id; if (!petId) throw new Error("请先孵化异宠"); const { error } = await client.rpc("perform_pet_action", { target_pet_id: petId, action_kind: action, target_space_id: null, action_note: "", request_id: crypto.randomUUID() }); if (error) throw error; void client.functions.invoke("evaluate-pet-growth", { body: { pet_id: petId } }).catch(() => undefined); const state = await this.getRuntimeState(); if (!state) throw new Error("异宠动作状态写入失败"); return state; }
+  async retryEvolution(eventId: string, continuityRepair = false): Promise<PetEvolutionEvent> { const { data, error } = await requireSupabase().functions.invoke("evolve-pet", { body: { event_id: eventId, continuity_repair: continuityRepair } }); if (error) throw error; const row = await requireSupabase().from("pet_evolution_events").select("*").eq("id", data.event_id).single(); if (row.error) throw row.error; return mapEvolution(row.data); }
   subscribe(onChange: () => void): () => void {
     const client = requireSupabase();
-    const channels: RealtimeChannel[] = ["pet_generation_sessions", "pet_evolution_events", "pet_visual_assets"].map((table) => client.channel(`pet-task:${table}:${crypto.randomUUID()}`).on("postgres_changes", { event: "*", schema: "public", table }, onChange).subscribe());
+    const channels: RealtimeChannel[] = ["pet_generation_sessions", "pet_evolution_events", "pet_visual_assets", "pet_runtime_states"].map((table) => client.channel(`pet-task:${table}:${crypto.randomUUID()}`).on("postgres_changes", { event: "*", schema: "public", table }, onChange).subscribe());
     return () => { channels.forEach((channel) => { void client.removeChannel(channel); }); };
   }
 }

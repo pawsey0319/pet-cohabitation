@@ -49,6 +49,12 @@ verify_jwt = true
 [functions.evolve-pet]
 verify_jwt = true
 
+[functions.evaluate-pet-growth]
+verify_jwt = true
+
+[functions.evolution-sweep]
+verify_jwt = false
+
 [functions.pet-interaction]
 verify_jwt = true
 

@@ -4,6 +4,7 @@ export type ActorKind = "human" | "pet" | "space_agent";
 export type DeliveryState = "pending" | "sent" | "failed";
 export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "blocked";
 export type AgentFeedbackRating = "natural" | "irrelevant" | "intrusive" | "unsafe";
+export type PetMotionState = "idle" | "listening" | "thinking" | "speaking" | "happy" | "eating" | "playing" | "sleeping";
 
 export type AppProfile = Readonly<{
   id: string;
@@ -113,6 +114,23 @@ export type PetPrivateMessage = Readonly<{
   role: "owner" | "pet";
   content: string;
   createdAt: string;
+  recallSources?: readonly PetRecallSource[];
+}>;
+
+export type PetRecallSource = Readonly<{
+  spaceId: string;
+  spaceName: string;
+  messageId: string;
+  createdAt: string;
+}>;
+
+export type PetRuntimeState = Readonly<{
+  petId: string;
+  state: PetMotionState;
+  sourceKind: "system" | "owner_action" | "space_action" | "private_chat" | "space_chat";
+  sourceId: string | null;
+  startedAt: string;
+  expiresAt: string | null;
 }>;
 
 export type PetObservationStatus = Readonly<{
@@ -154,6 +172,7 @@ export type PetEvolutionEvent = Readonly<{
   continuityRepairUsed: boolean;
   errorCode?: string | null;
   createdAt: string;
+  growthSnapshot?: Readonly<Record<string, unknown>>;
 }>;
 
 export type PetGenerationSession = Readonly<{
@@ -176,6 +195,7 @@ export type DemoSettings = Readonly<{
   globalDailyImageLimit: number;
   testEndsAt: string | null;
   purgeAfterDays: number;
+  evolutionThresholdMode: "standard" | "accelerated";
 }>;
 
 export type AdminDemoMetrics = Readonly<{

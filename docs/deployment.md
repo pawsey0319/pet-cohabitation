@@ -108,7 +108,7 @@ npx supabase secrets set --env-file supabase/functions/.env.production
 逐个部署函数：
 
 ```powershell
-$functions = @("register-with-invite","pet-chat","generate-pet-candidate","confirm-pet","handle-space-message","space-agent","evolve-pet","pet-interaction","export-my-data","delete-account","purge-demo-data")
+$functions = @("register-with-invite","pet-chat","generate-pet-candidate","confirm-pet","handle-space-message","space-agent","evolve-pet","evaluate-pet-growth","evolution-sweep","pet-interaction","export-my-data","delete-account","purge-demo-data")
 $functions | ForEach-Object { npx supabase functions deploy $_ }
 ```
 
@@ -123,6 +123,23 @@ $functions | ForEach-Object { npx supabase functions deploy $_ }
 - 数据库区域选择 Singapore，并在 `demo_settings` 中设置测试人数上限、测试结束时间和 30 天保留期。
 
 首位云端管理员同样运行 `npm run bootstrap:admin`，但环境变量使用云项目 URL 和 Service Role。命令完成后立即清理当前终端中的敏感变量。
+
+### 临时使用本机 CPA
+
+电脑开机测试时，可以把本机 CPA 安全映射给 Supabase 云函数：
+
+```powershell
+winget install --id Cloudflare.cloudflared --exact
+.\scripts\start-demo-model-tunnel.ps1 -ProjectRef "你的 Supabase project ref" -AllowedOrigin "https://你的项目.vercel.app"
+```
+
+脚本会验证本机 CPA、创建随机 HTTPS 隧道并更新模型 Secrets，不会输出 API Key。每次重启隧道地址都会改变，因此重启后必须重新运行脚本。基础人类聊天不依赖该隧道；CPA 或电脑关闭时只有 AI 回应和图像生成不可用。
+
+停止隧道：
+
+```powershell
+.\scripts\stop-demo-model-tunnel.ps1
+```
 
 ## 4. Vercel
 
@@ -149,7 +166,7 @@ Vercel 官方说明其站点在中国大陆可能变慢或不可达，因此免�
 
 `purge-demo-data` 只接受带 `x-demo-purge-secret` 的服务端请求。先在 `demo_settings.test_ends_at` 设置测试结束时间；函数会在“结束时间 + purge_after_days”之前保持静默，到期后匿名化消息并删除所有非管理员测试账号。
 
-云端使用 `pg_cron` + `pg_net` 每天调用一次该函数，并把项目 URL、Publishable Key 和 `DEMO_PURGE_SECRET` 存入 Supabase Vault，不能把清理密钥直接写进 SQL。具体配置方式见 [Supabase 定时调用 Edge Function 文档](https://supabase.com/docs/guides/functions/schedule-functions)。部署后先手动调用一次，预期在保留期内返回 `retention_active`。
+云端使用 `pg_cron` + `pg_net` 每天调用一次该函数，并把项目 URL、Publishable Key 和 `DEMO_PURGE_SECRET` 存入 Supabase Vault，不能把清理密钥直接写进 SQL。用相同方式每天调用 `evolution-sweep`，请求头使用 `x-evolution-sweep-secret`，以补偿用户达标后没有立即触发的极端情况。具体配置方式见 [Supabase 定时调用 Edge Function 文档](https://supabase.com/docs/guides/functions/schedule-functions)。部署后先手动调用一次，预期在保留期内返回 `retention_active`。
 
 ## 6. 上线前检查
 

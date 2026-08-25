@@ -1,4 +1,5 @@
 import { z } from "npm:zod@4";
+import { triggerAutomaticEvolution } from "../_shared/autoEvolution.ts";
 import { runInBackground } from "../_shared/background.ts";
 import { optionsResponse } from "../_shared/cors.ts";
 import { loadDemoSettings } from "../_shared/demoSettings.ts";
@@ -136,15 +137,20 @@ async function runRouteJob(jobId: string, requestedBy: string, input: z.infer<ty
       const policy = concernsOwner ? (ownerOnline || highRisk ? "wait_for_owner" : "guess_low_risk") : "pet_only";
       const signals = await client.from("pet_style_signals").select("tendency,rationale").eq("pet_id", candidate.id).eq("active", true).limit(10);
       try {
+        await client.from("pet_runtime_states").upsert({ pet_id: candidate.id, owner_id: candidate.owner_id, state: "thinking", source_kind: "space_chat", source_id: petJobId, started_at: new Date().toISOString(), expires_at: new Date(Date.now() + 30_000).toISOString(), updated_at: new Date().toISOString() }, { onConflict: "pet_id" });
         const reply = await new TextModelAdapter().generatePetReply({ petName: candidate.name, personality: candidate.personality_summary ?? "正在形成", styleSignals: (signals.data ?? []).map((signal) => `${signal.tendency}：${signal.rationale}`).join("；"), messages: recent, currentMessage: text, ownerPolicy: policy });
         const content = policy === "wait_for_owner" && !/主人|本人|自己/.test(reply.content) ? `这件事要等主人本人回答。${reply.content}` : reply.content;
-        const inserted = await client.from("messages").insert({ client_id: `agent-${petJobId}`, space_id: message.space_id, sender_id: null, actor_kind: "pet", actor_id: candidate.id, actor_name: candidate.name, kind: "text", text: content, reply_to_message_id: message.id, reply_preview: text.slice(0, 160), permission_source: candidate.explicit ? "explicit_pet_cue" : "implicit_relevance_router" });
+        const inserted = await client.from("messages").insert({ client_id: `agent-${petJobId}`, space_id: message.space_id, sender_id: null, actor_kind: "pet", actor_id: candidate.id, actor_name: candidate.name, kind: "text", text: content, reply_to_message_id: message.id, reply_preview: text.slice(0, 160), permission_source: candidate.explicit ? "explicit_pet_cue" : "implicit_relevance_router" }).select("id").single();
         if (inserted.error) throw inserted.error;
+        await client.from("pet_runtime_states").upsert({ pet_id: candidate.id, owner_id: candidate.owner_id, state: "speaking", source_kind: "space_chat", source_id: inserted.data.id, started_at: new Date().toISOString(), expires_at: new Date(Date.now() + 8_000).toISOString(), updated_at: new Date().toISOString() }, { onConflict: "pet_id" });
+        const experience = await client.from("pet_experiences").insert({ pet_id: candidate.id, owner_id: candidate.owner_id, space_id: message.space_id, category: "social", summary: `${candidate.name}在关系空间里认真参与了一次对话：${content.slice(0, 180)}`, source_message_id: message.id, interaction_key: `space-reply:${petJobId}` });
+        if (!experience.error) runInBackground(triggerAutomaticEvolution(client, candidate.id).catch(() => null));
         if (!candidate.explicit) await client.from("pets").update({ implicit_cooldown_until: new Date(Date.now() + 10 * 60_000).toISOString() }).eq("id", candidate.id);
         await client.from("agent_jobs").update({ status: "succeeded", result: { replied: true, policy }, completed_at: new Date().toISOString() }).eq("id", petJobId);
         await finishModelRun(client, runId, { status: "succeeded", startedAt: started });
         replied.push(candidate.id);
       } catch (reason) {
+        await client.from("pet_runtime_states").upsert({ pet_id: candidate.id, owner_id: candidate.owner_id, state: "idle", source_kind: "system", source_id: null, started_at: new Date().toISOString(), expires_at: null, updated_at: new Date().toISOString() }, { onConflict: "pet_id" });
         const errorCode = reason instanceof Error ? reason.message.slice(0, 120) : "reply_error";
         await client.from("agent_jobs").update({ status: "failed", error_code: errorCode, completed_at: new Date().toISOString() }).eq("id", petJobId);
         await finishModelRun(client, runId, { status: "failed", startedAt: started, errorCode });

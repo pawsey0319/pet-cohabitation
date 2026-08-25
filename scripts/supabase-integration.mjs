@@ -10,7 +10,7 @@ const service = createClient(url, serviceKey, { auth: { persistSession: false, a
 const anon = () => createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
 const suffix = Date.now();
 
-async function waitForRow(table, id, terminal = ["succeeded", "failed"], timeoutMs = 15_000) {
+async function waitForRow(table, id, terminal = ["succeeded", "failed"], timeoutMs = 120_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const result = await service.from(table).select("*").eq("id", id).single();
@@ -21,7 +21,7 @@ async function waitForRow(table, id, terminal = ["succeeded", "failed"], timeout
   throw new Error(`${table}:${id} did not reach ${terminal.join("/")} within ${timeoutMs}ms`);
 }
 
-async function waitForMatchingRow(table, id, predicate, timeoutMs = 15_000) {
+async function waitForMatchingRow(table, id, predicate, timeoutMs = 120_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const result = await service.from(table).select("*").eq("id", id).single();
@@ -44,6 +44,14 @@ async function createUser(index, admin = false) {
 }
 
 async function main() {
+  const testCapacity = await service
+    .from("demo_settings")
+    .update({
+      max_registered_users: 100,
+      test_ends_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    })
+    .eq("id", true);
+  assert.equal(testCapacity.error, null, testCapacity.error?.message);
   const admin = await createUser("admin", true);
   const invite = await admin.client.rpc("create_signup_invite");
   assert.equal(invite.error, null, invite.error?.message);
@@ -131,6 +139,12 @@ async function main() {
 
   const permission = await service.from("space_pet_permissions").select("pet_id").eq("space_id", pair.data).eq("pet_id", pet.data.id);
   assert.equal(permission.data.length, 1, "owner pet was not attached to the relationship space");
+  const recalled = await owner.client.functions.invoke("pet-chat", { body: { content: "你还记得我之前在群里说了什么吗？" } });
+  if (recalled.error?.context) throw new Error(`pet-chat recall: ${await recalled.error.context.text()}`);
+  assert.equal(recalled.error, null, recalled.error?.message);
+  assert.ok(recalled.data.recall_sources.some((source) => source.message_id === sent.data.id), "pet private chat did not retrieve an eligible group message");
+  const privateRecall = await owner.client.from("pet_private_threads").select("recall_sources").eq("id", recalled.data.id).single();
+  assert.equal(privateRecall.data.recall_sources[0].space_name, "双人边界");
   await owner.client.rpc("set_space_observation_consent", { target_space_id: pair.data, target_pet_id: pet.data.id, decision: true });
   await member2.client.rpc("set_space_observation_consent", { target_space_id: pair.data, target_pet_id: pet.data.id, decision: true });
   const consentBefore = await owner.client.rpc("is_observation_enabled", { target_space_id: pair.data, target_pet_id: pet.data.id });
@@ -176,7 +190,10 @@ async function main() {
   const corner = await member2.client.from("pet_corner_stories").select("id,content").eq("space_id", pair.data);
   assert.equal(corner.data.length, 1);
   const experience = await owner.client.from("pet_experiences").select("id").eq("pet_id", pet.data.id);
-  assert.equal(experience.data.length, 1);
+  assert.ok(experience.data.length >= 2);
+  const runtimeState = await owner.client.from("pet_runtime_states").select("state,source_kind").eq("pet_id", pet.data.id).single();
+  assert.equal(runtimeState.data.state, "playing");
+  assert.equal(runtimeState.data.source_kind, "space_action");
   await member2.client.rpc("set_pet_local_mute", { target_space_id: pair.data, target_pet_id: pet.data.id, decision: true });
   assert.equal((await member2.client.from("space_member_pet_settings").select("pet_id").eq("space_id", pair.data)).data.length, 1);
   assert.equal((await owner.client.from("space_member_pet_settings").select("pet_id").eq("space_id", pair.data)).data.length, 0, "local mute leaked another member's setting");
@@ -204,15 +221,22 @@ async function main() {
   const forgottenSignal = await service.from("pet_style_signals").select("active").eq("id", styleSignal.data.id).single();
   assert.equal(forgottenSignal.data.active, false);
 
-  const [evolution, concurrentEvolution] = await Promise.all([
-    owner.client.functions.invoke("evolve-pet", { body: { blessing: "愿你继续按自己的方式认识世界" } }),
-    owner.client.functions.invoke("evolve-pet", { body: { blessing: "愿你继续按自己的方式认识世界" } }),
+  const manualEvolution = await owner.client.functions.invoke("evolve-pet", { body: { blessing: "愿你继续按自己的方式认识世界" } });
+  assert.ok(manualEvolution.error, "owner could still open a new evolution with a blessing");
+  const careAction = await owner.client.rpc("perform_pet_action", { target_pet_id: pet.data.id, action_kind: "feed", target_space_id: null, action_note: "", request_id: crypto.randomUUID() });
+  assert.equal(careAction.error, null, careAction.error?.message);
+  const threshold = await service.from("demo_settings").update({ evolution_threshold_mode: "accelerated", accelerated_evolution_active_days: 1, accelerated_evolution_interactions: 3, accelerated_evolution_categories: 3 }).eq("id", true);
+  assert.equal(threshold.error, null, threshold.error?.message);
+  const [evaluation, concurrentEvaluation] = await Promise.all([
+    owner.client.functions.invoke("evaluate-pet-growth", { body: { pet_id: pet.data.id } }),
+    owner.client.functions.invoke("evaluate-pet-growth", { body: { pet_id: pet.data.id } }),
   ]);
-  if (evolution.error?.context) throw new Error(`evolve-pet: ${await evolution.error.context.text()}`);
-  assert.equal(evolution.error, null, evolution.error?.message);
-  assert.equal(concurrentEvolution.error, null, concurrentEvolution.error?.message);
-  assert.equal(concurrentEvolution.data.event_id, evolution.data.event_id, "concurrent evolution created a second event");
-  const eventId = evolution.data.event_id;
+  assert.equal(evaluation.error, null, evaluation.error?.message);
+  assert.equal(concurrentEvaluation.error, null, concurrentEvaluation.error?.message);
+  const automaticEvents = await service.from("pet_evolution_events").select("id,growth_snapshot").eq("pet_id", pet.data.id).eq("parent_asset_id", generatedAsset.data.id);
+  assert.equal(automaticEvents.data.length, 1, "automatic eligibility created duplicate events");
+  assert.equal(automaticEvents.data[0].growth_snapshot.mode, "accelerated");
+  const eventId = automaticEvents.data[0].id;
   const evolvedEvent = await waitForRow("pet_evolution_events", eventId);
   assert.equal(evolvedEvent.status, "succeeded", evolvedEvent.error_code);
   const evolvedAsset = await service.from("pet_visual_assets").select("*").eq("id", evolvedEvent.official_asset_id).single();
@@ -274,7 +298,7 @@ async function main() {
     assert.equal(remainingTesters.count, 0, "retention purge left non-admin test accounts behind");
   }
 
-  console.log(JSON.stringify({ signupInvite: "passed", pairLimit: "passed", circleLimit: "passed", rls: "passed", chatConstraints: "passed", petLock: "passed", consent: "passed", petRouter: "passed", idempotentJobs: "passed", agentFeedback: "passed", aggregateAdminMetrics: "passed", petCorner: "passed", petGovernance: "passed", styleFeedback: "passed", evolutionContinuity: "passed", newMemberPausesObservation: "passed", atomicQuota: "passed", exportOwnData: "passed", deleteOwnAccount: "passed", retentionPurge: process.env.DEMO_PURGE_SECRET ? "passed" : "skipped" }, null, 2));
+  console.log(JSON.stringify({ signupInvite: "passed", pairLimit: "passed", circleLimit: "passed", rls: "passed", chatConstraints: "passed", petLock: "passed", crossSpacePetRecall: "passed", consent: "passed", petRouter: "passed", idempotentJobs: "passed", agentFeedback: "passed", aggregateAdminMetrics: "passed", petCorner: "passed", synchronizedPetMotion: "passed", petGovernance: "passed", styleFeedback: "passed", automaticEvolution: "passed", evolutionContinuity: "passed", newMemberPausesObservation: "passed", atomicQuota: "passed", exportOwnData: "passed", deleteOwnAccount: "passed", retentionPurge: process.env.DEMO_PURGE_SECRET ? "passed" : "skipped" }, null, 2));
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });

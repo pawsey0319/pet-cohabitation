@@ -382,7 +382,7 @@ class SupabaseChatRepository implements ChatRepository {
     return (data ?? []).map((row: Record<string, any>) => ({ id: row.id, spaceId: row.space_id, petId: row.pet_id, petName: row.pets?.name ?? "异宠", content: row.content, createdAt: row.created_at }));
   }
   async interactWithPet(spaceId: string, petId: string, action: "care" | "feed" | "play", note = ""): Promise<PetCornerStory> {
-    const { data, error } = await requireSupabase().functions.invoke("pet-interaction", { body: { space_id: spaceId, pet_id: petId, action, note } });
+    const { data, error } = await requireSupabase().functions.invoke("pet-interaction", { body: { space_id: spaceId, pet_id: petId, action, note, request_id: crypto.randomUUID() } });
     if (error) throw error;
     return { id: data.id, spaceId: data.space_id, petId: data.pet_id, petName: data.pet_name, content: data.content, createdAt: data.created_at };
   }

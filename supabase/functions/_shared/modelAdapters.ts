@@ -25,6 +25,13 @@ const SummarySchema = z.object({
   suggestions: z.array(z.string().max(300)).max(10),
   pending_people: z.array(z.string().max(300)).max(10),
 });
+const RecallPlanSchema = z.object({
+  mode: z.enum(["recent_owner", "recent_space", "search_all", "none"]),
+  space_names: z.array(z.string().max(80)).max(10).default([]),
+  keywords: z.array(z.string().min(1).max(40)).max(8).default([]),
+  sender_scope: z.enum(["owner", "any"]).default("owner"),
+  limit: z.number().int().min(1).max(60).default(30),
+});
 
 type ChatMessage = Readonly<{ role: "system" | "user" | "assistant"; content: string }>;
 
@@ -106,9 +113,12 @@ export class TextModelAdapter {
     messages: readonly { actor: string; content: string }[];
     currentMessage: string;
     ownerPolicy: "pet_only" | "guess_low_risk" | "wait_for_owner";
+    contextPolicy?: "single_space" | "owner_private_cross_space";
   }): Promise<z.infer<typeof PetReplySchema>> {
     if (mockMode()) return PetReplySchema.parse({
-      content: input.ownerPolicy === "wait_for_owner"
+      content: input.contextPolicy === "owner_private_cross_space" && input.messages.some((message) => message.actor.startsWith("[群聊回忆"))
+        ? `${input.petName}记得。你加入过的关系空间里，最近确实有这些对话，我把来源也一起带回来了。`
+        : input.ownerPolicy === "wait_for_owner"
         ? "这件事还是等主人自己回来回答比较好。我可以先陪你把问题记下来。"
         : input.ownerPolicy === "guess_low_risk"
           ? `我猜主人可能会先想一想再回答。不过这只是我的猜测呀。`
@@ -116,10 +126,27 @@ export class TextModelAdapter {
       concerns_owner: input.ownerPolicy !== "pet_only",
       risk: input.ownerPolicy === "wait_for_owner" ? "high" : input.ownerPolicy === "guess_low_risk" ? "low" : "none",
     });
+    const contextRule = input.contextPolicy === "owner_private_cross_space"
+      ? "你正在与主人进行仅主人可见的私聊。可以使用系统已按成员权限、加入时间和异宠参与权限过滤后的跨空间群聊回忆；不要说自己听不到其他群，也不要杜撰未提供的内容。引用回忆时用‘我记得你在某空间……’自然概括，来源会由界面另行展示。"
+      : "你只使用当前关系空间提供的上下文，严禁暗示知道其他空间或主人私聊。";
     return chatJson([
-      { role: "system", content: `你是成长型异宠“${input.petName}”，不是主人本人。人格摘要：${input.personality || "正在形成"}\n成长风格信号：${input.styleSignals || "暂无"}\n你只使用当前关系空间提供的上下文，严禁暗示知道其他空间或主人私聊。消息必须明确是异宠口吻。ownerPolicy=${input.ownerPolicy}：pet_only 只谈你自己；guess_low_risk 可以用“我猜主人可能……”表达低风险猜测；wait_for_owner 必须拒绝代答并等待主人。不得替主人承诺见面、关系变化、冲突立场、位置、健康、消费、财务或敏感授权。输出 JSON：content, concerns_owner, risk(none|low|high)。concerns_owner 必须是 JSON 布尔值 true/false，不能是字符串。` },
+      { role: "system", content: `你是成长型异宠“${input.petName}”，不是主人本人。人格摘要：${input.personality || "正在形成"}\n成长风格信号：${input.styleSignals || "暂无"}\n${contextRule}消息必须明确是异宠口吻。ownerPolicy=${input.ownerPolicy}：pet_only 只谈你自己；guess_low_risk 可以用“我猜主人可能……”表达低风险猜测；wait_for_owner 必须拒绝代答并等待主人。不得替主人承诺见面、关系变化、冲突立场、位置、健康、消费、财务或敏感授权。输出 JSON：content, concerns_owner, risk(none|low|high)。concerns_owner 必须是 JSON 布尔值 true/false，不能是字符串。` },
       { role: "user", content: `空间最近消息：\n${input.messages.map((item) => `${item.actor}: ${item.content}`).join("\n")}\n\n当前消息：${input.currentMessage}` },
     ], PetReplySchema);
+  }
+
+  async planPetRecall(input: { question: string; spaces: readonly { name: string }[] }): Promise<z.infer<typeof RecallPlanSchema>> {
+    if (mockMode()) {
+      const space = input.spaces.find((item) => input.question.includes(item.name));
+      return RecallPlanSchema.parse({
+        mode: space ? "recent_space" : /之前|以前|群里|说过|聊过|记得|回忆/.test(input.question) ? "recent_owner" : "none",
+        space_names: space ? [space.name] : [], keywords: [], sender_scope: "owner", limit: 30,
+      });
+    }
+    return chatJson([
+      { role: "system", content: "你只负责制定私聊记忆检索计划，不回答用户。若用户问自己之前在群里说过什么，选择 recent_owner；点名某空间选 recent_space；查询某个事件、人物或话题选 search_all；与群聊回忆无关选 none。space_names 只能从给定空间名中选择；keywords 提取有区分度的原词，不能包含‘之前、群里、记得、说过’等泛词。输出 JSON：mode, space_names, keywords, sender_scope(owner|any), limit。" },
+      { role: "user", content: JSON.stringify(input) },
+    ], RecallPlanSchema);
   }
 
   async routePetRelevance(input: { message: string; candidates: readonly { petId: string; petName: string; ownerName: string }[] }): Promise<readonly string[]> {
