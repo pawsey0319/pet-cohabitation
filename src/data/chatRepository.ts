@@ -287,7 +287,6 @@ class SupabaseChatRepository implements ChatRepository {
       media_duration_seconds: input.mediaDurationSeconds ?? null,
       reply_to_message_id: input.replyToMessageId ?? null,
       reply_preview: input.replyPreview ?? null,
-      created_at: input.createdAt,
     };
     const client = requireSupabase();
     const { data, error } = await client.from("messages").insert(payload).select("*, profiles:sender_id(nickname), message_reactions(emoji,user_id)").single();

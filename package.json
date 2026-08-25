@@ -43,6 +43,7 @@
     "@testing-library/react-native": "14.0.1",
     "@types/jest": "29.5.14",
     "@types/react": "~19.2.4",
+    "@types/react-dom": "^19.2.5",
     "jest-expo": "57.0.4",
     "metro": "^0.84.5",
     "metro-config": "^0.84.5",

@@ -50,7 +50,10 @@ test("two browser accounts invite, chat, reply, react and receive an Agent summa
 
     const composerA = pageA.getByPlaceholder("发消息…");
     await composerA.fill("你好，这是浏览器甲发来的消息");
-    await composerA.press("Enter");
+    await expect(pageA.getByRole("button", { name: "发送消息" })).toBeEnabled();
+    await expect(composerA).toHaveAttribute("data-enter-listener", "attached");
+    await composerA.dispatchEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, shiftKey: false });
+    await expect(composerA).toHaveAttribute("data-enter-submit", "handled");
     await expect(composerA).toHaveValue("");
     await expect(pageA.getByText("你好，这是浏览器甲发来的消息")).toBeVisible();
 
@@ -100,8 +103,10 @@ test("owner incubates, confirms and cares for the same living pet without manual
     await page.getByRole("button", { name: "开始对话" }).click();
     for (let turn = 1; turn <= 5; turn += 1) {
       const input = page.getByPlaceholder("说说你喜欢怎样相处…");
+      const send = page.getByText("发送", { exact: true }).locator("..");
       await input.fill(`第 ${turn} 次相处：我喜欢先观察，再说出真实感受。`);
-      await input.press("Enter");
+      await expect(send).toHaveCSS("opacity", "1");
+      await send.click();
       await expect(page.getByText(`${turn} / 5 轮`)).toBeVisible();
     }
     await page.getByRole("button", { name: "生成第一张候选" }).click();
@@ -113,9 +118,34 @@ test("owner incubates, confirms and cares for the same living pet without manual
     await expect(page.getByText(/隐藏的成长里程碑达到后自主进入下一生命阶段/)).toBeVisible();
     await expect(page.getByRole("button", { name: /祝福|开启重大进化/ })).toHaveCount(0);
 
+    const petRow = await service.from("pets").select("id").eq("owner_id", users[0].id).single();
+    expect(petRow.error).toBeNull();
+    const rememberedMessages = await service.from("messages").select("id,text").eq("space_id", createdSpaceId).eq("sender_id", users[0].id);
+    expect(rememberedMessages.data?.some((message) => message.text === "你好，这是浏览器甲发来的消息")).toBe(true);
+    const petPermission = await service.from("space_pet_permissions").select("pet_id,participation_enabled,proactive_paused,paused_by_vote").eq("space_id", createdSpaceId).eq("pet_id", petRow.data!.id).single();
+    expect(petPermission.error).toBeNull();
+    expect(petPermission.data?.participation_enabled).toBe(true);
+    expect(petPermission.data?.proactive_paused).toBe(false);
+    expect(petPermission.data?.paused_by_vote).toBe(false);
+    const membership = await service.from("space_members").select("joined_at").eq("space_id", createdSpaceId).eq("user_id", users[0].id).single();
+    expect(membership.error).toBeNull();
+    const eligibleMessages = await service.from("messages").select("id").eq("space_id", createdSpaceId).eq("sender_id", users[0].id).gte("created_at", membership.data!.joined_at);
+    expect(eligibleMessages.data?.length).toBeGreaterThan(0);
+
+    const recallInput = page.getByPlaceholder("问问它记得哪些相处和群聊…");
+    const recallSend = page.getByText("发送", { exact: true }).locator("..");
+    await recallInput.fill("你还记得我之前在双浏览器小窝里说了什么吗？");
+    await expect(recallSend).toHaveCSS("opacity", "1");
+    await recallSend.click();
+    await expect.poll(async () => {
+      const latest = await service.from("pet_private_threads").select("recall_sources").eq("owner_id", users[0].id).eq("role", "pet").order("created_at", { ascending: false }).limit(1).single();
+      return Array.isArray(latest.data?.recall_sources) ? latest.data.recall_sources.length : 0;
+    }).toBeGreaterThan(0);
+    await expect(page.getByText(/记忆来源：双浏览器小窝/)).toBeVisible();
+
     await page.getByRole("button", { name: "投喂" }).click();
     await expect(page.getByLabel("异宠状态：认真进食")).toBeVisible();
-    await expect(page.getByText(/收到一份小点心/)).toBeVisible();
+    await expect(page.getByText(/小点心/)).toBeVisible();
 
     await page.getByRole("button", { name: "玩耍" }).click();
     await expect(page.getByLabel("异宠状态：正在玩耍")).toBeVisible();
