@@ -48,15 +48,18 @@ test("two browser accounts invite, chat, reply, react and receive an Agent summa
     await expect(pageA).toHaveURL(/\/chat\/[0-9a-f-]+/);
     createdSpaceId = new URL(pageA.url()).pathname.split("/").at(-1)!;
 
-    await pageA.getByPlaceholder("发消息…").fill("你好，这是浏览器甲发来的消息");
-    await pageA.getByPlaceholder("发消息…").press("Enter");
+    const composerA = pageA.getByPlaceholder("发消息…");
+    await composerA.fill("你好，这是浏览器甲发来的消息");
+    await composerA.press("Enter");
+    await expect(composerA).toHaveValue("");
     await expect(pageA.getByText("你好，这是浏览器甲发来的消息")).toBeVisible();
 
     await pageA.getByRole("button", { name: "聊天更多功能" }).click();
     await pageA.getByText("邀请成员", { exact: true }).click();
-    const inviteText = pageA.getByText(/http:\/\/127\.0\.0\.1:8082\/invite\//);
+    const inviteText = pageA.getByText(/https?:\/\/[^\s]+\/invite\/[0-9a-f-]+/);
     await expect(inviteText).toBeVisible();
     const inviteUrl = await inviteText.textContent();
+    expect(new URL(inviteUrl!).origin).toBe(new URL(process.env.E2E_BASE_URL ?? "http://127.0.0.1:8082").origin);
     await pageA.getByRole("button", { name: "完成" }).click();
 
     await login(pageB, users[1]);
@@ -88,7 +91,7 @@ test("two browser accounts invite, chat, reply, react and receive an Agent summa
   }
 });
 
-test("owner incubates, confirms and evolves the same pet", async ({ browser }) => {
+test("owner incubates, confirms and cares for the same living pet without manual evolution", async ({ browser }) => {
   const context = await browser.newContext(); const page = await context.newPage();
   try {
     await login(page, users[0]);
@@ -107,15 +110,17 @@ test("owner incubates, confirms and evolves the same pet", async ({ browser }) =
     await page.getByRole("button", { name: "我确认这是它" }).click();
     await expect(page.getByText("它不会再回到初始捏宠")).toBeVisible();
 
-    await page.getByPlaceholder("通过相处继续培养它…").fill("今天我想和你一起记住这段安静的时间。");
-    await page.getByText("发送", { exact: true }).click();
-    await expect(page.getByRole("button", { name: "送上祝福，开启重大进化" })).toBeEnabled();
-    await page.getByRole("button", { name: "送上祝福，开启重大进化" }).click();
-    await page.getByPlaceholder("例如：愿你继续按自己的方式认识世界").fill("愿你继续按自己的方式认识世界");
-    await page.getByRole("button", { name: "送出祝福" }).click();
-    await expect(page.getByText("形态谱系 · 第 2 个生命阶段")).toBeVisible();
-    await page.getByRole("button", { name: "报告：与上一形态完全断裂" }).click();
-    await expect(page.getByRole("button", { name: "报告：与上一形态完全断裂" })).toHaveCount(0);
+    await expect(page.getByText(/隐藏的成长里程碑达到后自主进入下一生命阶段/)).toBeVisible();
+    await expect(page.getByRole("button", { name: /祝福|开启重大进化/ })).toHaveCount(0);
+
+    await page.getByRole("button", { name: "投喂" }).click();
+    await expect(page.getByLabel("异宠状态：认真进食")).toBeVisible();
+    await expect(page.getByText(/收到一份小点心/)).toBeVisible();
+
+    await page.getByRole("button", { name: "玩耍" }).click();
+    await expect(page.getByLabel("异宠状态：正在玩耍")).toBeVisible();
+    await expect(page.getByText(/追光游戏/)).toBeVisible();
+    await expect(page.getByText("形态谱系 · 第 1 个生命阶段")).toBeVisible();
   } finally {
     await context.close().catch(() => undefined);
   }

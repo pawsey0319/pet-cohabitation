@@ -51,4 +51,27 @@ describe("MessageOutbox", () => {
     await Promise.all([outbox.flush(sender), outbox.flush(sender)]);
     expect(sends).toBe(1);
   });
+
+  it("does not lose a message enqueued while an earlier flush is still running", async () => {
+    const store = new MemoryStore();
+    const outbox = new MessageOutbox(store);
+    await outbox.enqueue(message("first"));
+    let releaseFirst!: () => void;
+    let markStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => { markStarted = resolve; });
+    const release = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const sent: string[] = [];
+    const firstFlush = outbox.flush(async (item) => {
+      sent.push(item.clientId);
+      markStarted();
+      await release;
+    });
+    await firstStarted;
+    const secondEnqueue = outbox.enqueue(message("second"));
+    releaseFirst();
+    await Promise.all([firstFlush, secondEnqueue]);
+    await outbox.flush(async (item) => { sent.push(item.clientId); });
+    expect(sent).toEqual(["first", "second"]);
+    expect(await outbox.list()).toEqual([]);
+  });
 });

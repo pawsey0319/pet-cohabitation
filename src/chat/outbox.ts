@@ -31,6 +31,7 @@ export class MessageOutbox {
   constructor(private readonly store: OutboxStore) {}
 
   async enqueue(message: QueuedMessage): Promise<void> {
+    if (this.flushing) await this.flushing;
     const current = await this.store.load();
     if (current.some((item) => item.clientId === message.clientId)) return;
     await this.store.save([...current, message]);
