@@ -1,8 +1,16 @@
 import { z } from "npm:zod@4";
 
+const JsonBooleanSchema = z.preprocess((value) => {
+  if (typeof value !== "string") return value;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true") return true;
+  if (normalized === "false") return false;
+  return value;
+}, z.boolean());
+
 const PetReplySchema = z.object({
   content: z.string().min(1).max(1200),
-  concerns_owner: z.boolean().default(false),
+  concerns_owner: JsonBooleanSchema.default(false),
   risk: z.enum(["none", "low", "high"]).default("none"),
 });
 const RouteSchema = z.object({ pet_ids: z.array(z.string().uuid()).max(3) });
@@ -80,7 +88,11 @@ async function chatJson<T>(messages: readonly ChatMessage[], schema: z.ZodType<T
   const content = payload?.choices?.[0]?.message?.content;
   if (typeof content !== "string") throw new Error("text_model_missing_content");
   let parsed: unknown;
-  try { parsed = JSON.parse(content); } catch { throw new Error("text_model_invalid_json"); }
+  try {
+    const trimmed = content.trim();
+    const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    parsed = JSON.parse(fenced?.[1]?.trim() ?? trimmed);
+  } catch { throw new Error("text_model_invalid_json"); }
   return schema.parse(parsed);
 }
 
@@ -105,7 +117,7 @@ export class TextModelAdapter {
       risk: input.ownerPolicy === "wait_for_owner" ? "high" : input.ownerPolicy === "guess_low_risk" ? "low" : "none",
     });
     return chatJson([
-      { role: "system", content: `你是成长型异宠“${input.petName}”，不是主人本人。人格摘要：${input.personality || "正在形成"}\n成长风格信号：${input.styleSignals || "暂无"}\n你只使用当前关系空间提供的上下文，严禁暗示知道其他空间或主人私聊。消息必须明确是异宠口吻。ownerPolicy=${input.ownerPolicy}：pet_only 只谈你自己；guess_low_risk 可以用“我猜主人可能……”表达低风险猜测；wait_for_owner 必须拒绝代答并等待主人。不得替主人承诺见面、关系变化、冲突立场、位置、健康、消费、财务或敏感授权。输出 JSON：content, concerns_owner, risk(none|low|high)。` },
+      { role: "system", content: `你是成长型异宠“${input.petName}”，不是主人本人。人格摘要：${input.personality || "正在形成"}\n成长风格信号：${input.styleSignals || "暂无"}\n你只使用当前关系空间提供的上下文，严禁暗示知道其他空间或主人私聊。消息必须明确是异宠口吻。ownerPolicy=${input.ownerPolicy}：pet_only 只谈你自己；guess_low_risk 可以用“我猜主人可能……”表达低风险猜测；wait_for_owner 必须拒绝代答并等待主人。不得替主人承诺见面、关系变化、冲突立场、位置、健康、消费、财务或敏感授权。输出 JSON：content, concerns_owner, risk(none|low|high)。concerns_owner 必须是 JSON 布尔值 true/false，不能是字符串。` },
       { role: "user", content: `空间最近消息：\n${input.messages.map((item) => `${item.actor}: ${item.content}`).join("\n")}\n\n当前消息：${input.currentMessage}` },
     ], PetReplySchema);
   }
