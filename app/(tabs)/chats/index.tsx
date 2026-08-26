@@ -7,6 +7,7 @@ import { createChatRepository } from "../../../src/data/chatRepository";
 import type { ChatSpace, RelationshipKind } from "../../../src/data/types";
 import { AppButton, DemoBanner, EmptyState } from "../../../src/ui/common";
 import { colors, radii, spacing } from "../../../src/theme/tokens";
+import { useAppTheme } from "../../../src/theme/ThemeProvider";
 
 function formatTime(value?: string | null): string {
   if (!value) return "";
@@ -23,6 +24,7 @@ const kinds: readonly { value: RelationshipKind; label: string; note: string }[]
 
 export default function ChatsScreen() {
   const { profile, isLocalDemo } = useSession(); const insets = useSafeAreaInsets();
+  const { theme } = useAppTheme();
   const repository = useMemo(() => createChatRepository(profile!), [profile]);
   const [spaces, setSpaces] = useState<readonly ChatSpace[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false); const [name, setName] = useState(""); const [kind, setKind] = useState<RelationshipKind>("friend_pair"); const [busy, setBusy] = useState(false);
@@ -41,11 +43,11 @@ export default function ChatsScreen() {
   };
 
   return (
-    <View style={[styles.page, { paddingTop: insets.top }]}>
+    <View style={[styles.page, { paddingTop: insets.top, backgroundColor: theme.page }]}>
       {isLocalDemo ? <DemoBanner /> : null}
       <View style={styles.header}>
         <View><Text style={styles.eyebrow}>只和认识的人</Text><Text style={styles.title}>消息</Text></View>
-        <Pressable accessibilityRole="button" accessibilityLabel="新建关系空间" onPress={() => setCreating(true)} style={styles.newButton}><Text style={styles.newButtonText}>＋</Text></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="新建关系空间" onPress={() => setCreating(true)} style={[styles.newButton, { backgroundColor: theme.card, borderRadius: theme.radius }]}><Text style={[styles.newButtonText, { color: theme.accent }]}>＋</Text></Pressable>
       </View>
       {error ? <Pressable onPress={() => void load()} style={styles.error}><Text style={styles.errorText}>{error} · 点击重试</Text></Pressable> : null}
       {loading ? <ActivityIndicator style={styles.loading} color={colors.coral} /> : (
@@ -53,7 +55,7 @@ export default function ChatsScreen() {
           data={spaces} keyExtractor={(item) => item.id} contentContainerStyle={spaces.length ? styles.list : styles.emptyList}
           ListEmptyComponent={<EmptyState icon="◌" title="还没有关系空间" body="创建好友、恋人或密友小圈，再通过邀请链接让熟人加入。" />}
           renderItem={({ item, index }) => (
-            <Pressable onPress={() => router.push({ pathname: "/chat/[spaceId]", params: { spaceId: item.id } })} style={[styles.row, index > 0 && styles.rowBorder]}>
+            <Pressable onPress={() => router.push({ pathname: "/chat/[spaceId]", params: { spaceId: item.id } })} style={[styles.row, index > 0 && styles.rowBorder, index > 0 && { borderTopColor: theme.line }]}>
               <View style={[styles.avatar, item.kind === "friend_circle" && styles.avatarCircle]}><Text style={styles.avatarText}>{item.name.slice(0, 2)}</Text></View>
               <View style={styles.rowBody}><View style={styles.rowTop}><Text numberOfLines={1} style={styles.name}>{item.name}</Text><Text style={styles.time}>{formatTime(item.lastMessageAt)}</Text></View><View style={styles.rowBottom}><Text numberOfLines={1} style={styles.preview}>{item.lastMessage ?? `${item.memberCount}/${item.maxMembers} 人 · 等第一条消息`}</Text>{item.unreadCount > 0 ? <View style={styles.unread}><Text style={styles.unreadText}>{item.unreadCount > 99 ? "99+" : item.unreadCount}</Text></View> : null}</View></View>
             </Pressable>
@@ -61,7 +63,7 @@ export default function ChatsScreen() {
         />
       )}
       <Modal animationType="fade" transparent visible={creating} onRequestClose={() => setCreating(false)}>
-        <Pressable style={styles.overlay} onPress={() => setCreating(false)}><Pressable style={styles.sheet} onPress={() => undefined}>
+        <Pressable style={styles.overlay} onPress={() => setCreating(false)}><Pressable style={[styles.sheet, { backgroundColor: theme.card, borderRadius: theme.radius + 10 }]} onPress={() => undefined}>
           <Text style={styles.sheetTitle}>新建关系空间</Text>
           <TextInput value={name} onChangeText={setName} placeholder="给这个空间起个名字" placeholderTextColor={colors.textMuted} style={styles.input} maxLength={40} />
           <View style={styles.kindList}>{kinds.map((option) => <Pressable key={option.value} onPress={() => setKind(option.value)} style={[styles.kind, kind === option.value && styles.kindSelected]}><Text style={styles.kindLabel}>{option.label}</Text><Text style={styles.kindNote}>{option.note}</Text></Pressable>)}</View>

@@ -13,6 +13,7 @@ import { hasCompletePetExpectations } from "../../src/pets/rules";
 import { petReplyFailureText, petReplyStage } from "../../src/pets/replyStatus";
 import { AppButton, DemoBanner, Surface } from "../../src/ui/common";
 import { colors, radii, spacing } from "../../src/theme/tokens";
+import { useAppTheme } from "../../src/theme/ThemeProvider";
 
 function CandidateVisual({ asset, url, size = 250 }: Readonly<{ asset: PetVisualAsset; url?: string | null; size?: number }>) {
   return asset.storagePath.startsWith("local-") ? <GenerativePetPreview seed={asset.storagePath} size={size} /> : url ? <Image source={{ uri: url }} style={{ width: size, height: size, borderRadius: 28 }} /> : <ActivityIndicator color={colors.mint} />;
@@ -31,6 +32,7 @@ function ReplyProgress({ message, busy, onRetry }: Readonly<{ message: PetPrivat
 
 export default function PetRoute() {
   const { profile, isLocalDemo } = useSession(); const insets = useSafeAreaInsets(); const repository = useMemo(() => profile ? createPetRepository(profile) : null, [profile]); const chatRepository = useMemo(() => profile ? createChatRepository(profile) : null, [profile]);
+  const { theme } = useAppTheme();
   const [pet, setPet] = useState<PetRecord | null>(null); const [messages, setMessages] = useState<readonly PetPrivateMessage[]>([]); const [assets, setAssets] = useState<readonly PetVisualAsset[]>([]); const [signals, setSignals] = useState<readonly StyleSignal[]>([]);
   const [experiences, setExperiences] = useState<readonly PetExperience[]>([]); const [events, setEvents] = useState<readonly PetEvolutionEvent[]>([]);
   const [runtime, setRuntime] = useState<PetRuntimeState | null>(null); const [now, setNow] = useState(Date.now());
@@ -77,7 +79,7 @@ export default function PetRoute() {
 
   if (loading) return <View style={styles.center}><ActivityIndicator color={colors.coral} /></View>;
   return (
-    <ScrollView style={styles.page} contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]} keyboardShouldPersistTaps="handled">
+    <ScrollView style={[styles.page, { backgroundColor: theme.page }]} contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]} keyboardShouldPersistTaps="handled">
       {isLocalDemo ? <DemoBanner /> : null}<View><Text style={styles.eyebrow}>ONE PET / 一生一只</Text><Text style={styles.title}>{pet ? pet.name : "孵化你的异宠"}</Text></View>
       {error ? <Pressable onPress={() => setError(null)} style={styles.error}><Text style={styles.errorText}>{error}</Text></Pressable> : null}
       {latestGeneration && (generationActive || latestGeneration.status === "failed") ? <Surface style={styles.taskCard}><View style={styles.taskHead}><View><Text style={styles.sectionTitle}>{generationActive ? "异宠外观正在生成" : "这次外观生成失败"}</Text><Text style={styles.copy}>{latestGeneration.status === "queued" ? "已排队，可以离开页面，完成后会自动出现。" : latestGeneration.status === "running" ? `正在连接图像模型 · 第 ${latestGeneration.attempts || 1} 次尝试` : `原因：${latestGeneration.errorCode ?? "模型暂时不可用"}`}</Text></View>{generationActive ? <ActivityIndicator color={colors.coral} /> : null}</View>{latestGeneration.status === "failed" && latestGeneration.attempts < 2 ? <AppButton label="用同一任务重试" variant="quiet" disabled={busy} onPress={() => void act(() => repository.retryGeneration(latestGeneration.id).then(() => undefined))} /> : null}</Surface> : null}

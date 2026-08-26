@@ -104,12 +104,15 @@ Deno.serve(async (request) => {
     }
     if (explicitRecall) await setReplyStatus("retrieving");
     const recall = await buildPetRecallContext(client, { ownerId: user.id, petId: pet.id, question: input.content, adapter });
+    const preferenceResult = await client.from("user_preferences").select("pet_reply_style").eq("user_id", user.id).maybeSingle();
+    const responseStyle = preferenceResult.data?.pet_reply_style === "detailed" || preferenceResult.data?.pet_reply_style === "balanced" ? preferenceResult.data.pet_reply_style : "concise";
     await setReplyStatus("thinking");
     const replyInput = {
       petName: pet.name, personality: pet.personality_summary ?? "正在形成",
       styleSignals: (signals ?? []).map((signal) => `${signal.tendency}：${signal.rationale}`).join("；"),
       messages: [...recall.messages, ...(thread ?? []).reverse().map((message) => ({ actor: message.role === "owner" ? "主人" : pet.name, content: message.content }))],
       currentMessage: input.content, ownerPolicy: "pet_only", contextPolicy: "owner_private_cross_space",
+      responseStyle,
     } as const;
     let reply = await adapter.generatePetReply(replyInput);
     if (isUninformativeRecall(reply.content, recall.messages.length > 0)) {

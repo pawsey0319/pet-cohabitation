@@ -1,7 +1,8 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AccessibilityInfo, Animated, Easing, StyleSheet, Text, View } from "react-native";
 import type { PetMotionState } from "../data/types";
 import { colors, radii } from "../theme/tokens";
+import { ThemeContext } from "../theme/ThemeContext";
 
 const LABELS: Readonly<Record<PetMotionState, string>> = {
   idle: "自在呼吸",
@@ -24,13 +25,15 @@ const ICONS: Readonly<Partial<Record<PetMotionState, string>>> = {
   sleeping: "Zzz",
 };
 
-export function LivingPetPortrait({ state, children, compact = false }: Readonly<{ state: PetMotionState; children: ReactNode; compact?: boolean }>) {
+export function LivingPetPortrait({ state, children, compact = false, reduceMotion: reduceMotionOverride = false }: Readonly<{ state: PetMotionState; children: ReactNode; compact?: boolean; reduceMotion?: boolean }>) {
+  const themeContext = useContext(ThemeContext);
   const progress = useRef(new Animated.Value(0)).current;
-  const [reduceMotion, setReduceMotion] = useState(false);
+  const [systemReduceMotion, setSystemReduceMotion] = useState(false);
+  const reduceMotion = reduceMotionOverride || themeContext?.preferences.reduceMotion === true || systemReduceMotion;
 
   useEffect(() => {
-    void AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
-    const listener = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
+    void AccessibilityInfo.isReduceMotionEnabled().then(setSystemReduceMotion);
+    const listener = AccessibilityInfo.addEventListener("reduceMotionChanged", setSystemReduceMotion);
     return () => listener.remove();
   }, []);
 

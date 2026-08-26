@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { TextModelAdapter } from "./modelAdapters.ts";
 import { recallKeywords, recallSpaceMatches } from "./petRecallQuery.ts";
+import { canonicalRecallActor } from "./petRecallIdentity.ts";
 
 export type PetRecallSource = Readonly<{
   space_id: string;
@@ -110,8 +111,15 @@ export async function buildPetRecallContext(client: SupabaseClient, input: { own
   }
   selected = selected.sort((a, b) => (oldestRequested ? -1 : 1) * (Date.parse(b.created_at) - Date.parse(a.created_at))).slice(0, plan.limit);
   const chronological = [...selected].reverse();
+  const senderIds = [...new Set(chronological.filter((row) => row.actor_kind === "human" && row.sender_id).map((row) => row.sender_id as string))];
+  const currentProfileNames = new Map<string, string>();
+  if (senderIds.length) {
+    const profiles = await client.from("profiles").select("id,nickname").in("id", senderIds);
+    if (profiles.error) throw profiles.error;
+    for (const profile of profiles.data ?? []) currentProfileNames.set(String(profile.id), String(profile.nickname || "群成员"));
+  }
   return {
-    messages: chronological.map((row) => ({ actor: `[群聊回忆·${row.space_name}·${new Date(row.created_at).toISOString().slice(0, 10)}] ${row.actor_name}`, content: row.text ?? `[${row.kind}]` })),
+    messages: chronological.map((row) => ({ actor: `[群聊回忆·${row.space_name}·${new Date(row.created_at).toISOString().slice(0, 10)}] ${canonicalRecallActor(row, currentProfileNames)}`, content: row.text ?? `[${row.kind}]` })),
     sources: selected.map((row) => ({ space_id: row.space_id, space_name: row.space_name, message_id: row.id, created_at: row.created_at })),
   };
 }

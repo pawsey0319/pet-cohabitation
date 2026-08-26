@@ -137,6 +137,7 @@ export class TextModelAdapter {
     ownerPolicy: "pet_only" | "guess_low_risk" | "wait_for_owner";
     contextPolicy?: "single_space" | "owner_private_cross_space";
     requireDirectRecall?: boolean;
+    responseStyle?: "concise" | "balanced" | "detailed";
   }): Promise<z.infer<typeof PetReplySchema>> {
     const recalledMessages = input.messages.filter((message) => message.actor.startsWith("[群聊回忆"));
     if (mockMode()) return PetReplySchema.parse({
@@ -150,13 +151,18 @@ export class TextModelAdapter {
       concerns_owner: input.ownerPolicy !== "pet_only",
       risk: input.ownerPolicy === "wait_for_owner" ? "high" : input.ownerPolicy === "guess_low_risk" ? "low" : "none",
     });
+    const styleRule = input.responseStyle === "detailed"
+      ? "回答偏详细：先给结论，再按话题分组，最多6个要点。"
+      : input.responseStyle === "balanced"
+        ? "回答均衡：先给结论，再按话题分组，最多4个要点。"
+        : "回答简洁：先用1至2句给结论，再按话题合并成最多3个要点；没有真实待办就不要增加待办栏目。";
     const contextRule = input.contextPolicy === "owner_private_cross_space"
-      ? `你正在与主人进行仅主人可见的私聊。可以使用系统已按成员权限和加入时间过滤后的跨空间群聊回忆；不要说自己听不到其他群，也不要杜撰未提供的内容。只要上下文中存在[群聊回忆]，第一段就必须直接回答用户的问题，随后用2至6条具体内容说明人物、话题、结论、待办或时间。严禁回答“我先观察/查看/整理，之后再告诉你”。来源会由界面另行展示。${input.requireDirectRecall ? "这是严格重试：上一版回答没有解决问题，本次必须引用提供的具体消息作答。" : ""}`
+      ? `你正在与主人进行仅主人可见的私聊。可以使用系统已按成员权限和加入时间过滤后的跨空间群聊回忆；不要说自己听不到其他群，也不要杜撰未提供的内容。只要上下文中存在[群聊回忆]，第一段必须直接回答问题。${styleRule}不要按消息顺序逐条复述，合并重复表达。系统给出的发言者标签是已经按 sender_id 归一后的唯一身份；同一标签只能视为一个人，不得根据旧称呼、群昵称或消息正文另造第二个身份。严禁寒暄、卖萌开场以及“我先观察/查看/整理，之后再告诉你”。来源会由界面另行展示。${input.requireDirectRecall ? "这是严格重试：上一版没有解决问题，本次必须引用提供的具体消息作答。" : ""}`
       : "你只使用当前关系空间提供的上下文，严禁暗示知道其他空间或主人私聊。";
     return chatJson([
       { role: "system", content: `你是成长型异宠“${input.petName}”，不是主人本人。人格摘要：${input.personality || "正在形成"}\n成长风格信号：${input.styleSignals || "暂无"}\n${contextRule}消息必须明确是异宠口吻。ownerPolicy=${input.ownerPolicy}：pet_only 只谈你自己；guess_low_risk 可以用“我猜主人可能……”表达低风险猜测；wait_for_owner 必须拒绝代答并等待主人。不得替主人承诺见面、关系变化、冲突立场、位置、健康、消费、财务或敏感授权。输出 JSON：content, concerns_owner, risk(none|low|high)。concerns_owner 必须是 JSON 布尔值 true/false，不能是字符串。` },
       { role: "user", content: `空间最近消息：\n${input.messages.map((item) => `${item.actor}: ${item.content}`).join("\n")}\n\n当前消息：${input.currentMessage}` },
-    ], PetReplySchema, { maxTokens: 640 });
+    ], PetReplySchema, { maxTokens: input.contextPolicy === "owner_private_cross_space" && input.responseStyle !== "detailed" ? 440 : 640 });
   }
 
   async planPetRecall(input: { question: string; spaces: readonly { name: string }[] }): Promise<z.infer<typeof RecallPlanSchema>> {
