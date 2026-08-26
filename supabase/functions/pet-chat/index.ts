@@ -10,21 +10,54 @@ import { finishModelRun, reserveModelRun } from "../_shared/quota.ts";
 import { errorResponse, json } from "../_shared/responses.ts";
 import { authenticatedUser, requirePost, serviceClient } from "../_shared/supabase.ts";
 
-const Input = z.object({ content: z.string().trim().min(1).max(4000) });
+const Input = z.object({ content: z.string().trim().min(1).max(4000), request_id: z.string().uuid().optional() });
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return optionsResponse(request);
-  let runId: string | null = null; const startedAt = Date.now();
+  const client = serviceClient();
+  let runId: string | null = null; let ownerMessageId: string | null = null; let petId: string | null = null; const startedAt = Date.now();
   try {
-    requirePost(request); const user = await authenticatedUser(request); const input = Input.parse(await request.json()); const client = serviceClient();
+    requirePost(request); const user = await authenticatedUser(request); const input = Input.parse(await request.json());
     const { data: pet, error: petError } = await client.from("pets").select("id,name,status,personality_summary").eq("owner_id", user.id).single();
     if (petError) throw petError;
     if (pet.status !== "confirmed") throw new Error("pet_must_be_confirmed_before_private_chat");
-    const promptHash = await sha256(`${pet.id}:${input.content}`);
-    runId = await reserveModelRun(client, { runKind: "pet_private_reply", dailyLimit: 50, ownerId: user.id, petId: pet.id, promptHash, model: TextModelAdapter.modelName() });
-    const ownerInsert = await client.from("pet_private_threads").insert({ pet_id: pet.id, owner_id: user.id, role: "owner", content: input.content }).select("id").single();
-    if (ownerInsert.error) throw ownerInsert.error;
-    await client.from("pet_runtime_states").upsert({ pet_id: pet.id, owner_id: user.id, state: "thinking", source_kind: "private_chat", source_id: ownerInsert.data.id, started_at: new Date().toISOString(), expires_at: new Date(Date.now() + 30_000).toISOString(), updated_at: new Date().toISOString() }, { onConflict: "pet_id" });
+    petId = pet.id;
+    const requestKey = input.request_id ?? crypto.randomUUID();
+    const existingOwner = await client.from("pet_private_threads").select("id,reply_status").eq("owner_id", user.id).eq("request_key", requestKey).maybeSingle();
+    if (existingOwner.error) throw existingOwner.error;
+    if (existingOwner.data?.reply_status === "succeeded") {
+      const existingReply = await client.from("pet_private_threads").select("id,content,created_at,recall_sources,in_reply_to_id").eq("in_reply_to_id", existingOwner.data.id).maybeSingle();
+      if (existingReply.error) throw existingReply.error;
+      if (existingReply.data) return json(request, existingReply.data);
+    }
+    if (existingOwner.data) {
+      ownerMessageId = existingOwner.data.id;
+      if (existingOwner.data.reply_status === "failed") {
+        const staleReply = await client.from("pet_private_threads").delete().eq("in_reply_to_id", ownerMessageId);
+        if (staleReply.error) throw staleReply.error;
+      }
+      const reset = await client.from("pet_private_threads").update({ reply_status: "queued", reply_error_code: null, reply_completed_at: null, reply_phase_updated_at: new Date().toISOString() }).eq("id", ownerMessageId);
+      if (reset.error) throw reset.error;
+    } else {
+      const ownerInsert = await client.from("pet_private_threads").insert({ pet_id: pet.id, owner_id: user.id, role: "owner", content: input.content, request_key: requestKey, reply_status: "queued", reply_phase_updated_at: new Date().toISOString() }).select("id").single();
+      if (ownerInsert.error) throw ownerInsert.error;
+      ownerMessageId = ownerInsert.data.id;
+    }
+    const setReplyStatus = async (status: "classifying" | "retrieving" | "thinking" | "succeeded") => {
+      const update = await client.from("pet_private_threads").update({ reply_status: status, reply_phase_updated_at: new Date().toISOString(), ...(status === "succeeded" ? { reply_completed_at: new Date().toISOString() } : {}) }).eq("id", ownerMessageId!);
+      if (update.error) throw update.error;
+    };
+    const promptHash = await sha256(`${pet.id}:${requestKey}:${input.content}`);
+    const previousRun = await client.from("model_runs").select("id,status").eq("owner_id", user.id).eq("run_kind", "pet_private_reply").eq("prompt_hash", promptHash).order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (previousRun.error) throw previousRun.error;
+    if (previousRun.data?.status === "failed") {
+      runId = previousRun.data.id;
+      const resumed = await client.from("model_runs").update({ status: "running", error_code: null, completed_at: null, latency_ms: null }).eq("id", runId);
+      if (resumed.error) throw resumed.error;
+    } else runId = await reserveModelRun(client, { runKind: "pet_private_reply", dailyLimit: 50, ownerId: user.id, petId: pet.id, promptHash, model: TextModelAdapter.modelName() });
+    await client.from("pet_private_threads").update({ model_run_id: runId }).eq("id", ownerMessageId);
+    await client.from("pet_runtime_states").upsert({ pet_id: pet.id, owner_id: user.id, state: "thinking", source_kind: "private_chat", source_id: ownerMessageId, started_at: new Date().toISOString(), expires_at: new Date(Date.now() + 45_000).toISOString(), updated_at: new Date().toISOString() }, { onConflict: "pet_id" });
+    await setReplyStatus("classifying");
     const { data: thread, error: threadError } = await client.from("pet_private_threads").select("role,content,created_at").eq("pet_id", pet.id).order("created_at", { ascending: false }).limit(20);
     if (threadError) throw threadError;
     const { data: signals } = await client.from("pet_style_signals").select("tendency,rationale").eq("pet_id", pet.id).eq("active", true).order("created_at", { ascending: false }).limit(10);
@@ -52,7 +85,7 @@ Deno.serve(async (request) => {
             space_id: target?.id ?? null, requested_by: user.id, pet_id: pet.id, origin: "pet_private",
             request_kind: managerIntent.request_kind, user_input: input.content,
             exact_content: managerIntent.request_kind === "delegated_message" ? managerIntent.exact_content : null,
-            idempotency_key: `pet-private:${ownerInsert.data.id}`,
+            idempotency_key: `pet-private:${ownerMessageId}`,
           }).select("id").single();
           if (insertedRequest.error) throw insertedRequest.error;
           agentRequestId = insertedRequest.data.id;
@@ -61,13 +94,17 @@ Deno.serve(async (request) => {
             : "我已经记下这个个人提醒请求，主 Agent 会先检查时间是否明确。";
         }
       }
-      const inserted = await client.from("pet_private_threads").insert({ pet_id: pet.id, owner_id: user.id, role: "pet", content, model_run_id: runId, recall_sources: [] }).select("id,content,created_at,recall_sources").single();
+      await setReplyStatus("thinking");
+      const inserted = await client.from("pet_private_threads").insert({ pet_id: pet.id, owner_id: user.id, role: "pet", content, model_run_id: runId, recall_sources: [], in_reply_to_id: ownerMessageId }).select("id,content,created_at,recall_sources,in_reply_to_id").single();
       if (inserted.error) throw inserted.error;
+      await setReplyStatus("succeeded");
       await client.from("pet_runtime_states").upsert({ pet_id: pet.id, owner_id: user.id, state: "speaking", source_kind: "private_chat", source_id: inserted.data.id, started_at: new Date().toISOString(), expires_at: new Date(Date.now() + 8_000).toISOString(), updated_at: new Date().toISOString() }, { onConflict: "pet_id" });
       await finishModelRun(client, runId, { status: "succeeded", startedAt });
-      return json(request, { id: inserted.data.id, content: inserted.data.content, created_at: inserted.data.created_at, recall_sources: [], agent_request_id: agentRequestId, target_space_name: target?.name ?? null });
+      return json(request, { id: inserted.data.id, content: inserted.data.content, created_at: inserted.data.created_at, recall_sources: [], in_reply_to_id: inserted.data.in_reply_to_id, agent_request_id: agentRequestId, target_space_name: target?.name ?? null });
     }
+    if (explicitRecall) await setReplyStatus("retrieving");
     const recall = await buildPetRecallContext(client, { ownerId: user.id, petId: pet.id, question: input.content, adapter });
+    await setReplyStatus("thinking");
     const replyInput = {
       petName: pet.name, personality: pet.personality_summary ?? "正在形成",
       styleSignals: (signals ?? []).map((signal) => `${signal.tendency}：${signal.rationale}`).join("；"),
@@ -81,8 +118,9 @@ Deno.serve(async (request) => {
     const finalContent = isUninformativeRecall(reply.content, recall.messages.length > 0)
       ? fallbackRecallAnswer(recall.messages)
       : reply.content;
-    const { data: inserted, error: insertError } = await client.from("pet_private_threads").insert({ pet_id: pet.id, owner_id: user.id, role: "pet", content: finalContent, model_run_id: runId, recall_sources: recall.sources }).select("id,content,created_at,recall_sources").single();
+    const { data: inserted, error: insertError } = await client.from("pet_private_threads").insert({ pet_id: pet.id, owner_id: user.id, role: "pet", content: finalContent, model_run_id: runId, recall_sources: recall.sources, in_reply_to_id: ownerMessageId }).select("id,content,created_at,recall_sources,in_reply_to_id").single();
     if (insertError) throw insertError;
+    await setReplyStatus("succeeded");
     await client.from("pet_runtime_states").upsert({ pet_id: pet.id, owner_id: user.id, state: "speaking", source_kind: "private_chat", source_id: inserted.id, started_at: new Date().toISOString(), expires_at: new Date(Date.now() + 8_000).toISOString(), updated_at: new Date().toISOString() }, { onConflict: "pet_id" });
     const ownerTurns = (thread ?? []).filter((message) => message.role === "owner").length;
     if (ownerTurns >= 3 && ownerTurns % 3 === 0) {
@@ -92,14 +130,17 @@ Deno.serve(async (request) => {
       } catch { /* A style extraction failure must not hide the valid pet reply. */ }
     }
     if (pet.status === "confirmed") {
-      await client.from("pet_experiences").insert({ pet_id: pet.id, owner_id: user.id, category: "shared", summary: `主人和${pet.name}聊了一段只属于彼此的话：${input.content.slice(0, 180)}`, interaction_key: `private:${ownerInsert.data.id}` });
+      await client.from("pet_experiences").insert({ pet_id: pet.id, owner_id: user.id, category: "shared", summary: `主人和${pet.name}聊了一段只属于彼此的话：${input.content.slice(0, 180)}`, interaction_key: `private:${ownerMessageId}` });
       runInBackground(triggerAutomaticEvolution(client, pet.id).catch(() => null));
     }
     await client.from("profiles").update({ last_active_at: new Date().toISOString() }).eq("id", user.id);
     await finishModelRun(client, runId, { status: "succeeded", startedAt });
-    return json(request, { id: inserted.id, content: inserted.content, created_at: inserted.created_at, recall_sources: inserted.recall_sources ?? [] });
+    return json(request, { id: inserted.id, content: inserted.content, created_at: inserted.created_at, recall_sources: inserted.recall_sources ?? [], in_reply_to_id: inserted.in_reply_to_id });
   } catch (reason) {
-    if (runId) await finishModelRun(serviceClient(), runId, { status: "failed", startedAt, errorCode: reason instanceof Error ? reason.message.slice(0, 120) : "unknown" });
+    const errorCode = reason instanceof Error ? reason.message.slice(0, 120) : "unknown";
+    if (ownerMessageId) await client.from("pet_private_threads").update({ reply_status: "failed", reply_error_code: errorCode, reply_phase_updated_at: new Date().toISOString(), reply_completed_at: new Date().toISOString() }).eq("id", ownerMessageId);
+    if (petId) await client.from("pet_runtime_states").update({ state: "idle", expires_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("pet_id", petId);
+    if (runId) await finishModelRun(client, runId, { status: "failed", startedAt, errorCode });
     return errorResponse(request, reason);
   }
 });

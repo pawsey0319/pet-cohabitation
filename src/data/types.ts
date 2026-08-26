@@ -181,6 +181,11 @@ export type PetPrivateMessage = Readonly<{
   role: "owner" | "pet";
   content: string;
   createdAt: string;
+  requestKey?: string | null;
+  replyStatus?: "queued" | "classifying" | "retrieving" | "thinking" | "succeeded" | "failed" | null;
+  replyErrorCode?: string | null;
+  replyPhaseUpdatedAt?: string | null;
+  inReplyToId?: string | null;
   recallSources?: readonly PetRecallSource[];
   agentRequestId?: string | null;
   targetSpaceName?: string | null;
