@@ -35,7 +35,11 @@ Deno.serve(async (request) => {
       const space = Array.isArray(row.spaces) ? row.spaces[0] : row.spaces;
       return { id: String(row.space_id), name: String((space as { name?: string } | null)?.name ?? "关系空间") };
     });
-    const managerIntent = await adapter.planPetManagerAction({ message: input.content, spaces: availableSpaces.map(({ name }) => ({ name })) });
+    const explicitRecall = /之前|以前|群里|群聊|说过|聊过|记得|回忆|消息|近况|发生了什么|安排了什么/.test(input.content);
+    const possibleAction = /代发|帮我发|替我发|发到|创建|新建|添加|安排.{0,8}(?:待办|任务|日程)|提醒我|设置提醒|到点提醒|制定.{0,8}计划|计划一下/.test(input.content);
+    const managerIntent = explicitRecall || !possibleAction
+      ? { mode: "query" as const }
+      : await adapter.planPetManagerAction({ message: input.content, spaces: availableSpaces.map(({ name }) => ({ name })) });
     if (managerIntent.mode !== "query") {
       const target = managerIntent.target_space_name ? availableSpaces.find((space) => space.name === managerIntent.target_space_name) : null;
       let content = managerIntent.clarification ?? "我还需要你补充一些信息才能把这件事交给空间主 Agent。";

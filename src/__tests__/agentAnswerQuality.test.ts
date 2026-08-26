@@ -3,6 +3,7 @@ import {
   fallbackRecallAnswer,
   formatSpaceDigest,
   isUninformativeRecall,
+  normalizeDigestStringList,
 } from "../../supabase/functions/_shared/answerQuality";
 
 describe("agent answer quality", () => {
@@ -36,6 +37,18 @@ describe("agent answer quality", () => {
     expect(text).toContain("主要话题");
     expect(text).toContain("滨江公园");
     expect(text).toContain("已覆盖 165 条消息");
+  });
+
+  it("normalizes structured provider digest items into readable strings", () => {
+    expect(normalizeDigestStringList([
+      { topic: "周末野餐", key_points: ["周六下午", "滨江公园"] },
+      { title: "雨天方案", summary: "改到室内" },
+      "准备饮用水",
+    ])).toEqual([
+      "周末野餐；周六下午；滨江公园",
+      "改到室内；雨天方案",
+      "准备饮用水",
+    ]);
   });
 
   it("rejects placeholder recall replies and produces a sourced deterministic fallback", () => {

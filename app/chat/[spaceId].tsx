@@ -56,7 +56,7 @@ function MessageRow({ message, mine, signedUrl, selected, agentJob, proposal, cu
     {proposal ? <AgentProposalCard proposal={proposal} currentUserId={currentUserId} onVote={onProposalVote} /> : message.text ? <Text style={[styles.messageText, mine && styles.messageTextMine]}>{message.text}</Text> : null}
   </>;
   return (
-    <View nativeID={`chat-message-${message.senderId}-${message.clientId}`} style={[styles.messageWrap, mine && styles.messageWrapMine]}>
+    <View style={[styles.messageWrap, mine && styles.messageWrapMine]}>
       {!mine ? <View style={[styles.senderAvatar, isAgent && styles.senderAvatarAgent]}><Text style={styles.senderAvatarText}>{message.actorKind === "pet" ? "✦" : message.actorKind === "space_agent" ? "A" : message.actorName.slice(0, 1)}</Text></View> : null}
       <View style={[styles.messageColumn, mine && styles.messageColumnMine]}>
         {!mine ? <Text style={[styles.senderName, isAgent && styles.agentName]}>{message.actorName}{isAgent ? " · AI" : ""}</Text> : null}
@@ -87,9 +87,9 @@ export default function ChatScreen() {
   const messagesRef = useRef<readonly ChatMessage[]>([]);
   const nearBottomRef = useRef(true); const initialScrollDoneRef = useRef(false); const newestMessageKeyRef = useRef<string | null>(null);
   const pendingViewportIntentRef = useRef<ViewportIntent | null>(null);
-  const pendingOwnMessageAnchorRef = useRef<string | null>(null);
   const viewportMetricsRef = useRef({ contentHeight: 0, viewportHeight: 0, offsetY: 0 });
   const viewportSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ownMessageSettledOffsetRef = useRef<number | null>(null);
   const lastMarkedReadKeyRef = useRef<string | null>(null);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY); const recorderState = useAudioRecorderState(recorder, 250);
   const connected = netInfo.isConnected !== false;
@@ -115,16 +115,11 @@ export default function ChatScreen() {
       const shouldAnimate = attempt === 0 ? animated : false;
       if (Platform.OS === "web") {
         const scrollNode = (typeof document !== "undefined" ? document.querySelector('[data-testid="chat-message-list"]') : null) as HTMLElement | null;
-        const anchor = pendingOwnMessageAnchorRef.current && typeof document !== "undefined" ? document.getElementById(pendingOwnMessageAnchorRef.current) : null;
-        if (scrollNode && anchor) {
-          const targetBottom = anchor.getBoundingClientRect().bottom;
-          const viewportBottom = scrollNode.getBoundingClientRect().bottom;
-          scrollNode.scrollTop += targetBottom - viewportBottom + 12;
-        } else if (scrollNode) scrollNode.scrollTop = scrollNode.scrollHeight;
+        if (scrollNode) scrollNode.scrollTop = scrollNode.scrollHeight;
         if (scrollNode && scrollNode.scrollHeight - scrollNode.clientHeight - scrollNode.scrollTop <= 48) {
+          ownMessageSettledOffsetRef.current = scrollNode.scrollTop;
           viewportSettleTimerRef.current = null;
           pendingViewportIntentRef.current = null;
-          pendingOwnMessageAnchorRef.current = null;
           nearBottomRef.current = true;
           setUnseenNewMessage(false);
           markLatestRead();
@@ -138,7 +133,6 @@ export default function ChatScreen() {
       }
       viewportSettleTimerRef.current = null;
       pendingViewportIntentRef.current = null;
-      pendingOwnMessageAnchorRef.current = null;
       nearBottomRef.current = updateNearBottom(viewportMetricsRef.current);
       if (nearBottomRef.current) {
         setUnseenNewMessage(false);
@@ -214,11 +208,18 @@ export default function ChatScreen() {
     };
     await outbox.enqueue(queued); setReplying(null); setText("");
     pendingViewportIntentRef.current = createViewportIntent("own_message", viewportMetricsRef.current.contentHeight, viewportMetricsRef.current.offsetY);
-    pendingOwnMessageAnchorRef.current = `chat-message-${profile.id}-${queued.clientId}`;
+    ownMessageSettledOffsetRef.current = null;
     newestMessageKeyRef.current = `${profile.id}:${queued.clientId}`;
     publishMessages(mergeMessages(messagesRef.current, [{ id: queued.clientId, clientId: queued.clientId, spaceId, senderId: profile.id, actorKind: "human", actorName: profile.nickname, kind: queued.kind, text: queued.text, mediaPath: queued.localMediaUri ?? null, mediaDurationSeconds: queued.mediaDurationSeconds ?? null, replyToMessageId: queued.replyToMessageId ?? null, replyPreview: queued.replyPreview ?? null, createdAt: queued.createdAt, deliveryState: connected ? "pending" : "failed", reactions: {} }]));
     settleViewportAtEnd(false);
     await flush();
+    const settledOffset = ownMessageSettledOffsetRef.current;
+    const userMovedAway = settledOffset !== null && viewportMetricsRef.current.offsetY < settledOffset - 96;
+    if (!userMovedAway) {
+      pendingViewportIntentRef.current = createViewportIntent("own_message", viewportMetricsRef.current.contentHeight, viewportMetricsRef.current.offsetY);
+      settleViewportAtEnd(false);
+    }
+    ownMessageSettledOffsetRef.current = null;
   };
 
   const sendTextMessage = (submittedText = text) => {

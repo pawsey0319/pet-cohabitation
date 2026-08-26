@@ -1,5 +1,5 @@
 import { z } from "npm:zod@4";
-import { fallbackRecallAnswer } from "./answerQuality.ts";
+import { fallbackRecallAnswer, normalizeDigestStringList } from "./answerQuality.ts";
 
 const JsonBooleanSchema = z.preprocess((value) => {
   if (typeof value !== "string") return value;
@@ -20,12 +20,13 @@ const SignalsSchema = z.object({ signals: z.array(z.object({
   rationale: z.string().min(1).max(1000),
   confidence: z.number().min(0).max(1),
 })).max(3) });
+const DigestTextListSchema = z.preprocess(normalizeDigestStringList, z.array(z.string().min(1).max(500)).max(30));
 const DigestModelSchema = z.object({
-  topics: z.array(z.string().min(1).max(500)).max(30).default([]),
-  decisions: z.array(z.string().min(1).max(500)).max(30).default([]),
-  todos: z.array(z.string().min(1).max(500)).max(30).default([]),
-  schedules: z.array(z.string().min(1).max(500)).max(30).default([]),
-  pending: z.array(z.string().min(1).max(500)).max(30).default([]),
+  topics: DigestTextListSchema.default([]),
+  decisions: DigestTextListSchema.default([]),
+  todos: DigestTextListSchema.default([]),
+  schedules: DigestTextListSchema.default([]),
+  pending: DigestTextListSchema.default([]),
   source_message_ids: z.array(z.string().min(1).max(80)).max(240).default([]),
 });
 const SpaceQuerySchema = z.object({ answer: z.string().min(1).max(2400) });
@@ -96,14 +97,18 @@ async function responseError(kind: "text" | "image", response: Response): Promis
   return new Error(`${kind}_model_http_${response.status}`);
 }
 
-async function chatJson<T>(messages: readonly ChatMessage[], schema: z.ZodType<T>): Promise<T> {
+async function chatJson<T>(messages: readonly ChatMessage[], schema: z.ZodType<T>, options: Readonly<{ maxTokens?: number }> = {}): Promise<T> {
   if (mockMode()) throw new Error("mock_result_required");
   let response: Response;
   try {
     response = await fetchWithRetry(() => fetch(endpoint(required("TEXT_API_BASE_URL"), "chat/completions"), {
       method: "POST",
       headers: { Authorization: `Bearer ${required("TEXT_API_KEY")}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: required("TEXT_MODEL"), messages, temperature: 0.55, response_format: { type: "json_object" } }),
+      body: JSON.stringify({
+        model: required("TEXT_MODEL"), messages, temperature: 0.35,
+        max_tokens: options.maxTokens ?? 1200, reasoning_effort: "low",
+        response_format: { type: "json_object" },
+      }),
       signal: AbortSignal.timeout(30_000),
     }));
   } catch (reason) { throw normalizedRequestError("text", reason); }
@@ -151,7 +156,7 @@ export class TextModelAdapter {
     return chatJson([
       { role: "system", content: `你是成长型异宠“${input.petName}”，不是主人本人。人格摘要：${input.personality || "正在形成"}\n成长风格信号：${input.styleSignals || "暂无"}\n${contextRule}消息必须明确是异宠口吻。ownerPolicy=${input.ownerPolicy}：pet_only 只谈你自己；guess_low_risk 可以用“我猜主人可能……”表达低风险猜测；wait_for_owner 必须拒绝代答并等待主人。不得替主人承诺见面、关系变化、冲突立场、位置、健康、消费、财务或敏感授权。输出 JSON：content, concerns_owner, risk(none|low|high)。concerns_owner 必须是 JSON 布尔值 true/false，不能是字符串。` },
       { role: "user", content: `空间最近消息：\n${input.messages.map((item) => `${item.actor}: ${item.content}`).join("\n")}\n\n当前消息：${input.currentMessage}` },
-    ], PetReplySchema);
+    ], PetReplySchema, { maxTokens: 640 });
   }
 
   async planPetRecall(input: { question: string; spaces: readonly { name: string }[] }): Promise<z.infer<typeof RecallPlanSchema>> {
@@ -165,7 +170,7 @@ export class TextModelAdapter {
     return chatJson([
       { role: "system", content: "你只负责制定主人私聊中的群消息检索计划，不回答用户。异宠可以检索主人当前仍有权读取、且加入空间之后的所有成员文字消息。只有用户明确问‘我自己说过什么’时选择 recent_owner/sender_scope=owner；点名空间选 recent_space；询问群里发生什么、其他人说了什么、某事件或话题选 search_all/sender_scope=any；无关选 none。space_names 只能从给定空间名中选择；keywords 提取有区分度的原词。输出 JSON：mode, space_names, keywords, sender_scope(owner|any), limit。" },
       { role: "user", content: JSON.stringify(input) },
-    ], RecallPlanSchema);
+    ], RecallPlanSchema, { maxTokens: 400 });
   }
 
   async routePetRelevance(input: { message: string; candidates: readonly { petId: string; petName: string; ownerName: string }[] }): Promise<readonly string[]> {
@@ -203,7 +208,7 @@ export class TextModelAdapter {
     return chatJson([
       { role: "system", content: "你是关系空间公共主 Agent。只总结给定消息，必须写出具体话题、人物、时间、结论和待办，禁止使用‘大家聊了近况’之类空泛句。严格区分已确认与待确认；异宠发言只能作为异宠观点，不能算主人的承诺。每一项都必须能追溯到给定 message_id。输出 JSON：topics, decisions, todos, schedules, pending, source_message_ids。没有对应内容就返回空数组。" },
       { role: "user", content: input.messages.map((item) => `[${item.id}] ${item.createdAt} ${item.actor}: ${item.content}`).join("\n") },
-    ], DigestModelSchema);
+    ], DigestModelSchema, { maxTokens: 800 });
   }
 
   async mergeSpaceDigests(input: { chunks: readonly z.infer<typeof DigestModelSchema>[] }): Promise<z.infer<typeof DigestModelSchema>> {
@@ -219,7 +224,7 @@ export class TextModelAdapter {
     return chatJson([
       { role: "system", content: "把多段群聊简报合并成一份具体、去重的最终简报。保留跨批次的先后关系和冲突，不得增加输入中不存在的事实。异宠发言不算主人承诺。输出 JSON：topics, decisions, todos, schedules, pending, source_message_ids；每类最多 30 项。" },
       { role: "user", content: JSON.stringify(input.chunks) },
-    ], DigestModelSchema);
+    ], DigestModelSchema, { maxTokens: 800 });
   }
 
   async planPetManagerAction(input: { message: string; spaces: readonly { name: string }[] }): Promise<z.infer<typeof PetManagerIntentSchema>> {
@@ -240,7 +245,7 @@ export class TextModelAdapter {
     return chatJson([
       { role: "system", content: "你是异宠消息管家的意图路由器，不执行操作。区分普通聊天/消息查询(query)与空间操作(action)。操作类型只能是 delegated_message、group_task、group_plan、group_schedule、personal_reminder、group_reminder。目标空间只能从给定列表精确选择；不明确就 mode=clarify 并追问。代发必须提取用户本次输入中明确给出的逐字原文，绝不能补充、改写或从记忆推断；没有明确原文就 clarify。输出 JSON：mode, request_kind, target_space_name, exact_content, clarification。" },
       { role: "user", content: JSON.stringify(input) },
-    ], PetManagerIntentSchema);
+    ], PetManagerIntentSchema, { maxTokens: 400 });
   }
 
   async answerSpaceQuery(input: { question: string; messages: readonly { actor: string; content: string }[] }): Promise<z.infer<typeof SpaceQuerySchema>> {
@@ -259,9 +264,9 @@ export class TextModelAdapter {
       seed_summary: `${input.name}是一只${input.personality}的异宠，外观朝“${input.appearance}”生长，习惯${input.companionship}。`,
     });
     return chatJson([
-      { role: "system", content: "你负责把用户对唯一异宠的结构化期待编排成四个种子字段。保留用户意图但不得模仿现有 IP、受保护角色或在世艺术家的风格。视觉必须是原创精细像素桌宠、完整全身、小尺寸轮廓清晰，强调独特器官组合、材质、动作、表情和标志性配件，禁止简单几何色块；人格要可成长、有独立判断且不情感绑架。输出 JSON：personality_seed_prompt, visual_seed_prompt, negative_seed_prompt, seed_summary。" },
+      { role: "system", content: "将用户的异宠期待编排成简短 JSON。只输出 personality_seed_prompt、visual_seed_prompt、negative_seed_prompt、seed_summary 四个字符串，每项不超过 120 字。视觉为原创精细像素全身桌宠，轮廓、器官、材质和配件独特，不模仿现有 IP；人格可成长、有独立判断且不情感绑架。" },
       { role: "user", content: JSON.stringify(input) },
-    ], PetSeedSchema);
+    ], PetSeedSchema, { maxTokens: 512 });
   }
 }
 

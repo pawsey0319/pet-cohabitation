@@ -39,6 +39,29 @@ async function scrollList(page: Page, position: "top" | "bottom") {
   await page.waitForTimeout(150);
 }
 
+async function waitForLatestAgentRequest(requestedBy: string, kind: string, timeoutMs = 120_000) {
+  const deadline = Date.now() + timeoutMs;
+  let request: Record<string, any> | null = null;
+  while (Date.now() < deadline) {
+    const result = await service.from("agent_requests").select("*")
+      .eq("requested_by", requestedBy).eq("request_kind", kind)
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (result.error) throw result.error;
+    request = result.data;
+    if (request && ["completed", "failed"].includes(request.status)) break;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  if (!request) throw new Error(`No ${kind} request was persisted`);
+  if (request.status !== "completed") {
+    const jobs = await service.from("agent_jobs").select("status,error_code,attempts,started_at,completed_at")
+      .eq("agent_request_id", request.id);
+    const runs = await service.from("model_runs").select("model,status,error_code,latency_ms")
+      .eq("space_id", request.space_id).order("created_at", { ascending: false }).limit(3);
+    throw new Error(`Agent ${kind} failed: ${JSON.stringify({ request: { status: request.status, review_reason: request.review_reason }, jobs: jobs.data, runs: runs.data })}`);
+  }
+  return request;
+}
+
 test.beforeAll(async () => {
   for (const user of users) {
     const created = await service.auth.admin.createUser({ email: user.email, password: user.password, email_confirm: true });
@@ -55,6 +78,7 @@ test.afterAll(async () => {
 });
 
 test("two browser accounts invite, chat, reply, react and use the shared Agent workbench", async ({ browser }) => {
+  test.setTimeout(180_000);
   const contextA: BrowserContext = await browser.newContext();
   const contextB: BrowserContext = await browser.newContext();
   const pageA = await contextA.newPage(); const pageB = await contextB.newPage();
@@ -146,7 +170,8 @@ test("two browser accounts invite, chat, reply, react and use the shared Agent w
     await expect(pageA.getByText("普通聊天不会自动触发。", { exact: false })).toBeVisible();
     await pageA.getByText("群聊简报", { exact: true }).click();
     await pageA.getByRole("button", { name: "提交给主 Agent" }).click();
-    await expect(pageA.getByText("已完成", { exact: true }).last()).toBeVisible();
+    await waitForLatestAgentRequest(users[0].id, "read_summary");
+    await expect(pageA.getByText("已完成", { exact: true }).last()).toBeVisible({ timeout: 120_000 });
     await expect(pageA.getByText(/主要话题/).last()).toBeVisible();
     await expect(pageA.getByText(/浏览器乙的实时回复/).last()).toBeVisible();
 
@@ -178,6 +203,7 @@ test("two browser accounts invite, chat, reply, react and use the shared Agent w
 });
 
 test("owner sets, confirms and cares for the same living pet without incubation chat", async ({ browser }) => {
+  test.setTimeout(180_000);
   const context = await browser.newContext(); const page = await context.newPage();
   try {
     if (!createdSpaceId) {
@@ -205,7 +231,7 @@ test("owner sets, confirms and cares for the same living pet without incubation 
     await page.getByPlaceholder(/平时先倾听/).fill("平时先倾听，需要时直接提醒，也会主动分享见闻");
     await page.getByPlaceholder(/不要人脸/).fill("不要人脸、翅膀和普通猫狗轮廓");
     await page.getByRole("button", { name: "生成第一张异宠" }).click();
-    await expect(page.getByText("这是当前草稿，不是最终承诺")).toBeVisible();
+    await expect(page.getByText("这是当前草稿，不是最终承诺")).toBeVisible({ timeout: 120_000 });
     await page.getByRole("button", { name: "选择这张并确认" }).click();
     await page.getByRole("button", { name: "我确认这是它" }).click();
     await expect(page.getByText("它不会再回到初始捏宠")).toBeVisible();
@@ -235,7 +261,7 @@ test("owner sets, confirms and cares for the same living pet without incubation 
     await expect.poll(async () => {
       const latest = await service.from("pet_private_threads").select("recall_sources").eq("owner_id", users[0].id).eq("role", "pet").order("created_at", { ascending: false }).limit(1).single();
       return Array.isArray(latest.data?.recall_sources) ? latest.data.recall_sources.length : 0;
-    }).toBeGreaterThan(0);
+    }, { timeout: 60_000 }).toBeGreaterThan(0);
     await expect(page.getByText(/消息来源：双浏览器小窝/)).toBeVisible();
 
     await page.getByRole("button", { name: "投喂" }).click();

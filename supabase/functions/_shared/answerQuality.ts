@@ -17,6 +17,25 @@ export type SpaceDigest = Readonly<{
   source_message_ids: readonly string[];
 }>;
 
+function digestValueText(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map(digestValueText).filter(Boolean).join("；");
+  if (!value || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  const preferredKeys = ["text", "summary", "topic", "decision", "todo", "schedule", "pending", "content", "title", "action", "description", "detail", "key_points"];
+  const preferred = preferredKeys.map((key) => digestValueText(record[key])).filter(Boolean);
+  if (preferred.length) return [...new Set(preferred)].join("；");
+  return Object.entries(record)
+    .filter(([key]) => !/^(id|message_id|source_message_ids?)$/i.test(key))
+    .map(([, nested]) => digestValueText(nested)).filter(Boolean).join("；");
+}
+
+export function normalizeDigestStringList(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map(digestValueText).filter(Boolean);
+}
+
 export function chunkDigestMessages(
   messages: readonly DigestMessage[],
   limits: Readonly<{ maxMessages: number; maxCharacters: number }> = { maxMessages: 80, maxCharacters: 40_000 },

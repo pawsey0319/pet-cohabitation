@@ -43,9 +43,17 @@ export async function buildPetRecallContext(client: SupabaseClient, input: { own
   if (!allowed.length) return { messages: [], sources: [] };
 
   let plan: Awaited<ReturnType<TextModelAdapter["planPetRecall"]>>;
-  try { plan = await input.adapter.planPetRecall({ question: input.question, spaces: allowed.map(({ name }) => ({ name })) }); }
+  const namedSpace = allowed.find((space) => input.question.includes(space.name));
+  const ownerOnly = /我.{0,8}(说|发|安排|提过)/.test(input.question);
+  const explicitRecall = Boolean(namedSpace) || /之前|以前|群里|说过|聊过|记得|回忆|消息|近况|发生了什么|安排了什么/.test(input.question);
+  if (explicitRecall) {
+    plan = {
+      mode: namedSpace ? "recent_space" : ownerOnly ? "recent_owner" : "search_all",
+      space_names: namedSpace ? [namedSpace.name] : [], keywords: [],
+      sender_scope: ownerOnly ? "owner" : "any", limit: 30,
+    };
+  } else try { plan = await input.adapter.planPetRecall({ question: input.question, spaces: allowed.map(({ name }) => ({ name })) }); }
   catch {
-    const ownerOnly = /我.{0,8}(说|发)/.test(input.question);
     plan = { mode: /之前|以前|群里|说过|聊过|记得|回忆|消息|近况/.test(input.question) ? (ownerOnly ? "recent_owner" : "search_all") : "none", space_names: [], keywords: [], sender_scope: ownerOnly ? "owner" : "any", limit: 30 };
   }
   if (plan.mode === "none") return { messages: [], sources: [] };
