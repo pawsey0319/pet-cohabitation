@@ -25,6 +25,20 @@ const SummarySchema = z.object({
   suggestions: z.array(z.string().max(300)).max(10),
   pending_people: z.array(z.string().max(300)).max(10),
 });
+const SpaceQuerySchema = z.object({ answer: z.string().min(1).max(2400) });
+const PetSeedSchema = z.object({
+  personality_seed_prompt: z.string().min(20).max(2400),
+  visual_seed_prompt: z.string().min(20).max(3000),
+  negative_seed_prompt: z.string().min(1).max(1600),
+  seed_summary: z.string().min(10).max(1000),
+});
+const PetManagerIntentSchema = z.object({
+  mode: z.enum(["query", "action", "clarify"]),
+  request_kind: z.enum(["delegated_message", "group_task", "group_plan", "group_schedule", "personal_reminder", "group_reminder"]).nullable().default(null),
+  target_space_name: z.string().max(80).nullable().default(null),
+  exact_content: z.string().max(4000).nullable().default(null),
+  clarification: z.string().max(500).nullable().default(null),
+});
 const RecallPlanSchema = z.object({
   mode: z.enum(["recent_owner", "recent_space", "search_all", "none"]),
   space_names: z.array(z.string().max(80)).max(10).default([]),
@@ -139,12 +153,12 @@ export class TextModelAdapter {
     if (mockMode()) {
       const space = input.spaces.find((item) => input.question.includes(item.name));
       return RecallPlanSchema.parse({
-        mode: space ? "recent_space" : /之前|以前|群里|说过|聊过|记得|回忆/.test(input.question) ? "recent_owner" : "none",
-        space_names: space ? [space.name] : [], keywords: [], sender_scope: "owner", limit: 30,
+        mode: space ? "recent_space" : /之前|以前|群里|说过|聊过|记得|回忆|消息|近况/.test(input.question) ? (/我.{0,8}(说|发)/.test(input.question) ? "recent_owner" : "search_all") : "none",
+        space_names: space ? [space.name] : [], keywords: [], sender_scope: /我.{0,8}(说|发)/.test(input.question) ? "owner" : "any", limit: 30,
       });
     }
     return chatJson([
-      { role: "system", content: "你只负责制定私聊记忆检索计划，不回答用户。若用户问自己之前在群里说过什么，选择 recent_owner；点名某空间选 recent_space；查询某个事件、人物或话题选 search_all；与群聊回忆无关选 none。space_names 只能从给定空间名中选择；keywords 提取有区分度的原词，不能包含‘之前、群里、记得、说过’等泛词。输出 JSON：mode, space_names, keywords, sender_scope(owner|any), limit。" },
+      { role: "system", content: "你只负责制定主人私聊中的群消息检索计划，不回答用户。异宠可以检索主人当前仍有权读取、且加入空间之后的所有成员文字消息。只有用户明确问‘我自己说过什么’时选择 recent_owner/sender_scope=owner；点名空间选 recent_space；询问群里发生什么、其他人说了什么、某事件或话题选 search_all/sender_scope=any；无关选 none。space_names 只能从给定空间名中选择；keywords 提取有区分度的原词。输出 JSON：mode, space_names, keywords, sender_scope(owner|any), limit。" },
       { role: "user", content: JSON.stringify(input) },
     ], RecallPlanSchema);
   }
@@ -178,6 +192,48 @@ export class TextModelAdapter {
       { role: "user", content: input.messages.map((item) => `${item.actor}: ${item.content}`).join("\n") },
     ], SummarySchema);
   }
+
+  async planPetManagerAction(input: { message: string; spaces: readonly { name: string }[] }): Promise<z.infer<typeof PetManagerIntentSchema>> {
+    if (mockMode()) {
+      const target = input.spaces.find((space) => input.message.includes(space.name));
+      const delegated = /(代发|帮我发|替我发|发到)/.test(input.message);
+      const kind = delegated ? "delegated_message"
+        : /(?:创建|新建|添加|安排|帮我).{0,8}(?:待办|任务)/.test(input.message) ? "group_task"
+          : /(?:创建|新建|添加|安排|帮我).{0,8}(?:日程|时间)/.test(input.message) ? "group_schedule"
+            : /(?:提醒我|创建提醒|设置提醒|到点提醒)/.test(input.message) ? (target ? "group_reminder" : "personal_reminder")
+              : /(?:制定|发起|创建|帮我|一起).{0,10}计划|计划一下/.test(input.message) ? "group_plan" : null;
+      if (!kind) return PetManagerIntentSchema.parse({ mode: "query" });
+      if (kind !== "personal_reminder" && !target) return PetManagerIntentSchema.parse({ mode: "clarify", request_kind: kind, clarification: "你想操作哪个关系空间？请说出空间名称。" });
+      const exactMatch = input.message.match(/(?:原文|内容|发(?:到)?[^：:]{0,30})[：:]\s*([\s\S]+)$/);
+      if (kind === "delegated_message" && !exactMatch?.[1]?.trim()) return PetManagerIntentSchema.parse({ mode: "clarify", request_kind: kind, target_space_name: target?.name ?? null, clarification: "请给出要逐字代发的明确原文，例如“发到旅行群：我周六下午有空”。" });
+      return PetManagerIntentSchema.parse({ mode: "action", request_kind: kind, target_space_name: target?.name ?? null, exact_content: exactMatch?.[1]?.trim() ?? null });
+    }
+    return chatJson([
+      { role: "system", content: "你是异宠消息管家的意图路由器，不执行操作。区分普通聊天/消息查询(query)与空间操作(action)。操作类型只能是 delegated_message、group_task、group_plan、group_schedule、personal_reminder、group_reminder。目标空间只能从给定列表精确选择；不明确就 mode=clarify 并追问。代发必须提取用户本次输入中明确给出的逐字原文，绝不能补充、改写或从记忆推断；没有明确原文就 clarify。输出 JSON：mode, request_kind, target_space_name, exact_content, clarification。" },
+      { role: "user", content: JSON.stringify(input) },
+    ], PetManagerIntentSchema);
+  }
+
+  async answerSpaceQuery(input: { question: string; messages: readonly { actor: string; content: string }[] }): Promise<z.infer<typeof SpaceQuerySchema>> {
+    if (mockMode()) return { answer: `根据这个空间现有的消息，我找到了与“${input.question.slice(0, 32)}”相关的内容；当前没有超出群聊记录的额外结论。` };
+    return chatJson([
+      { role: "system", content: "你是关系空间公共主 Agent。只根据给定空间消息回答成员的问题，不得使用跨空间信息，不得把异宠发言当作主人的正式承诺。若证据不足要直说。输出 JSON：answer。" },
+      { role: "user", content: `问题：${input.question}\n\n空间消息：\n${input.messages.map((item) => `${item.actor}: ${item.content}`).join("\n")}` },
+    ], SpaceQuerySchema);
+  }
+
+  async composePetSeed(input: { name: string; appearance: string; personality: string; companionship: string; excludedFeatures: string; additionalDescription: string }): Promise<z.infer<typeof PetSeedSchema>> {
+    if (mockMode()) return PetSeedSchema.parse({
+      personality_seed_prompt: `${input.name}会以“${input.personality}”作为初始性格倾向，并在相处中采用“${input.companionship}”的陪伴方式；它有自己的判断，不机械迎合主人。`,
+      visual_seed_prompt: `原创 2D 全身异宠，名字是${input.name}。外观期待：${input.appearance}。补充描述：${input.additionalDescription || "保持奇异、有生命感、避免普通猫狗轮廓"}。使用清晰完整的身体结构、可识别器官、简洁背景、非人形玩偶感。`,
+      negative_seed_prompt: `不要文字、水印、现有 IP、真人、普通人脸、照搬猫狗模板；排除：${input.excludedFeatures || "无"}。`,
+      seed_summary: `${input.name}是一只${input.personality}的异宠，外观朝“${input.appearance}”生长，习惯${input.companionship}。`,
+    });
+    return chatJson([
+      { role: "system", content: "你负责把用户对唯一异宠的结构化期待编排成四个种子字段。保留用户意图但不得模仿现有 IP、受保护角色或在世艺术家的风格。视觉必须是原创 2D 全身异宠，强调独特轮廓、器官组合、材质、动作和表情；人格要可成长、有独立判断且不情感绑架。输出 JSON：personality_seed_prompt, visual_seed_prompt, negative_seed_prompt, seed_summary。" },
+      { role: "user", content: JSON.stringify(input) },
+    ], PetSeedSchema);
+  }
 }
 
 export type GeneratedImage = Readonly<{ bytes: Uint8Array; mimeType: "image/png" | "image/jpeg" | "image/webp" | "image/svg+xml" }>;
@@ -204,8 +260,19 @@ async function normalizeImagePayload(payload: unknown): Promise<GeneratedImage> 
 }
 
 async function mockImage(prompt: string): Promise<GeneratedImage> {
-  const hue = [...prompt].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 360;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><defs><radialGradient id="b"><stop stop-color="hsl(${hue} 70% 84%)"/><stop offset="1" stop-color="hsl(${(hue + 70) % 360} 55% 48%)"/></radialGradient></defs><rect width="1024" height="1024" rx="180" fill="#201d3d"/><path d="M258 440C184 168 448 118 516 278 642 114 862 262 750 456 886 674 698 880 494 796 292 892 116 650 258 440Z" fill="url(#b)"/><ellipse cx="407" cy="485" rx="38" ry="55" fill="#25213f"/><ellipse cx="612" cy="485" rx="38" ry="55" fill="#25213f"/><path d="M434 628Q516 690 590 620" fill="none" stroke="#25213f" stroke-width="32" stroke-linecap="round"/></svg>`;
+  const hash = [...prompt].reduce((sum, char, index) => (sum + char.charCodeAt(0) * (index + 3)) % 1000003, 0);
+  const hue = hash % 360;
+  const variant = hash % 5;
+  const bodies = [
+    `<path d="M248 440C174 180 414 120 500 280 624 112 854 258 756 462 876 680 682 878 500 790 300 888 120 654 248 440Z" fill="url(#b)"/><path d="M300 735Q250 870 372 826M700 735Q750 870 628 826" fill="none" stroke="url(#b)" stroke-width="54" stroke-linecap="round"/>`,
+    `<path d="M512 150L650 310 846 350 730 520 770 746 550 690 374 842 338 614 138 510 342 404Z" fill="url(#b)"/><circle cx="512" cy="172" r="46" fill="hsl(${(hue + 120) % 360} 70% 64%)"/>`,
+    `<path d="M510 166C680 166 790 310 742 470 884 544 810 760 644 740 572 884 326 834 320 666 130 590 202 344 386 350 394 242 438 166 510 166Z" fill="url(#b)"/><path d="M326 354Q214 212 166 350M704 350Q814 208 858 356" fill="none" stroke="url(#b)" stroke-width="70" stroke-linecap="round"/>`,
+    `<ellipse cx="512" cy="500" rx="248" ry="326" fill="url(#b)"/><path d="M360 210Q512 30 664 210M280 500Q106 558 220 710M744 500Q918 558 804 710" fill="none" stroke="url(#b)" stroke-width="72" stroke-linecap="round"/><path d="M420 798L362 904M604 798L662 904" stroke="url(#b)" stroke-width="64" stroke-linecap="round"/>`,
+    `<path d="M226 570Q250 248 520 182 814 250 786 566 760 810 516 826 260 800 226 570Z" fill="url(#b)"/><path d="M330 288L250 110 438 238M604 238L790 110 708 304" fill="url(#b)"/><path d="M280 640Q126 682 198 818M750 640Q902 682 832 818" fill="none" stroke="url(#b)" stroke-width="62" stroke-linecap="round"/>`,
+  ];
+  const eyeY = variant === 3 ? 470 : 492;
+  const eyeCount = variant === 2 ? `<circle cx="512" cy="420" r="29" fill="#25213f"/>` : "";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><defs><radialGradient id="b"><stop stop-color="hsl(${hue} 70% 84%)"/><stop offset="1" stop-color="hsl(${(hue + 70) % 360} 55% 48%)"/></radialGradient></defs><rect width="1024" height="1024" rx="180" fill="#201d3d"/>${bodies[variant]}${eyeCount}<ellipse cx="420" cy="${eyeY}" rx="34" ry="48" fill="#25213f"/><ellipse cx="604" cy="${eyeY}" rx="34" ry="48" fill="#25213f"/><path d="M438 620Q516 ${variant % 2 ? 580 : 682} 590 618" fill="none" stroke="#25213f" stroke-width="30" stroke-linecap="round"/></svg>`;
   return { bytes: new TextEncoder().encode(svg), mimeType: "image/svg+xml" };
 }
 

@@ -14,9 +14,10 @@ describe("multi-pet relevance routing", () => {
     expect(routePetCandidates({ text: "今天下雨了", now: "2026-08-21T00:00:00.000Z", candidates })).toEqual([]);
   });
 
-  it("allows explicit cues to at most three pets and implicit relevance to one", () => {
+  it("allows explicit cues to at most three pets and ignores implicit relevance", () => {
     expect(routePetCandidates({ text: "@宠1 @宠2 你们觉得呢？", now: "2026-08-21T00:00:00.000Z", candidates })).toHaveLength(2);
-    expect(routePetCandidates({ text: "主人1和主人2的安排", now: "2026-08-21T00:00:00.000Z", candidates })).toHaveLength(1);
+    expect(routePetCandidates({ text: "主人1和主人2的安排", now: "2026-08-21T00:00:00.000Z", candidates })).toEqual([]);
+    expect(routePetCandidates({ text: "宠1最近怎么样", now: "2026-08-21T00:00:00.000Z", candidates })).toEqual([]);
   });
 
   it("never answers owner-sensitive matters and waits while owner is online", () => {

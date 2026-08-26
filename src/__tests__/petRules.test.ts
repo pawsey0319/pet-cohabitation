@@ -1,9 +1,10 @@
-import { canEditInitialAppearance, canGenerateInitialCandidate, validateEvolutionDraft } from "../pets/rules";
+import { canEditInitialAppearance, canGenerateInitialCandidate, hasCompletePetExpectations, validateEvolutionDraft } from "../pets/rules";
 
 describe("pet lifecycle rules", () => {
-  it("requires five owner turns before first generation", () => {
-    expect(canGenerateInitialCandidate("incubating", 4)).toBe(false);
-    expect(canGenerateInitialCandidate("incubating", 5)).toBe(true);
+  it("uses structured expectations instead of five incubation turns", () => {
+    expect(canGenerateInitialCandidate("incubating", 0)).toBe(true);
+    expect(hasCompletePetExpectations({ name: "芽芽", appearance: "像一团会发光的苔藓", personality: "安静但有主见", companionship: "先听再提醒", excludedFeatures: "不要人脸", additionalDescription: "" })).toBe(true);
+    expect(hasCompletePetExpectations({ name: "芽芽", appearance: "", personality: "安静", companionship: "陪伴", excludedFeatures: "", additionalDescription: "" })).toBe(false);
   });
 
   it("permanently closes initial editing after confirmation", () => {

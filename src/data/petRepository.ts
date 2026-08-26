@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { isLocalDemoMode, requireSupabase } from "../lib/supabase";
 import { DAILY_CANDIDATE_LIMIT, canGenerateInitialCandidate } from "../pets/rules";
-import type { AppProfile, PetEvolutionEvent, PetExperience, PetGenerationSession, PetMotionState, PetPrivateMessage, PetRecallSource, PetRecord, PetRuntimeState, PetVisualAsset, StyleSignal } from "./types";
+import type { AppProfile, PetEvolutionEvent, PetExpectations, PetExperience, PetGenerationSession, PetMotionState, PetPrivateMessage, PetRecallSource, PetRecord, PetRuntimeState, PetVisualAsset, StyleSignal } from "./types";
 
 const LOCAL_PET_KEY = "pet-cohabitation-local-pet-v2";
 
@@ -16,16 +16,19 @@ type LocalPetState = Readonly<{
   evolutionEvents?: readonly PetEvolutionEvent[];
   generationSessions?: readonly PetGenerationSession[];
   runtimeState?: PetRuntimeState | null;
+  expectations?: PetExpectations | null;
 }>;
 
 export interface PetRepository {
   getPet(): Promise<PetRecord | null>;
   createPet(name: string): Promise<PetRecord>;
+  getExpectations(): Promise<PetExpectations | null>;
+  saveExpectations(input: PetExpectations): Promise<PetExpectations>;
   listPrivateMessages(): Promise<readonly PetPrivateMessage[]>;
   chat(content: string): Promise<PetPrivateMessage>;
   listAssets(): Promise<readonly PetVisualAsset[]>;
   listGenerationSessions(): Promise<readonly PetGenerationSession[]>;
-  generateCandidate(instruction: string, baseAssetId?: string | null, explore?: boolean): Promise<PetGenerationSession>;
+  generateCandidate(instruction: string, baseAssetId?: string | null, explore?: boolean, expectations?: PetExpectations): Promise<PetGenerationSession>;
   retryGeneration(sessionId: string): Promise<PetGenerationSession>;
   confirmPet(assetId: string): Promise<void>;
   listStyleSignals(): Promise<readonly StyleSignal[]>;
@@ -57,6 +60,21 @@ class LocalPetRepository implements PetRepository {
     const pet: PetRecord = { id: "local-pet", ownerId: this.profile.id, name: name.trim(), status: "incubating", conversationTurns: 0, currentAssetId: null, confirmedAt: null, generationsRemainingToday: DAILY_CANDIDATE_LIMIT };
     await saveLocal({ ...state, pet }); return pet;
   }
+  async getExpectations() { return (await loadLocal()).expectations ?? null; }
+  async saveExpectations(input: PetExpectations) {
+    const state = await loadLocal();
+    if (state.pet?.status === "confirmed") throw new Error("异宠已确认，初始设定已永久锁定");
+    const compiled: PetExpectations = {
+      ...input,
+      personalitySeedPrompt: `${input.name}以${input.personality}为初始倾向，并以${input.companionship}陪伴主人，同时保留自己的判断。`,
+      visualSeedPrompt: `原创 2D 全身异宠：${input.appearance}；${input.additionalDescription}`,
+      negativeSeedPrompt: `不要现有 IP、文字、水印；${input.excludedFeatures}`,
+      seedSummary: `${input.name}是一只${input.personality}、会${input.companionship}的异宠。`,
+      version: (state.expectations?.version ?? 0) + 1,
+    };
+    await saveLocal({ ...state, expectations: compiled });
+    return compiled;
+  }
   async listPrivateMessages() { return (await loadLocal()).messages; }
   async chat(content: string) {
     const state = await loadLocal(); if (!state.pet) throw new Error("请先为胚胎命名");
@@ -72,20 +90,23 @@ class LocalPetRepository implements PetRepository {
   }
   async listAssets() { return (await loadLocal()).assets; }
   async listGenerationSessions() { return (await loadLocal()).generationSessions ?? []; }
-  async generateCandidate(instruction: string, baseAssetId?: string | null, explore = false) {
+  async generateCandidate(instruction: string, baseAssetId?: string | null, explore = false, expectations?: PetExpectations) {
     const state = await loadLocal(); if (!state.pet) throw new Error("请先孵化异宠");
-    const turns = state.messages.filter((message) => message.role === "owner").length;
-    if (!canGenerateInitialCandidate(state.pet.status, turns)) throw new Error(state.pet.status === "confirmed" ? "这只异宠已经确认，不能重新捏宠" : "至少完成 5 轮对话后才能生成");
-    if (remaining(state) <= 0) throw new Error("今天的 20 次图像生成额度已用完");
+    if (expectations) await this.saveExpectations(expectations);
+    const refreshed = await loadLocal();
+    if (!refreshed.expectations) throw new Error("请先填写异宠外观、性格和相处方式");
+    if (!refreshed.pet || !canGenerateInitialCandidate(refreshed.pet.status)) throw new Error("这只异宠已经确认，不能重新捏宠");
+    if (remaining(refreshed) <= 0) throw new Error("今天的 20 次图像生成额度已用完");
     const createdAt = new Date().toISOString();
-    const session: PetGenerationSession = { id: `local-generation-${Date.now()}`, status: "succeeded", instruction, baseAssetId: explore ? null : baseAssetId ?? state.assets.at(-1)?.id ?? null, explore, attempts: 1, errorCode: null, createdAt, completedAt: createdAt };
-    const asset: PetVisualAsset = { id: `local-asset-${Date.now()}`, petId: state.pet.id, storagePath: `local-visual-${state.assets.length + 1}-${encodeURIComponent(instruction.slice(0, 20))}`, parentAssetId: session.baseAssetId, evolutionEventId: null, isDraft: true, createdAt };
-    const pet = { ...state.pet, status: "drafting" as const, generationsRemainingToday: remaining(state) - 1 };
-    await saveLocal({ ...state, pet, assets: [...state.assets, asset], generationSessions: [session, ...(state.generationSessions ?? [])], generationDates: [...state.generationDates, todayKey()] }); return session;
+    const session: PetGenerationSession = { id: `local-generation-${Date.now()}`, status: "succeeded", instruction, baseAssetId: explore ? null : baseAssetId ?? refreshed.assets.at(-1)?.id ?? null, explore, attempts: 1, errorCode: null, createdAt, completedAt: createdAt };
+    const asset: PetVisualAsset = { id: `local-asset-${Date.now()}`, petId: refreshed.pet.id, storagePath: `local-visual-${refreshed.assets.length + 1}-${encodeURIComponent(instruction.slice(0, 20))}`, parentAssetId: session.baseAssetId, evolutionEventId: null, isDraft: true, createdAt };
+    const pet = { ...refreshed.pet, status: "drafting" as const, generationsRemainingToday: remaining(refreshed) - 1 };
+    await saveLocal({ ...refreshed, pet, assets: [...refreshed.assets, asset], generationSessions: [session, ...(refreshed.generationSessions ?? [])], generationDates: [...refreshed.generationDates, todayKey()] }); return session;
   }
   async retryGeneration(sessionId: string) { const session = (await this.listGenerationSessions()).find((item) => item.id === sessionId); if (!session) throw new Error("生成任务不存在"); return session; }
   async confirmPet(assetId: string) {
     const state = await loadLocal(); if (!state.pet || state.pet.status === "confirmed") throw new Error("异宠已确认，不能再次修改");
+    if (!state.expectations?.personalitySeedPrompt || !state.expectations.visualSeedPrompt) throw new Error("请先完成异宠设定");
     if (!state.assets.some((asset) => asset.id === assetId && asset.isDraft)) throw new Error("候选不存在");
     await saveLocal({ ...state, pet: { ...state.pet, status: "confirmed", currentAssetId: assetId, confirmedAt: new Date().toISOString() }, assets: state.assets.map((asset) => ({ ...asset, isDraft: asset.id !== assetId })) });
   }
@@ -139,11 +160,24 @@ class SupabasePetRepository implements PetRepository {
     return mapPet(data, turns.count ?? 0, Number(quota.data ?? 0));
   }
   async createPet(name: string) { const client = requireSupabase(); const user = (await client.auth.getUser()).data.user; if (!user) throw new Error("未登录"); const { data, error } = await client.from("pets").insert({ owner_id: user.id, name: name.trim() }).select("*").single(); if (error) throw error; return mapPet(data, 0, DAILY_CANDIDATE_LIMIT); }
-  async listPrivateMessages() { const { data, error } = await requireSupabase().from("pet_private_threads").select("id,role,content,created_at,recall_sources").order("created_at"); if (error) throw error; return (data ?? []).map((row) => ({ id: row.id, role: row.role, content: row.content, createdAt: row.created_at, recallSources: mapRecallSources(row.recall_sources) })); }
-  async chat(content: string): Promise<PetPrivateMessage> { const { data, error } = await requireSupabase().functions.invoke("pet-chat", { body: { content } }); if (error) throw error; return { id: data.id, role: "pet", content: data.content, createdAt: data.created_at, recallSources: mapRecallSources(data.recall_sources) }; }
+  async getExpectations(): Promise<PetExpectations | null> {
+    const { data, error } = await requireSupabase().from("pet_expectation_drafts").select("*").maybeSingle();
+    if (error) throw error; if (!data) return null;
+    const pet = await this.getPet();
+    return { name: pet?.name ?? "", appearance: data.appearance_expectation, personality: data.personality_expectation, companionship: data.companionship_expectation, excludedFeatures: data.excluded_features, additionalDescription: data.additional_description, personalitySeedPrompt: data.personality_seed_prompt, visualSeedPrompt: data.visual_seed_prompt, negativeSeedPrompt: data.negative_seed_prompt, seedSummary: data.seed_summary, version: data.version };
+  }
+  async saveExpectations(input: PetExpectations): Promise<PetExpectations> {
+    const client = requireSupabase(); const user = (await client.auth.getUser()).data.user; if (!user) throw new Error("未登录");
+    const pet = await this.getPet(); if (!pet) throw new Error("请先为异宠命名"); if (pet.status === "confirmed") throw new Error("异宠已确认，初始设定已永久锁定");
+    const { data, error } = await client.from("pet_expectation_drafts").upsert({ pet_id: pet.id, owner_id: user.id, appearance_expectation: input.appearance.trim(), personality_expectation: input.personality.trim(), companionship_expectation: input.companionship.trim(), excluded_features: input.excludedFeatures.trim(), additional_description: input.additionalDescription.trim(), version: (input.version ?? 0) + 1, updated_at: new Date().toISOString() }, { onConflict: "pet_id" }).select("*").single();
+    if (error) throw error;
+    return { ...input, personalitySeedPrompt: data.personality_seed_prompt, visualSeedPrompt: data.visual_seed_prompt, negativeSeedPrompt: data.negative_seed_prompt, seedSummary: data.seed_summary, version: data.version };
+  }
+  async listPrivateMessages() { const client = requireSupabase(); void client.functions.invoke("deliver-reminders", { body: {} }).catch(() => undefined); const { data, error } = await client.from("pet_private_threads").select("id,role,content,created_at,recall_sources").order("created_at"); if (error) throw error; return (data ?? []).map((row) => ({ id: row.id, role: row.role, content: row.content, createdAt: row.created_at, recallSources: mapRecallSources(row.recall_sources) })); }
+  async chat(content: string): Promise<PetPrivateMessage> { const client = requireSupabase(); const { data, error } = await client.functions.invoke("pet-chat", { body: { content } }); if (error) throw error; if (data.agent_request_id) void client.functions.invoke("space-agent", { body: { request_id: data.agent_request_id } }).catch(() => undefined); return { id: data.id, role: "pet", content: data.content, createdAt: data.created_at, recallSources: mapRecallSources(data.recall_sources), agentRequestId: data.agent_request_id ?? null, targetSpaceName: data.target_space_name ?? null }; }
   async listAssets() { const { data, error } = await requireSupabase().from("pet_visual_assets").select("*").order("created_at"); if (error) throw error; return (data ?? []).map(mapAsset); }
   async listGenerationSessions() { const { data, error } = await requireSupabase().from("pet_generation_sessions").select("id,status,instruction,base_asset_id,explore,attempts,error_code,created_at,completed_at").order("created_at", { ascending: false }).limit(30); if (error) throw error; return (data ?? []).map(mapGeneration); }
-  async generateCandidate(instruction: string, baseAssetId?: string | null, explore = false) { const { data, error } = await requireSupabase().functions.invoke("generate-pet-candidate", { body: { instruction, base_asset_id: baseAssetId ?? null, explore, request_id: crypto.randomUUID() } }); if (error) throw error; const row = await requireSupabase().from("pet_generation_sessions").select("*").eq("id", data.session_id).single(); if (row.error) throw row.error; return mapGeneration(row.data); }
+  async generateCandidate(instruction: string, baseAssetId?: string | null, explore = false, expectations?: PetExpectations) { const { data, error } = await requireSupabase().functions.invoke("generate-pet-candidate", { body: { instruction, base_asset_id: baseAssetId ?? null, explore, expectations: expectations ? { appearance: expectations.appearance, personality: expectations.personality, companionship: expectations.companionship, excluded_features: expectations.excludedFeatures, additional_description: expectations.additionalDescription } : undefined, request_id: crypto.randomUUID() } }); if (error) throw error; const row = await requireSupabase().from("pet_generation_sessions").select("*").eq("id", data.session_id).single(); if (row.error) throw row.error; return mapGeneration(row.data); }
   async retryGeneration(sessionId: string) { const { data, error } = await requireSupabase().functions.invoke("generate-pet-candidate", { body: { session_id: sessionId } }); if (error) throw error; const row = await requireSupabase().from("pet_generation_sessions").select("*").eq("id", data.session_id).single(); if (row.error) throw row.error; return mapGeneration(row.data); }
   async confirmPet(assetId: string) { const { error } = await requireSupabase().functions.invoke("confirm-pet", { body: { asset_id: assetId } }); if (error) throw error; }
   async listStyleSignals() { const { data, error } = await requireSupabase().from("pet_style_signals").select("*, pet_style_feedback(feedback_kind,correction)").eq("active", true).order("created_at", { ascending: false }); if (error) throw error; return (data ?? []).map((row: Record<string, any>) => ({ id: row.id, tendency: row.tendency, rationale: row.rationale, sourceKind: row.source_kind, sourceLabel: row.source_label, confidence: Number(row.confidence), createdAt: row.created_at, feedback: row.pet_style_feedback?.[0]?.feedback_kind ?? null })); }

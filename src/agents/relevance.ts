@@ -29,17 +29,13 @@ export function routePetCandidates(input: RoutingInput): readonly RoutedPet[] {
     const replied = input.replyToPetId === candidate.petId;
     const directQuestion = normalizedIncludes(input.text, candidate.petName) && /[?？]|你(觉得|会|能|想)/.test(input.text);
     const explicit = mentioned || replied || directQuestion;
-    let score = explicit ? 100 : 0;
+    if (!explicit) return [];
+    let score = 100;
     if (normalizedIncludes(input.text, candidate.petName)) score += 35;
-    if (normalizedIncludes(input.text, candidate.ownerName)) score += 25;
-    score += candidate.relevantTerms.filter((term) => normalizedIncludes(input.text, term)).length * 10;
-    if (!explicit && candidate.implicitCooldownUntil && candidate.implicitCooldownUntil > input.now) return [];
-    return score >= 25 ? [{ petId: candidate.petId, explicit, score }] : [];
+    return [{ petId: candidate.petId, explicit: true, score }];
   }).sort((left, right) => right.score - left.score);
 
-  const explicit = scored.filter((item) => item.explicit).slice(0, 3);
-  if (explicit.length > 0) return explicit;
-  return scored.slice(0, 1);
+  return scored.slice(0, 3);
 }
 
 export type OwnerReplySafetyInput = Readonly<{

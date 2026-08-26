@@ -22,4 +22,29 @@ describe("local chat repository", () => {
     unsubscribe();
     expect(refreshes).toBe(0);
   });
+
+  it("keeps main-Agent requests in a shared auditable workbench", async () => {
+    const repository = createChatRepository(profile);
+    const spaceId = await repository.createSpace({ name: "计划空间", kind: "friend_circle" });
+    const request = await repository.submitAgentRequest({
+      spaceId,
+      origin: "space_panel",
+      kind: "read_summary",
+      text: "总结最近消息",
+      idempotencyKey: "local-request-0001",
+    });
+    const repeated = await repository.submitAgentRequest({
+      spaceId,
+      origin: "space_panel",
+      kind: "read_summary",
+      text: "不应重复执行",
+      idempotencyKey: "local-request-0001",
+    });
+
+    expect(repeated.id).toBe(request.id);
+    const shared = await repository.listAgentRequests(spaceId);
+    expect(shared).toHaveLength(1);
+    expect(shared[0]).toMatchObject({ kind: "read_summary", status: "completed" });
+    expect(shared[0].resultText).toContain("群聊");
+  });
 });

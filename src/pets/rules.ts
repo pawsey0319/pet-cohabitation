@@ -3,8 +3,24 @@ import type { PetStatus, StyleSignal } from "../data/types";
 export const MIN_INCUBATION_TURNS = 5;
 export const DAILY_CANDIDATE_LIMIT = 20;
 
-export function canGenerateInitialCandidate(status: PetStatus, ownerTurns: number): boolean {
-  return status !== "confirmed" && ownerTurns >= MIN_INCUBATION_TURNS;
+export function canGenerateInitialCandidate(status: PetStatus, _ownerTurns = 0): boolean {
+  return status !== "confirmed";
+}
+
+export type PetExpectationInput = Readonly<{
+  name: string;
+  appearance: string;
+  personality: string;
+  companionship: string;
+  excludedFeatures: string;
+  additionalDescription: string;
+}>;
+
+export function hasCompletePetExpectations(input: PetExpectationInput): boolean {
+  return input.name.trim().length > 0
+    && input.appearance.trim().length >= 4
+    && input.personality.trim().length >= 2
+    && input.companionship.trim().length >= 2;
 }
 
 export function canEditInitialAppearance(status: PetStatus): boolean {

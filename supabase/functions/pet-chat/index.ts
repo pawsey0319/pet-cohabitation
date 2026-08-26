@@ -18,6 +18,7 @@ Deno.serve(async (request) => {
     requirePost(request); const user = await authenticatedUser(request); const input = Input.parse(await request.json()); const client = serviceClient();
     const { data: pet, error: petError } = await client.from("pets").select("id,name,status,personality_summary").eq("owner_id", user.id).single();
     if (petError) throw petError;
+    if (pet.status !== "confirmed") throw new Error("pet_must_be_confirmed_before_private_chat");
     const promptHash = await sha256(`${pet.id}:${input.content}`);
     runId = await reserveModelRun(client, { runKind: "pet_private_reply", dailyLimit: 50, ownerId: user.id, petId: pet.id, promptHash, model: TextModelAdapter.modelName() });
     const ownerInsert = await client.from("pet_private_threads").insert({ pet_id: pet.id, owner_id: user.id, role: "owner", content: input.content }).select("id").single();
@@ -27,6 +28,40 @@ Deno.serve(async (request) => {
     if (threadError) throw threadError;
     const { data: signals } = await client.from("pet_style_signals").select("tendency,rationale").eq("pet_id", pet.id).eq("active", true).order("created_at", { ascending: false }).limit(10);
     const adapter = new TextModelAdapter();
+    const memberships = await client.from("space_members").select("space_id,spaces!inner(name)").eq("user_id", user.id);
+    if (memberships.error) throw memberships.error;
+    const availableSpaces = (memberships.data ?? []).map((row: Record<string, unknown>) => {
+      const space = Array.isArray(row.spaces) ? row.spaces[0] : row.spaces;
+      return { id: String(row.space_id), name: String((space as { name?: string } | null)?.name ?? "关系空间") };
+    });
+    const managerIntent = await adapter.planPetManagerAction({ message: input.content, spaces: availableSpaces.map(({ name }) => ({ name })) });
+    if (managerIntent.mode !== "query") {
+      const target = managerIntent.target_space_name ? availableSpaces.find((space) => space.name === managerIntent.target_space_name) : null;
+      let content = managerIntent.clarification ?? "我还需要你补充一些信息才能把这件事交给空间主 Agent。";
+      let agentRequestId: string | null = null;
+      if (managerIntent.mode === "action" && managerIntent.request_kind) {
+        if (managerIntent.request_kind !== "personal_reminder" && !target) content = "你想操作哪个关系空间？请说出空间名称。";
+        else if (managerIntent.request_kind === "delegated_message" && (!managerIntent.exact_content || !input.content.includes(managerIntent.exact_content))) content = "代发只能使用你这次明确输入的原文。请写成“发到某群：要逐字发送的内容”。";
+        else {
+          const insertedRequest = await client.from("agent_requests").insert({
+            space_id: target?.id ?? null, requested_by: user.id, pet_id: pet.id, origin: "pet_private",
+            request_kind: managerIntent.request_kind, user_input: input.content,
+            exact_content: managerIntent.request_kind === "delegated_message" ? managerIntent.exact_content : null,
+            idempotency_key: `pet-private:${ownerInsert.data.id}`,
+          }).select("id").single();
+          if (insertedRequest.error) throw insertedRequest.error;
+          agentRequestId = insertedRequest.data.id;
+          content = target
+            ? `我已经把这个请求交给“${target.name}”的空间主 Agent 评审。${managerIntent.request_kind === "delegated_message" ? "它只会逐字发布你这次给出的原文。" : "需要成员投票或本人确认时，会在共享面板里继续。"}`
+            : "我已经记下这个个人提醒请求，主 Agent 会先检查时间是否明确。";
+        }
+      }
+      const inserted = await client.from("pet_private_threads").insert({ pet_id: pet.id, owner_id: user.id, role: "pet", content, model_run_id: runId, recall_sources: [] }).select("id,content,created_at,recall_sources").single();
+      if (inserted.error) throw inserted.error;
+      await client.from("pet_runtime_states").upsert({ pet_id: pet.id, owner_id: user.id, state: "speaking", source_kind: "private_chat", source_id: inserted.data.id, started_at: new Date().toISOString(), expires_at: new Date(Date.now() + 8_000).toISOString(), updated_at: new Date().toISOString() }, { onConflict: "pet_id" });
+      await finishModelRun(client, runId, { status: "succeeded", startedAt });
+      return json(request, { id: inserted.data.id, content: inserted.data.content, created_at: inserted.data.created_at, recall_sources: [], agent_request_id: agentRequestId, target_space_name: target?.name ?? null });
+    }
     const recall = await buildPetRecallContext(client, { ownerId: user.id, petId: pet.id, question: input.content, adapter });
     const reply = await adapter.generatePetReply({
       petName: pet.name, personality: pet.personality_summary ?? "正在形成",

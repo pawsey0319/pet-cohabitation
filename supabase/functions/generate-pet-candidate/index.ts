@@ -1,9 +1,9 @@
 import { z } from "npm:zod@4";
 import { runInBackground } from "../_shared/background.ts";
 import { optionsResponse } from "../_shared/cors.ts";
-import { assertImageGenerationAllowed } from "../_shared/demoSettings.ts";
+import { assertImageGenerationAllowed, assertStructuredPetOnboardingAllowed } from "../_shared/demoSettings.ts";
 import { sha256 } from "../_shared/hash.ts";
-import { ImageModelAdapter, imageExtension, type GeneratedImage } from "../_shared/modelAdapters.ts";
+import { ImageModelAdapter, TextModelAdapter, imageExtension, type GeneratedImage } from "../_shared/modelAdapters.ts";
 import { finishModelRun, reserveModelRun } from "../_shared/quota.ts";
 import { errorResponse, json } from "../_shared/responses.ts";
 import { authenticatedUser, requirePost, serviceClient } from "../_shared/supabase.ts";
@@ -14,6 +14,13 @@ const Input = z.object({
   explore: z.boolean().default(false),
   request_id: z.string().uuid().optional(),
   session_id: z.string().uuid().optional(),
+  expectations: z.object({
+    appearance: z.string().trim().min(4).max(2000),
+    personality: z.string().trim().min(2).max(2000),
+    companionship: z.string().trim().min(2).max(2000),
+    excluded_features: z.string().trim().max(1200).default(""),
+    additional_description: z.string().trim().max(2000).default(""),
+  }).optional(),
 });
 
 type GenerationWork = Readonly<{
@@ -80,12 +87,13 @@ async function runGeneration(work: GenerationWork): Promise<void> {
 
 async function buildWork(userId: string, input: z.infer<typeof Input>): Promise<GenerationWork & { status: string }> {
   const client = serviceClient();
+  await assertStructuredPetOnboardingAllowed(client);
   const petResult = await client.from("pets").select("id,name,status").eq("owner_id", userId).single();
   if (petResult.error) throw petResult.error;
   const pet = petResult.data;
   if (pet.status === "confirmed") throw new Error("initial_editing_permanently_closed");
 
-  let instruction = input.instruction;
+  let instruction = input.instruction ?? (input.expectations ? "按这份期待生成第一版异宠" : undefined);
   let parentId = input.base_asset_id ?? null;
   let explore = input.explore;
   let sessionId = input.session_id ?? "";
@@ -107,25 +115,61 @@ async function buildWork(userId: string, input: z.infer<typeof Input>): Promise<
   } else {
     if (!instruction) throw new Error("instruction_required");
     await assertImageGenerationAllowed(client);
-    const { count, error: turnError } = await client.from("pet_private_threads").select("id", { count: "exact", head: true }).eq("pet_id", pet.id).eq("role", "owner");
-    if (turnError) throw turnError;
-    if ((count ?? 0) < 5) throw new Error("five_incubation_turns_required");
     if (parentId && !explore) {
       const base = await client.from("pet_visual_assets").select("id").eq("id", parentId).eq("pet_id", pet.id).eq("is_draft", true).single();
       if (base.error) throw new Error("base_draft_asset_invalid");
     } else if (explore) parentId = null;
   }
 
+  if (input.expectations && !input.session_id) {
+    const startedAt = Date.now();
+    const seedPromptHash = await sha256(JSON.stringify(input.expectations));
+    const seedRunId = await reserveModelRun(client, { runKind: "pet_seed_compose", dailyLimit: 20, ownerId: userId, petId: pet.id, promptHash: seedPromptHash, model: TextModelAdapter.modelName() });
+    try {
+      const compiled = await new TextModelAdapter().composePetSeed({
+        name: pet.name,
+        appearance: input.expectations.appearance,
+        personality: input.expectations.personality,
+        companionship: input.expectations.companionship,
+        excludedFeatures: input.expectations.excluded_features,
+        additionalDescription: input.expectations.additional_description,
+      });
+      const saved = await client.from("pet_expectation_drafts").upsert({
+        pet_id: pet.id, owner_id: userId,
+        appearance_expectation: input.expectations.appearance,
+        personality_expectation: input.expectations.personality,
+        companionship_expectation: input.expectations.companionship,
+        excluded_features: input.expectations.excluded_features,
+        additional_description: input.expectations.additional_description,
+        ...compiled, updated_at: new Date().toISOString(),
+      }, { onConflict: "pet_id" });
+      if (saved.error) throw saved.error;
+      await finishModelRun(client, seedRunId, { status: "succeeded", startedAt });
+    } catch (reason) {
+      await finishModelRun(client, seedRunId, { status: "failed", startedAt, errorCode: reason instanceof Error ? reason.message : "pet_seed_compose_failed" });
+      throw reason;
+    }
+  }
+
+  const draftResult = await client.from("pet_expectation_drafts").select("appearance_expectation,personality_expectation,companionship_expectation,excluded_features,additional_description,personality_seed_prompt,visual_seed_prompt,negative_seed_prompt,seed_summary").eq("pet_id", pet.id).single();
+  if (draftResult.error || !draftResult.data.personality_seed_prompt || !draftResult.data.visual_seed_prompt) throw new Error("structured_pet_expectations_required");
+  const draft = draftResult.data;
+
   const signalResult = await client.from("pet_style_signals").select("tendency,rationale,confidence,pet_style_feedback(feedback_kind,correction)").eq("pet_id", pet.id).eq("active", true).order("created_at", { ascending: false }).limit(20);
   if (signalResult.error) throw signalResult.error;
   const signals = (signalResult.data ?? []).filter((signal: Record<string, any>) => signal.pet_style_feedback?.[0]?.feedback_kind !== "forgotten");
   const prompt = [
-    `为一只名叫“${pet.name}”的唯一成长型异宠创作独立原创肖像。`,
-    "不采用预设统一画风；从主人的相处信号自然形成材质、色彩、气质、器官与构图。禁止模仿现有 IP、受保护角色或在世艺术家的明确风格。画面只包含异宠本体，不含文字、水印和人物。",
+    `为一只名叫“${pet.name}”的唯一成长型异宠创作独立原创 2D 全身肖像。`,
+    "必须有完整且清晰可辨的身体结构。让轮廓、器官数量与位置、肢体结构、材质和表情共同体现用户期待；不得套用固定四叶团子或普通猫狗身体。每次重新探索必须优先改变身体结构，而不只是换颜色。",
+    "不采用预设统一画风；禁止模仿现有 IP、受保护角色或在世艺术家的明确风格。画面只包含异宠本体，不含文字、水印和人物。",
     parentId ? "这是确认前的连续修改：保留当前候选可识别的生命关系，同时按反馈调整；不是完全无关的重绘。" : explore ? "这是确认前重新探索的新方向，可以与旧候选明显不同。" : "这是它的第一张外观候选。",
+    `视觉种子：${draft.visual_seed_prompt}`,
+    `人格对外观的影响：${draft.personality_seed_prompt}`,
+    `理解摘要：${draft.seed_summary}`,
     `主人本轮意见：${instruction}`,
+    `负面约束：${draft.negative_seed_prompt}`,
     `相处信号：${signals.map((signal: Record<string, any>) => `${signal.tendency}（${signal.rationale}）`).join("；") || "尚少，保持开放、奇异且不过度卖萌"}`,
-    "生成适合移动端展示的方形单体肖像，视觉完整、背景简洁。",
+    "生成适合移动端展示的方形单体肖像，2D、全身、视觉完整、背景简洁。",
   ].join("\n");
   const promptHash = await sha256(prompt);
 

@@ -46,6 +46,9 @@ verify_jwt = true
 [functions.space-agent]
 verify_jwt = true
 
+[functions.deliver-reminders]
+verify_jwt = true
+
 [functions.evolve-pet]
 verify_jwt = true
 

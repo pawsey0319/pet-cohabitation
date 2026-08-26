@@ -1,5 +1,6 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
+import { Buffer } from "node:buffer";
 
 const supabaseUrl = process.env.SUPABASE_URL!;
 const anonKey = process.env.SUPABASE_ANON_KEY!;
@@ -36,7 +37,7 @@ test.afterAll(async () => {
   for (const user of users) if (user.id) await service.auth.admin.deleteUser(user.id);
 });
 
-test("two browser accounts invite, chat, reply, react and receive an Agent summary", async ({ browser }) => {
+test("two browser accounts invite, chat, reply, react and use the shared Agent workbench", async ({ browser }) => {
   const contextA: BrowserContext = await browser.newContext();
   const contextB: BrowserContext = await browser.newContext();
   const pageA = await contextA.newPage(); const pageB = await contextB.newPage();
@@ -71,9 +72,12 @@ test("two browser accounts invite, chat, reply, react and receive an Agent summa
     await expect(pageB).toHaveURL(new RegExp(`/chat/${createdSpaceId}`));
     await expect(pageB.getByText("你好，这是浏览器甲发来的消息")).toBeVisible();
 
+    const composerBoxBefore = await pageB.getByPlaceholder("发消息…").boundingBox();
     await pageB.getByPlaceholder("发消息…").fill("收到，这是浏览器乙的实时回复");
     await pageB.getByRole("button", { name: "发送消息" }).click();
     await expect(pageA.getByText("收到，这是浏览器乙的实时回复")).toBeVisible();
+    const composerBoxAfter = await pageB.getByPlaceholder("发消息…").boundingBox();
+    expect(Math.abs((composerBoxAfter?.y ?? 0) - (composerBoxBefore?.y ?? 0))).toBeLessThan(3);
 
     await pageB.getByText("你好，这是浏览器甲发来的消息").click();
     await pageB.getByRole("button", { name: "回复消息" }).click();
@@ -85,31 +89,42 @@ test("two browser accounts invite, chat, reply, react and receive an Agent summa
     await pageA.getByRole("button", { name: "回应 ❤️" }).click();
     await expect(pageB.getByText("❤️ 1")).toBeVisible();
 
+    await pageA.getByRole("button", { name: "打开空间主 Agent" }).click();
+    await expect(pageA.getByText("普通聊天不会自动触发。", { exact: false })).toBeVisible();
+    await pageA.getByText("群聊简报", { exact: true }).click();
+    await pageA.getByRole("button", { name: "提交给主 Agent" }).click();
+    await expect(pageA.getByText("已完成", { exact: true }).last()).toBeVisible();
+    await expect(pageA.getByText(/大家围绕近况/).last()).toBeVisible();
+
+    await pageA.getByRole("button", { name: "关闭主 Agent" }).click();
     await pageA.getByRole("button", { name: "聊天更多功能" }).click();
-    await pageA.getByText("群聊总结", { exact: true }).click();
-    await expect(pageA.getByText(/已确认/).last()).toBeVisible();
-    await expect(pageA.getByText(/待本人确认/).last()).toBeVisible();
+    const chooserPromise = pageA.waitForEvent("filechooser");
+    await pageA.getByText("图片", { exact: true }).click();
+    const chooser = await chooserPromise;
+    await chooser.setFiles({ name: "tiny.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nL8AAAAASUVORK5CYII=", "base64") });
+    await expect(pageA.getByRole("button", { name: "全屏查看图片" }).last()).toBeVisible();
+    await pageA.getByRole("button", { name: "全屏查看图片" }).last().click();
+    await expect(pageA.getByText(/双击 \/ 滚轮 \/ 双指缩放/)).toBeVisible();
+    await pageA.getByRole("button", { name: "关闭图片预览" }).last().click();
+    await expect(pageA.getByText(/双击 \/ 滚轮 \/ 双指缩放/)).toHaveCount(0);
   } finally {
     await contextA.close().catch(() => undefined); await contextB.close().catch(() => undefined);
   }
 });
 
-test("owner incubates, confirms and cares for the same living pet without manual evolution", async ({ browser }) => {
+test("owner sets, confirms and cares for the same living pet without incubation chat", async ({ browser }) => {
   const context = await browser.newContext(); const page = await context.newPage();
   try {
     await login(page, users[0]);
     await page.goto("/pet");
     await page.getByPlaceholder("例如：芽芽").fill("星芽");
-    await page.getByRole("button", { name: "开始对话" }).click();
-    for (let turn = 1; turn <= 5; turn += 1) {
-      const input = page.getByPlaceholder("说说你喜欢怎样相处…");
-      const send = page.getByText("发送", { exact: true }).locator("..");
-      await input.fill(`第 ${turn} 次相处：我喜欢先观察，再说出真实感受。`);
-      await expect(send).toHaveCSS("opacity", "1");
-      await send.click();
-      await expect(page.getByText(`${turn} / 5 轮`)).toBeVisible();
-    }
-    await page.getByRole("button", { name: "生成第一张候选" }).click();
+    await page.getByRole("button", { name: "下一步：填写期待" }).click();
+    await expect(page.getByText("不再进行五轮孵化对话")).toHaveCount(0);
+    await page.getByPlaceholder(/会收集月光/).fill("像会收集月光的软体生物，有不对称触角和透明鳍");
+    await page.getByPlaceholder(/安静敏锐/).fill("安静敏锐，有自己的判断，不一味迎合");
+    await page.getByPlaceholder(/平时先倾听/).fill("平时先倾听，需要时直接提醒，也会主动分享见闻");
+    await page.getByPlaceholder(/不要人脸/).fill("不要人脸、翅膀和普通猫狗轮廓");
+    await page.getByRole("button", { name: "生成第一张异宠" }).click();
     await expect(page.getByText("这是当前草稿，不是最终承诺")).toBeVisible();
     await page.getByRole("button", { name: "选择这张并确认" }).click();
     await page.getByRole("button", { name: "我确认这是它" }).click();
@@ -132,7 +147,7 @@ test("owner incubates, confirms and cares for the same living pet without manual
     const eligibleMessages = await service.from("messages").select("id").eq("space_id", createdSpaceId).eq("sender_id", users[0].id).gte("created_at", membership.data!.joined_at);
     expect(eligibleMessages.data?.length).toBeGreaterThan(0);
 
-    const recallInput = page.getByPlaceholder("问问它记得哪些相处和群聊…");
+    const recallInput = page.getByPlaceholder("问群聊近况，或让它帮你整理委托…");
     const recallSend = page.getByText("发送", { exact: true }).locator("..");
     await recallInput.fill("你还记得我之前在双浏览器小窝里说了什么吗？");
     await expect(recallSend).toHaveCSS("opacity", "1");
@@ -141,7 +156,7 @@ test("owner incubates, confirms and cares for the same living pet without manual
       const latest = await service.from("pet_private_threads").select("recall_sources").eq("owner_id", users[0].id).eq("role", "pet").order("created_at", { ascending: false }).limit(1).single();
       return Array.isArray(latest.data?.recall_sources) ? latest.data.recall_sources.length : 0;
     }).toBeGreaterThan(0);
-    await expect(page.getByText(/记忆来源：双浏览器小窝/)).toBeVisible();
+    await expect(page.getByText(/消息来源：双浏览器小窝/)).toBeVisible();
 
     await page.getByRole("button", { name: "投喂" }).click();
     await expect(page.getByLabel("异宠状态：认真进食")).toBeVisible();

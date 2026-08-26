@@ -36,16 +36,17 @@ export async function buildPetRecallContext(client: SupabaseClient, input: { own
   const memberRows = (memberships.data ?? []).map((row: Record<string, unknown>) => ({ spaceId: String(row.space_id), joinedAt: String(row.joined_at), name: normalizedSpace(row.spaces).name }));
   if (!memberRows.length) return { messages: [], sources: [] };
 
-  const permissions = await client.from("space_pet_permissions").select("space_id,participation_enabled,proactive_paused,paused_by_vote").eq("pet_id", input.petId).in("space_id", memberRows.map((row) => row.spaceId));
-  if (permissions.error) throw permissions.error;
-  const enabled = new Set((permissions.data ?? []).filter((row) => row.participation_enabled && !row.proactive_paused && !row.paused_by_vote).map((row) => row.space_id));
-  const allowed = memberRows.filter((row) => enabled.has(row.spaceId));
+  // Private recall follows the owner's own current read permission. Observation
+  // consent only governs personality learning, and group participation settings
+  // only govern whether a pet may speak inside that space.
+  const allowed = memberRows;
   if (!allowed.length) return { messages: [], sources: [] };
 
   let plan: Awaited<ReturnType<TextModelAdapter["planPetRecall"]>>;
   try { plan = await input.adapter.planPetRecall({ question: input.question, spaces: allowed.map(({ name }) => ({ name })) }); }
   catch {
-    plan = { mode: /之前|以前|群里|说过|聊过|记得|回忆/.test(input.question) ? "recent_owner" : "none", space_names: [], keywords: [], sender_scope: "owner", limit: 30 };
+    const ownerOnly = /我.{0,8}(说|发)/.test(input.question);
+    plan = { mode: /之前|以前|群里|说过|聊过|记得|回忆|消息|近况/.test(input.question) ? (ownerOnly ? "recent_owner" : "search_all") : "none", space_names: [], keywords: [], sender_scope: ownerOnly ? "owner" : "any", limit: 30 };
   }
   if (plan.mode === "none") return { messages: [], sources: [] };
   const namedSpaces = new Set(plan.space_names);
@@ -58,6 +59,7 @@ export async function buildPetRecallContext(client: SupabaseClient, input: { own
       .eq("space_id", space.spaceId)
       .gte("created_at", space.joinedAt)
       .is("deleted_at", null)
+      .in("kind", ["text", "system"])
       .order("created_at", { ascending: false })
       .limit(200);
     if (result.error) throw result.error;

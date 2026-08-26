@@ -5,6 +5,9 @@ export type DeliveryState = "pending" | "sent" | "failed";
 export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "blocked";
 export type AgentFeedbackRating = "natural" | "irrelevant" | "intrusive" | "unsafe";
 export type PetMotionState = "idle" | "listening" | "thinking" | "speaking" | "happy" | "eating" | "playing" | "sleeping";
+export type AgentRequestKind = "read_summary" | "read_query" | "delegated_message" | "group_task" | "group_plan" | "group_schedule" | "personal_reminder" | "group_reminder";
+export type AgentRequestOrigin = "space_panel" | "pet_private";
+export type AgentRequestStatus = "queued" | "reviewing" | "needs_clarification" | "voting" | "approved" | "executing" | "completed" | "failed" | "withdrawn" | "expired" | "rejected";
 
 export type AppProfile = Readonly<{
   id: string;
@@ -44,6 +47,55 @@ export type ChatMessage = Readonly<{
   deliveryState: DeliveryState;
   reactions: Readonly<Record<string, readonly string[]>>;
   deletedAt?: string | null;
+  delegatedByPetId?: string | null;
+  delegationRequestId?: string | null;
+}>;
+
+export type AgentProposalVote = Readonly<{
+  userId: string;
+  decision: "approve" | "reject";
+  updatedAt: string;
+}>;
+
+export type AgentProposal = Readonly<{
+  id: string;
+  requestId: string;
+  title: string;
+  content: Readonly<Record<string, unknown>>;
+  memberSnapshot: readonly string[];
+  affectedUserIds: readonly string[];
+  requiredApprovals: number;
+  status: "voting" | "approved" | "rejected" | "expired" | "withdrawn" | "executed";
+  expiresAt: string;
+  votes: readonly AgentProposalVote[];
+}>;
+
+export type AgentRequest = Readonly<{
+  id: string;
+  spaceId: string | null;
+  requestedBy: string;
+  petId: string | null;
+  origin: AgentRequestOrigin;
+  kind: AgentRequestKind;
+  userInput: string;
+  exactContent: string | null;
+  status: AgentRequestStatus;
+  resultText: string | null;
+  reviewReason: string | null;
+  finalMessageId: string | null;
+  createdAt: string;
+  expiresAt: string;
+  proposal: AgentProposal | null;
+}>;
+
+export type SubmitAgentRequestInput = Readonly<{
+  spaceId: string | null;
+  origin: AgentRequestOrigin;
+  kind: AgentRequestKind;
+  text: string;
+  exactContent?: string | null;
+  petId?: string | null;
+  idempotencyKey: string;
 }>;
 
 export type AgentJob = Readonly<{
@@ -87,6 +139,20 @@ export type PetRecord = Readonly<{
   generationsRemainingToday: number;
 }>;
 
+export type PetExpectations = Readonly<{
+  name: string;
+  appearance: string;
+  personality: string;
+  companionship: string;
+  excludedFeatures: string;
+  additionalDescription: string;
+  personalitySeedPrompt?: string | null;
+  visualSeedPrompt?: string | null;
+  negativeSeedPrompt?: string | null;
+  seedSummary?: string | null;
+  version?: number;
+}>;
+
 export type PetVisualAsset = Readonly<{
   id: string;
   petId: string;
@@ -115,6 +181,8 @@ export type PetPrivateMessage = Readonly<{
   content: string;
   createdAt: string;
   recallSources?: readonly PetRecallSource[];
+  agentRequestId?: string | null;
+  targetSpaceName?: string | null;
 }>;
 
 export type PetRecallSource = Readonly<{
@@ -191,6 +259,8 @@ export type DemoSettings = Readonly<{
   registrationEnabled: boolean;
   imageGenerationEnabled: boolean;
   implicitPetRepliesEnabled: boolean;
+  agentWorkbenchEnabled: boolean;
+  structuredPetOnboardingEnabled: boolean;
   maxRegisteredUsers: number;
   globalDailyImageLimit: number;
   testEndsAt: string | null;

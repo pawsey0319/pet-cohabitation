@@ -9,7 +9,7 @@ import { colors, radii, spacing } from "../../src/theme/tokens";
 import { Surface } from "../../src/ui/common";
 
 function mapSettings(row: Record<string, any>): DemoSettings {
-  return { registrationEnabled: row.registration_enabled, imageGenerationEnabled: row.image_generation_enabled, implicitPetRepliesEnabled: row.implicit_pet_replies_enabled, maxRegisteredUsers: row.max_registered_users, globalDailyImageLimit: row.global_daily_image_limit, testEndsAt: row.test_ends_at, purgeAfterDays: row.purge_after_days, evolutionThresholdMode: row.evolution_threshold_mode ?? "standard" };
+  return { registrationEnabled: row.registration_enabled, imageGenerationEnabled: row.image_generation_enabled, implicitPetRepliesEnabled: row.implicit_pet_replies_enabled, agentWorkbenchEnabled: row.agent_workbench_enabled, structuredPetOnboardingEnabled: row.structured_pet_onboarding_enabled, maxRegisteredUsers: row.max_registered_users, globalDailyImageLimit: row.global_daily_image_limit, testEndsAt: row.test_ends_at, purgeAfterDays: row.purge_after_days, evolutionThresholdMode: row.evolution_threshold_mode ?? "standard" };
 }
 
 function mapMetrics(row: Record<string, any>): AdminDemoMetrics {
@@ -27,7 +27,7 @@ export default function AdminStatusScreen() {
   const load = useCallback(async () => {
     if (isLocalDemoMode) {
       setMetrics({ registeredUsers: 1, spaces: 2, jobsToday: 0, jobsSucceededToday: 0, jobsFailedToday: 0, modelRunsToday: 0, imageRunsToday: 0, modelSuccessRate: 100, averageLatencyMs: 0, feedback: {}, recentErrors: [] });
-      setSettings({ registrationEnabled: true, imageGenerationEnabled: true, implicitPetRepliesEnabled: true, maxRegisteredUsers: 21, globalDailyImageLimit: 400, testEndsAt: null, purgeAfterDays: 30, evolutionThresholdMode: "standard" });
+      setSettings({ registrationEnabled: true, imageGenerationEnabled: true, implicitPetRepliesEnabled: false, agentWorkbenchEnabled: true, structuredPetOnboardingEnabled: true, maxRegisteredUsers: 21, globalDailyImageLimit: 400, testEndsAt: null, purgeAfterDays: 30, evolutionThresholdMode: "standard" });
       setBusy(false);
       return;
     }
@@ -51,7 +51,7 @@ export default function AdminStatusScreen() {
 
   const update = async (patch: Record<string, boolean | string>) => {
     if (isLocalDemoMode) {
-      setSettings((current) => current ? { ...current, registrationEnabled: typeof patch.registration_enabled === "boolean" ? patch.registration_enabled : current.registrationEnabled, imageGenerationEnabled: typeof patch.image_generation_enabled === "boolean" ? patch.image_generation_enabled : current.imageGenerationEnabled, implicitPetRepliesEnabled: typeof patch.implicit_pet_replies_enabled === "boolean" ? patch.implicit_pet_replies_enabled : current.implicitPetRepliesEnabled, evolutionThresholdMode: patch.evolution_threshold_mode === "accelerated" ? "accelerated" : patch.evolution_threshold_mode === "standard" ? "standard" : current.evolutionThresholdMode } : current);
+      setSettings((current) => current ? { ...current, registrationEnabled: typeof patch.registration_enabled === "boolean" ? patch.registration_enabled : current.registrationEnabled, imageGenerationEnabled: typeof patch.image_generation_enabled === "boolean" ? patch.image_generation_enabled : current.imageGenerationEnabled, implicitPetRepliesEnabled: typeof patch.implicit_pet_replies_enabled === "boolean" ? patch.implicit_pet_replies_enabled : current.implicitPetRepliesEnabled, agentWorkbenchEnabled: typeof patch.agent_workbench_enabled === "boolean" ? patch.agent_workbench_enabled : current.agentWorkbenchEnabled, structuredPetOnboardingEnabled: typeof patch.structured_pet_onboarding_enabled === "boolean" ? patch.structured_pet_onboarding_enabled : current.structuredPetOnboardingEnabled, evolutionThresholdMode: patch.evolution_threshold_mode === "accelerated" ? "accelerated" : patch.evolution_threshold_mode === "standard" ? "standard" : current.evolutionThresholdMode } : current);
       return;
     }
     setBusy(true);
@@ -68,6 +68,8 @@ export default function AdminStatusScreen() {
     {settings ? <Surface style={styles.controls}><Text style={styles.sectionTitle}>即时控制</Text><Text style={styles.copy}>发生费用异常、模型越界或集中失败时，可立即关闭对应能力；基础人类聊天不受影响。</Text>
       <View style={styles.control}><View style={styles.controlText}><Text style={styles.controlTitle}>允许邀请码注册</Text><Text style={styles.controlNote}>关闭后现有账号仍可登录</Text></View><Switch value={settings.registrationEnabled} disabled={busy} onValueChange={(value) => void update({ registration_enabled: value })} /></View>
       <View style={styles.control}><View style={styles.controlText}><Text style={styles.controlTitle}>允许图像生成</Text><Text style={styles.controlNote}>关闭后私聊和人类聊天继续可用</Text></View><Switch value={settings.imageGenerationEnabled} disabled={busy} onValueChange={(value) => void update({ image_generation_enabled: value })} /></View>
+      <View style={styles.control}><View style={styles.controlText}><Text style={styles.controlTitle}>新版空间主 Agent 面板</Text><Text style={styles.controlNote}>成员主动打开面板后才会处理请求</Text></View><Switch value={settings.agentWorkbenchEnabled} disabled={busy} onValueChange={(value) => void update({ agent_workbench_enabled: value })} /></View>
+      <View style={styles.control}><View style={styles.controlText}><Text style={styles.controlTitle}>新版异宠设定流程</Text><Text style={styles.controlNote}>使用结构化期望生成，不再要求五轮孵化对话</Text></View><Switch value={settings.structuredPetOnboardingEnabled} disabled={busy} onValueChange={(value) => void update({ structured_pet_onboarding_enabled: value })} /></View>
       <View style={styles.control}><View style={styles.controlText}><Text style={styles.controlTitle}>允许异宠隐式回应</Text><Text style={styles.controlNote}>明确 @ 异宠仍可回应</Text></View><Switch value={settings.implicitPetRepliesEnabled} disabled={busy} onValueChange={(value) => void update({ implicit_pet_replies_enabled: value })} /></View>
       <View style={styles.control}><View style={styles.controlText}><Text style={styles.controlTitle}>加速验证自动进化</Text><Text style={styles.controlNote}>{settings.evolutionThresholdMode === "accelerated" ? "3 个活跃日 / 12 次有效互动 / 3 类经历" : "正式节奏：14 个活跃日 / 30 次有效互动 / 3 类经历"}</Text></View><Switch value={settings.evolutionThresholdMode === "accelerated"} disabled={busy} onValueChange={(value) => void update({ evolution_threshold_mode: value ? "accelerated" : "standard" })} /></View>
     </Surface> : null}

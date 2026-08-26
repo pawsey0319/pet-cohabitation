@@ -1,11 +1,18 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { isLocalDemoMode, requireSupabase } from "../lib/supabase";
-import type { AgentFeedbackRating, AgentJob, AppProfile, ChatMessage, ChatSpace, PetCornerStory, PetObservationStatus, QueuedMessage, RelationshipKind } from "./types";
+import type { AgentFeedbackRating, AgentJob, AgentProposal, AgentRequest, AppProfile, ChatMessage, ChatSpace, PetCornerStory, PetObservationStatus, QueuedMessage, RelationshipKind, SubmitAgentRequestInput } from "./types";
 
 const LOCAL_CHAT_KEY = "pet-cohabitation-local-chat-v2";
+let lastReminderDeliveryAt = 0;
 
-type LocalState = Readonly<{ spaces: readonly ChatSpace[]; messages: readonly ChatMessage[]; stories?: readonly PetCornerStory[]; observationConsents?: Readonly<Record<string, boolean>> }>;
+function deliverDueReminders(): void {
+  if (isLocalDemoMode || Date.now() - lastReminderDeliveryAt < 30_000) return;
+  lastReminderDeliveryAt = Date.now();
+  void requireSupabase().functions.invoke("deliver-reminders", { body: {} }).catch(() => undefined);
+}
+
+type LocalState = Readonly<{ spaces: readonly ChatSpace[]; messages: readonly ChatMessage[]; stories?: readonly PetCornerStory[]; observationConsents?: Readonly<Record<string, boolean>>; agentRequests?: readonly AgentRequest[] }>;
 type Unsubscribe = () => void;
 
 export interface ChatRepository {
@@ -20,7 +27,6 @@ export interface ChatRepository {
   joinSpace(token: string): Promise<string>;
   uploadMedia(message: QueuedMessage): Promise<string | null>;
   createSignedMediaUrl(path: string): Promise<string>;
-  summarizeSpace(spaceId: string): Promise<void>;
   listPetObservation(spaceId: string): Promise<readonly PetObservationStatus[]>;
   setPetObservationConsent(spaceId: string, petId: string, consented: boolean): Promise<void>;
   listPetCorner(spaceId: string): Promise<readonly PetCornerStory[]>;
@@ -30,6 +36,10 @@ export interface ChatRepository {
   listAgentJobs(spaceId: string): Promise<readonly AgentJob[]>;
   retryAgentDispatch(messageId: string): Promise<AgentJob>;
   feedbackAgentMessage(messageId: string, spaceId: string, rating: AgentFeedbackRating): Promise<void>;
+  submitAgentRequest(input: SubmitAgentRequestInput): Promise<AgentRequest>;
+  listAgentRequests(spaceId: string): Promise<readonly AgentRequest[]>;
+  voteAgentProposal(proposalId: string, decision: "approve" | "reject"): Promise<string>;
+  withdrawAgentRequest(requestId: string): Promise<void>;
 }
 
 function seedLocalState(user: AppProfile): LocalState {
@@ -185,11 +195,6 @@ class LocalChatRepository implements ChatRepository {
 
   async uploadMedia(message: QueuedMessage): Promise<string | null> { return message.localMediaUri ?? null; }
   async createSignedMediaUrl(path: string): Promise<string> { return path; }
-  async summarizeSpace(spaceId: string): Promise<void> {
-    const state = await loadLocal(this.profile); const id = `local-summary-${Date.now()}`;
-    const summary: ChatMessage = { id, clientId: id, spaceId, senderId: null, actorKind: "space_agent", actorName: "空间主 Agent", kind: "system", text: "群聊摘要\n大家分享了近况。\n\n已确认\n• 暂无明确确认\n\nAgent 建议\n• 可以继续问问彼此最近最想做的小事\n\n待本人确认\n• 所有真实安排仍等待本人确认", mediaPath: null, mediaDurationSeconds: null, replyToMessageId: null, replyPreview: null, createdAt: new Date().toISOString(), deliveryState: "sent", reactions: {} };
-    await saveLocal({ ...state, messages: [...state.messages, summary] }, spaceId);
-  }
   async listPetObservation(spaceId: string): Promise<readonly PetObservationStatus[]> {
     const state = await loadLocal(this.profile); const ownConsent = state.observationConsents?.[`${spaceId}:local-pet`] ?? false;
     const ownMuted = state.observationConsents?.[`mute:${spaceId}:local-pet`] ?? false; const ownPauseVote = state.observationConsents?.[`vote:${spaceId}:local-pet`] ?? false;
@@ -209,6 +214,28 @@ class LocalChatRepository implements ChatRepository {
   async listAgentJobs(): Promise<readonly AgentJob[]> { return []; }
   async retryAgentDispatch(messageId: string): Promise<AgentJob> { return { id: `local-job-${messageId}`, kind: "route_space_pets", scopeId: "local", sourceMessageId: messageId, status: "succeeded", errorCode: null, attempts: 1, createdAt: new Date().toISOString(), completedAt: new Date().toISOString() }; }
   async feedbackAgentMessage(): Promise<void> { return; }
+  async submitAgentRequest(input: SubmitAgentRequestInput): Promise<AgentRequest> {
+    const state = await loadLocal(this.profile);
+    const duplicate = (state.agentRequests ?? []).find((item) => item.requestedBy === this.profile.id && item.id === input.idempotencyKey);
+    if (duplicate) return duplicate;
+    const now = new Date().toISOString();
+    const resultText = input.kind === "read_summary" ? "群聊简报：大家最近分享了近况，尚无需要本人确认的安排。" : input.kind === "read_query" ? "我已按当前空间消息回答这个查询。" : null;
+    const direct = input.kind === "delegated_message" || input.kind === "personal_reminder";
+    const request: AgentRequest = {
+      id: input.idempotencyKey, spaceId: input.spaceId, requestedBy: this.profile.id, petId: input.petId ?? null,
+      origin: input.origin, kind: input.kind, userInput: input.text, exactContent: input.exactContent ?? null,
+      status: resultText || direct ? "completed" : "voting", resultText, reviewReason: null, finalMessageId: null,
+      createdAt: now, expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(), proposal: null,
+    };
+    await saveLocal({ ...state, agentRequests: [request, ...(state.agentRequests ?? [])] }, input.spaceId ?? "personal");
+    return request;
+  }
+  async listAgentRequests(spaceId: string): Promise<readonly AgentRequest[]> { return ((await loadLocal(this.profile)).agentRequests ?? []).filter((item) => item.spaceId === spaceId); }
+  async voteAgentProposal(): Promise<string> { return "pending"; }
+  async withdrawAgentRequest(requestId: string): Promise<void> {
+    const state = await loadLocal(this.profile);
+    await saveLocal({ ...state, agentRequests: (state.agentRequests ?? []).map((item) => item.id === requestId ? { ...item, status: "withdrawn" as const } : item) }, "personal");
+  }
 }
 
 function reactionsFromRows(rows: readonly Record<string, unknown>[] | null | undefined): Readonly<Record<string, readonly string[]>> {
@@ -239,11 +266,35 @@ function mapRemoteMessage(row: Record<string, any>): ChatMessage {
     deliveryState: "sent",
     reactions: reactionsFromRows(row.message_reactions),
     deletedAt: row.deleted_at ?? null,
+    delegatedByPetId: row.delegated_by_pet_id ?? null,
+    delegationRequestId: row.delegation_request_id ?? null,
+  };
+}
+
+function mapProposal(row: Record<string, any> | null | undefined): AgentProposal | null {
+  if (!row?.id) return null;
+  return {
+    id: row.id, requestId: row.request_id, title: row.title, content: row.proposal_content ?? {},
+    memberSnapshot: row.member_snapshot ?? [], affectedUserIds: row.affected_user_ids ?? [], requiredApprovals: Number(row.required_approvals),
+    status: row.status, expiresAt: row.expires_at,
+    votes: (row.agent_proposal_votes ?? []).map((vote: Record<string, any>) => ({ userId: vote.user_id, decision: vote.decision, updatedAt: vote.updated_at })),
+  };
+}
+
+function mapAgentRequest(row: Record<string, any>): AgentRequest {
+  const proposal = Array.isArray(row.agent_proposals) ? row.agent_proposals[0] : row.agent_proposals;
+  return {
+    id: row.id, spaceId: row.space_id, requestedBy: row.requested_by, petId: row.pet_id, origin: row.origin,
+    kind: row.request_kind, userInput: row.user_input, exactContent: row.exact_content, status: row.status,
+    resultText: typeof row.result?.text === "string" ? row.result.text : typeof row.result?.summary === "string" ? row.result.summary : null,
+    reviewReason: row.review_reason ?? null, finalMessageId: row.final_message_id ?? null,
+    createdAt: row.created_at, expiresAt: row.expires_at, proposal: mapProposal(proposal),
   };
 }
 
 class SupabaseChatRepository implements ChatRepository {
   async listSpaces(): Promise<readonly ChatSpace[]> {
+    deliverDueReminders();
     const { data, error } = await requireSupabase().rpc("list_my_spaces");
     if (error) throw error;
     return (data ?? []).map((row: Record<string, any>) => ({
@@ -260,6 +311,7 @@ class SupabaseChatRepository implements ChatRepository {
   }
 
   async listMessages(spaceId: string, before?: string | null, limit = 50): Promise<readonly ChatMessage[]> {
+    deliverDueReminders();
     let query = requireSupabase().from("messages")
       .select("*, profiles:sender_id(nickname), message_reactions(emoji,user_id)")
       .eq("space_id", spaceId)
@@ -315,10 +367,13 @@ class SupabaseChatRepository implements ChatRepository {
 
   subscribe(spaceId: string, onChange: () => void): Unsubscribe {
     const client = requireSupabase();
+    const subscriptionId = crypto.randomUUID();
     const channels: RealtimeChannel[] = [
-      client.channel(`messages:${spaceId}`).on("postgres_changes", { event: "*", schema: "public", table: "messages", filter: `space_id=eq.${spaceId}` }, onChange).subscribe(),
-      client.channel(`reactions:${spaceId}`).on("postgres_changes", { event: "*", schema: "public", table: "message_reactions", filter: `space_id=eq.${spaceId}` }, onChange).subscribe(),
-      client.channel(`agent-jobs:${spaceId}`).on("postgres_changes", { event: "*", schema: "public", table: "agent_jobs", filter: `scope_id=eq.${spaceId}` }, onChange).subscribe(),
+      client.channel(`messages:${spaceId}:${subscriptionId}`).on("postgres_changes", { event: "*", schema: "public", table: "messages", filter: `space_id=eq.${spaceId}` }, onChange).subscribe(),
+      client.channel(`reactions:${spaceId}:${subscriptionId}`).on("postgres_changes", { event: "*", schema: "public", table: "message_reactions", filter: `space_id=eq.${spaceId}` }, onChange).subscribe(),
+      client.channel(`agent-jobs:${spaceId}:${subscriptionId}`).on("postgres_changes", { event: "*", schema: "public", table: "agent_jobs", filter: `scope_id=eq.${spaceId}` }, onChange).subscribe(),
+      client.channel(`agent-requests:${spaceId}:${subscriptionId}`).on("postgres_changes", { event: "*", schema: "public", table: "agent_requests", filter: `space_id=eq.${spaceId}` }, onChange).subscribe(),
+      client.channel(`agent-proposals:${spaceId}:${subscriptionId}`).on("postgres_changes", { event: "*", schema: "public", table: "agent_proposals", filter: `space_id=eq.${spaceId}` }, onChange).subscribe(),
     ];
     return () => { channels.forEach((channel) => { void client.removeChannel(channel); }); };
   }
@@ -362,10 +417,6 @@ class SupabaseChatRepository implements ChatRepository {
     return data.signedUrl;
   }
 
-  async summarizeSpace(spaceId: string): Promise<void> {
-    const { error } = await requireSupabase().functions.invoke("space-agent", { body: { space_id: spaceId, action: "summarize" } });
-    if (error) throw error;
-  }
   async listPetObservation(spaceId: string): Promise<readonly PetObservationStatus[]> {
     const { data, error } = await requireSupabase().rpc("list_space_pet_observation", { target_space_id: spaceId });
     if (error) throw error;
@@ -401,6 +452,52 @@ class SupabaseChatRepository implements ChatRepository {
     const user = (await requireSupabase().auth.getUser()).data.user;
     if (!user) throw new Error("未登录");
     const { error } = await requireSupabase().from("agent_message_feedback").insert({ message_id: messageId, space_id: spaceId, user_id: user.id, rating });
+    if (error) throw error;
+  }
+  async submitAgentRequest(input: SubmitAgentRequestInput): Promise<AgentRequest> {
+    const client = requireSupabase();
+    const created = await client.rpc("create_agent_request", {
+      target_space_id: input.spaceId,
+      request_origin: input.origin,
+      request_text: input.text,
+      request_kind: input.kind,
+      exact_content: input.exactContent ?? null,
+      target_pet_id: input.petId ?? null,
+      request_key: input.idempotencyKey,
+    });
+    if (created.error) throw created.error;
+    const invoked = await client.functions.invoke("space-agent", { body: { request_id: created.data } });
+    if (invoked.error) throw invoked.error;
+    const row = await client.from("agent_requests").select("*,agent_proposals(*,agent_proposal_votes(*))").eq("id", created.data).single();
+    if (row.error) throw row.error;
+    return mapAgentRequest(row.data);
+  }
+  async listAgentRequests(spaceId: string): Promise<readonly AgentRequest[]> {
+    const client = requireSupabase();
+    const [requestRows, proposalRows] = await Promise.all([
+      client.from("agent_requests").select("*,agent_proposals(*,agent_proposal_votes(*))").eq("space_id", spaceId).order("created_at", { ascending: false }).limit(100),
+      client.from("agent_proposals").select("*,agent_proposal_votes(*)").eq("space_id", spaceId).order("created_at", { ascending: false }).limit(100),
+    ]);
+    if (requestRows.error) throw requestRows.error; if (proposalRows.error) throw proposalRows.error;
+    const visible = (requestRows.data ?? []).map(mapAgentRequest);
+    const visibleIds = new Set(visible.map((item) => item.id));
+    const sharedProposalPlaceholders: AgentRequest[] = (proposalRows.data ?? []).filter((proposal) => !visibleIds.has(proposal.request_id)).map((proposal: Record<string, any>) => ({
+      id: proposal.request_id, spaceId, requestedBy: proposal.created_by, petId: null, origin: "pet_private",
+      kind: proposal.proposal_content?.request_kind ?? "group_plan", userInput: proposal.proposal_content?.summary ?? proposal.title,
+      exactContent: null, status: proposal.status === "voting" ? "voting" : proposal.status === "executed" ? "completed" : proposal.status,
+      resultText: proposal.status === "executed" ? "已按投票结果执行" : null, reviewReason: null, finalMessageId: null,
+      createdAt: proposal.created_at, expiresAt: proposal.expires_at, proposal: mapProposal(proposal),
+    }));
+    return [...visible, ...sharedProposalPlaceholders].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+  async voteAgentProposal(proposalId: string, decision: "approve" | "reject"): Promise<string> {
+    const { data, error } = await requireSupabase().rpc("cast_agent_proposal_vote", { target_proposal_id: proposalId, vote_decision: decision });
+    if (error) throw error;
+    if (data === "approved") void requireSupabase().functions.invoke("space-agent", { body: { proposal_id: proposalId } }).catch(() => undefined);
+    return String(data);
+  }
+  async withdrawAgentRequest(requestId: string): Promise<void> {
+    const { error } = await requireSupabase().rpc("withdraw_agent_request", { target_request_id: requestId });
     if (error) throw error;
   }
 }

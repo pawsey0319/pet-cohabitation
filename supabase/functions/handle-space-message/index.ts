@@ -2,7 +2,6 @@ import { z } from "npm:zod@4";
 import { triggerAutomaticEvolution } from "../_shared/autoEvolution.ts";
 import { runInBackground } from "../_shared/background.ts";
 import { optionsResponse } from "../_shared/cors.ts";
-import { loadDemoSettings } from "../_shared/demoSettings.ts";
 import { sha256 } from "../_shared/hash.ts";
 import { TextModelAdapter } from "../_shared/modelAdapters.ts";
 import { finishModelRun, reserveModelRun } from "../_shared/quota.ts";
@@ -74,23 +73,7 @@ async function runRouteJob(jobId: string, requestedBy: string, input: z.infer<ty
     }
 
     const explicitCandidates = candidates.filter((candidate) => explicitCue(text, candidate, replyPetId, input.cue_pet_ids)).slice(0, 3);
-    let selected: Array<Candidate & { explicit: boolean }> = explicitCandidates.map((candidate) => ({ ...candidate, explicit: true }));
-    const settings = await loadDemoSettings(client);
-    if (!selected.length && settings.implicit_pet_replies_enabled) {
-      const available = candidates.filter((candidate) => !candidate.implicit_cooldown_until || candidate.implicit_cooldown_until <= new Date().toISOString());
-      if (available.length) {
-        const started = Date.now();
-        const promptHash = await sha256(JSON.stringify({ text, candidates: available.map(({ id, name, ownerName }) => ({ id, name, ownerName })) }));
-        const runId = await reserveModelRun(client, { runKind: "relevance_route", dailyLimit: 100, spaceId: message.space_id, promptHash, model: TextModelAdapter.modelName() });
-        try {
-          const selectedIds = await new TextModelAdapter().routePetRelevance({ message: text, candidates: available.map((candidate) => ({ petId: candidate.id, petName: candidate.name, ownerName: candidate.ownerName })) });
-          selected = available.filter((candidate) => selectedIds.includes(candidate.id)).slice(0, 1).map((candidate) => ({ ...candidate, explicit: false }));
-          await finishModelRun(client, runId, { status: "succeeded", startedAt: started });
-        } catch (reason) {
-          await finishModelRun(client, runId, { status: "failed", startedAt: started, errorCode: reason instanceof Error ? reason.message : "router_error" });
-        }
-      }
-    }
+    const selected: Array<Candidate & { explicit: boolean }> = explicitCandidates.map((candidate) => ({ ...candidate, explicit: true }));
 
     const recentRows = await client.from("messages").select("actor_name,text,kind").eq("space_id", message.space_id).order("created_at", { ascending: false }).limit(20);
     if (recentRows.error) throw recentRows.error;
