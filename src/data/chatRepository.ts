@@ -268,6 +268,7 @@ function mapRemoteMessage(row: Record<string, any>): ChatMessage {
     deletedAt: row.deleted_at ?? null,
     delegatedByPetId: row.delegated_by_pet_id ?? null,
     delegationRequestId: row.delegation_request_id ?? null,
+    agentProposalId: row.agent_proposal_id ?? null,
   };
 }
 

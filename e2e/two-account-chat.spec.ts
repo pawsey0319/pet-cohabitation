@@ -22,6 +22,23 @@ async function login(page: Page, user: typeof users[number]) {
   await expect(page.getByText("消息", { exact: true }).first()).toBeVisible();
 }
 
+async function listMetrics(page: Page) {
+  return page.getByTestId("chat-message-list").evaluate((element) => ({
+    top: element.scrollTop,
+    height: element.clientHeight,
+    content: element.scrollHeight,
+    distance: element.scrollHeight - element.clientHeight - element.scrollTop,
+  }));
+}
+
+async function scrollList(page: Page, position: "top" | "bottom") {
+  await page.getByTestId("chat-message-list").evaluate((element, target) => {
+    element.scrollTop = target === "top" ? 0 : element.scrollHeight;
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  }, position);
+  await page.waitForTimeout(150);
+}
+
 test.beforeAll(async () => {
   for (const user of users) {
     const created = await service.auth.admin.createUser({ email: user.email, password: user.password, email_confirm: true });
@@ -79,13 +96,49 @@ test("two browser accounts invite, chat, reply, react and use the shared Agent w
     const composerBoxAfter = await pageB.getByPlaceholder("发消息…").boundingBox();
     expect(Math.abs((composerBoxAfter?.y ?? 0) - (composerBoxBefore?.y ?? 0))).toBeLessThan(3);
 
-    await pageB.getByText("你好，这是浏览器甲发来的消息").click();
+    const filler = Array.from({ length: 70 }, (_, index) => ({
+      client_id: `browser-scroll-${suffix}-${index}`, space_id: createdSpaceId, sender_id: null,
+      actor_kind: "space_agent", actor_id: createdSpaceId, actor_name: "空间记录", kind: "system",
+      text: `滚动测试记录 ${index + 1}`, permission_source: "browser_scroll_seed",
+      created_at: new Date(Date.now() + index).toISOString(),
+    }));
+    expect((await service.from("messages").insert(filler)).error).toBeNull();
+    await pageB.reload();
+    await expect(pageB.getByText("滚动测试记录 70")).toBeVisible();
+    await scrollList(pageB, "bottom");
+    const bottomComposerBefore = await pageB.getByPlaceholder("发消息…").boundingBox();
+    await pageB.getByPlaceholder("发消息…").fill("我在底部发送后仍然看得到自己");
+    await pageB.getByRole("button", { name: "发送消息" }).click();
+    const bottomMessage = pageB.getByText("我在底部发送后仍然看得到自己");
+    await expect(bottomMessage).toBeVisible();
+    await expect.poll(async () => (await listMetrics(pageB)).distance).toBeLessThan(48);
+    const bottomComposerAfter = await pageB.getByPlaceholder("发消息…").boundingBox();
+    expect(Math.abs((bottomComposerAfter?.y ?? 0) - (bottomComposerBefore?.y ?? 0))).toBeLessThan(3);
+    expect((await bottomMessage.boundingBox())!.y).toBeLessThan(bottomComposerAfter!.y);
+
+    await scrollList(pageB, "top");
+    expect((await listMetrics(pageB)).distance).toBeGreaterThan(100);
+    await pageB.getByPlaceholder("发消息…").fill("我从历史位置发送也会回到最新消息");
+    await pageB.getByRole("button", { name: "发送消息" }).click();
+    await expect(pageB.getByText("我从历史位置发送也会回到最新消息")).toBeVisible();
+    await expect.poll(async () => (await listMetrics(pageB)).distance).toBeLessThan(48);
+
+    await scrollList(pageA, "top");
+    const readingBeforeIncoming = await listMetrics(pageA);
+    await pageB.getByPlaceholder("发消息…").fill("这条新消息不能抢走甲的历史阅读位置");
+    await pageB.getByRole("button", { name: "发送消息" }).click();
+    await expect(pageA.getByText("有新消息 ↓")).toBeVisible();
+    const readingAfterIncoming = await listMetrics(pageA);
+    expect(Math.abs(readingAfterIncoming.top - readingBeforeIncoming.top)).toBeLessThan(8);
+    await pageA.getByText("有新消息 ↓").click();
+
+    await pageB.getByText("滚动测试记录 70").click();
     await pageB.getByRole("button", { name: "回复消息" }).click();
     await pageB.getByPlaceholder("发消息…").fill("这条是同空间引用回复");
     await pageB.getByRole("button", { name: "发送消息" }).click();
     await expect(pageA.getByText("这条是同空间引用回复")).toBeVisible();
 
-    await pageA.getByText("收到，这是浏览器乙的实时回复").click();
+    await pageA.getByText("我在底部发送后仍然看得到自己").click();
     await pageA.getByRole("button", { name: "回应 ❤️" }).click();
     await expect(pageB.getByText("❤️ 1")).toBeVisible();
 
@@ -94,9 +147,21 @@ test("two browser accounts invite, chat, reply, react and use the shared Agent w
     await pageA.getByText("群聊简报", { exact: true }).click();
     await pageA.getByRole("button", { name: "提交给主 Agent" }).click();
     await expect(pageA.getByText("已完成", { exact: true }).last()).toBeVisible();
-    await expect(pageA.getByText(/大家围绕近况/).last()).toBeVisible();
+    await expect(pageA.getByText(/主要话题/).last()).toBeVisible();
+    await expect(pageA.getByText(/浏览器乙的实时回复/).last()).toBeVisible();
+
+    const scheduledDate = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
+    await pageA.getByText("日程安排", { exact: true }).click();
+    await pageA.getByPlaceholder("输入你希望主 Agent 完成的事").fill(`安排 ${scheduledDate} 19:30 和浏览器乙线上碰面`);
+    await pageA.getByRole("button", { name: "提交给主 Agent" }).click();
+    await expect(pageA.getByText("等待投票", { exact: true }).last()).toBeVisible();
 
     await pageA.getByRole("button", { name: "关闭主 Agent" }).click();
+    await expect(pageA.getByText("日程提案").last()).toBeVisible();
+    await expect(pageB.getByText("日程提案").last()).toBeVisible();
+    await expect(pageB.getByText(/赞成 1 \/ 2/).last()).toBeVisible();
+    await pageB.getByRole("button", { name: "赞成日程提案" }).last().click();
+    await expect(pageB.getByText("已执行", { exact: true }).last()).toBeVisible();
     await pageA.getByRole("button", { name: "聊天更多功能" }).click();
     const chooserPromise = pageA.waitForEvent("filechooser");
     await pageA.getByText("图片", { exact: true }).click();
@@ -115,6 +180,21 @@ test("two browser accounts invite, chat, reply, react and use the shared Agent w
 test("owner sets, confirms and cares for the same living pet without incubation chat", async ({ browser }) => {
   const context = await browser.newContext(); const page = await context.newPage();
   try {
+    if (!createdSpaceId) {
+      const space = await service.from("spaces").insert({ name: "双浏览器小窝", kind: "friend_pair", created_by: users[0].id }).select("id").single();
+      if (space.error) throw space.error;
+      createdSpaceId = space.data.id;
+      const members = await service.from("space_members").insert([
+        { space_id: createdSpaceId, user_id: users[0].id, role: "owner" },
+        { space_id: createdSpaceId, user_id: users[1].id, role: "member" },
+      ]);
+      if (members.error) throw members.error;
+      const ownerClient = createClient(supabaseUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
+      const signedIn = await ownerClient.auth.signInWithPassword({ email: users[0].email, password: users[0].password });
+      if (signedIn.error) throw signedIn.error;
+      const message = await ownerClient.from("messages").insert({ client_id: `pet-recall-${suffix}`, space_id: createdSpaceId, sender_id: users[0].id, actor_kind: "human", actor_name: users[0].nickname, kind: "text", text: "你好，这是浏览器甲发来的消息" });
+      if (message.error) throw message.error;
+    }
     await login(page, users[0]);
     await page.goto("/pet");
     await page.getByPlaceholder("例如：芽芽").fill("星芽");

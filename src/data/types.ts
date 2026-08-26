@@ -49,6 +49,7 @@ export type ChatMessage = Readonly<{
   deletedAt?: string | null;
   delegatedByPetId?: string | null;
   delegationRequestId?: string | null;
+  agentProposalId?: string | null;
 }>;
 
 export type AgentProposalVote = Readonly<{

@@ -1,4 +1,5 @@
 import { z } from "npm:zod@4";
+import { fallbackRecallAnswer, isUninformativeRecall } from "../_shared/answerQuality.ts";
 import { triggerAutomaticEvolution } from "../_shared/autoEvolution.ts";
 import { runInBackground } from "../_shared/background.ts";
 import { optionsResponse } from "../_shared/cors.ts";
@@ -63,13 +64,20 @@ Deno.serve(async (request) => {
       return json(request, { id: inserted.data.id, content: inserted.data.content, created_at: inserted.data.created_at, recall_sources: [], agent_request_id: agentRequestId, target_space_name: target?.name ?? null });
     }
     const recall = await buildPetRecallContext(client, { ownerId: user.id, petId: pet.id, question: input.content, adapter });
-    const reply = await adapter.generatePetReply({
+    const replyInput = {
       petName: pet.name, personality: pet.personality_summary ?? "正在形成",
       styleSignals: (signals ?? []).map((signal) => `${signal.tendency}：${signal.rationale}`).join("；"),
       messages: [...recall.messages, ...(thread ?? []).reverse().map((message) => ({ actor: message.role === "owner" ? "主人" : pet.name, content: message.content }))],
       currentMessage: input.content, ownerPolicy: "pet_only", contextPolicy: "owner_private_cross_space",
-    });
-    const { data: inserted, error: insertError } = await client.from("pet_private_threads").insert({ pet_id: pet.id, owner_id: user.id, role: "pet", content: reply.content, model_run_id: runId, recall_sources: recall.sources }).select("id,content,created_at,recall_sources").single();
+    } as const;
+    let reply = await adapter.generatePetReply(replyInput);
+    if (isUninformativeRecall(reply.content, recall.messages.length > 0)) {
+      reply = await adapter.generatePetReply({ ...replyInput, requireDirectRecall: true });
+    }
+    const finalContent = isUninformativeRecall(reply.content, recall.messages.length > 0)
+      ? fallbackRecallAnswer(recall.messages)
+      : reply.content;
+    const { data: inserted, error: insertError } = await client.from("pet_private_threads").insert({ pet_id: pet.id, owner_id: user.id, role: "pet", content: finalContent, model_run_id: runId, recall_sources: recall.sources }).select("id,content,created_at,recall_sources").single();
     if (insertError) throw insertError;
     await client.from("pet_runtime_states").upsert({ pet_id: pet.id, owner_id: user.id, state: "speaking", source_kind: "private_chat", source_id: inserted.id, started_at: new Date().toISOString(), expires_at: new Date(Date.now() + 8_000).toISOString(), updated_at: new Date().toISOString() }, { onConflict: "pet_id" });
     const ownerTurns = (thread ?? []).filter((message) => message.role === "owner").length;

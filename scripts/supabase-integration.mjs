@@ -101,14 +101,68 @@ async function main() {
   const crossReply = await owner.client.from("messages").insert({ client_id: `cross-${suffix}`, space_id: otherSpace.data, sender_id: owner.id, actor_kind: "human", actor_name: "测试成员owner", kind: "text", text: "跨空间回复", reply_to_message_id: sent.data.id });
   assert.match(crossReply.error?.message ?? "", /reply_must_be_in_same_space/);
 
+  const summaryMembership = await service.from("space_members").select("joined_at").eq("space_id", pair.data).eq("user_id", owner.id).single();
+  assert.equal(summaryMembership.error, null, summaryMembership.error?.message);
+  const summaryBase = Math.max(Date.now() + 10, Date.parse(summaryMembership.data.joined_at) + 10);
+  await service.from("space_members").update({ last_read_at: new Date(summaryBase - 1).toISOString() }).eq("space_id", pair.data).eq("user_id", owner.id);
+  const digestRows = Array.from({ length: 165 }, (_, index) => ({
+    client_id: `digest-${suffix}-${index}`, space_id: pair.data, sender_id: null, actor_kind: "space_agent", actor_id: pair.data,
+    actor_name: "空间记录", kind: "system",
+    text: index === 0 ? "开头议题：大家提出周末一起骑行" : index === 164 ? "结尾议题：最终决定准备雨天备用方案" : `过程讨论 ${index + 1}：补充路线信息`,
+    permission_source: "integration_digest_seed", created_at: new Date(summaryBase + index).toISOString(),
+  }));
+  const seededDigest = await service.from("messages").insert(digestRows);
+  assert.equal(seededDigest.error, null, seededDigest.error?.message);
+  const waitForSnapshot = summaryBase + digestRows.length - Date.now() + 10;
+  if (waitForSnapshot > 0) await new Promise((resolve) => setTimeout(resolve, waitForSnapshot));
+  const summaryRequest = await owner.client.rpc("create_agent_request", {
+    target_space_id: pair.data, request_origin: "space_panel", request_text: "最近群里具体聊了什么？",
+    request_kind: "read_summary", exact_content: null, target_pet_id: null, request_key: `summary-${suffix}`,
+  });
+  assert.equal(summaryRequest.error, null, summaryRequest.error?.message);
+  const queuedSummary = await owner.client.functions.invoke("space-agent", { body: { request_id: summaryRequest.data } });
+  if (queuedSummary.error?.context) throw new Error(`space-agent summary: ${await queuedSummary.error.context.text()}`);
+  assert.equal(queuedSummary.error, null, queuedSummary.error?.message);
+  assert.equal(queuedSummary.data.status, "queued");
+  const completedSummary = await waitForMatchingRow("agent_requests", summaryRequest.data, (row) => row.status === "completed");
+  assert.equal(completedSummary.result.detail.message_count, 165, "summary truncated unread messages");
+  assert.match(completedSummary.result.text, /开头议题/);
+  assert.match(completedSummary.result.text, /结尾议题/);
+
+  const scheduleDate = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
+  const scheduleText = `安排 ${scheduleDate} 19:30 和测试成员2一起线上碰面`;
+  const scheduleRequest = await owner.client.rpc("create_agent_request", {
+    target_space_id: pair.data, request_origin: "space_panel", request_text: scheduleText,
+    request_kind: "group_schedule", exact_content: null, target_pet_id: null, request_key: `schedule-${suffix}`,
+  });
+  assert.equal(scheduleRequest.error, null, scheduleRequest.error?.message);
+  const scheduleCreated = await owner.client.functions.invoke("space-agent", { body: { request_id: scheduleRequest.data } });
+  if (scheduleCreated.error?.context) throw new Error(`space-agent schedule: ${await scheduleCreated.error.context.text()}`);
+  assert.equal(scheduleCreated.error, null, scheduleCreated.error?.message);
+  assert.equal(scheduleCreated.data.status, "voting");
+  const scheduleProposal = await service.from("agent_proposals").select("*").eq("request_id", scheduleRequest.data).single();
+  assert.equal(scheduleProposal.error, null, scheduleProposal.error?.message);
+  const initiatorVotes = await service.from("agent_proposal_votes").select("user_id,decision").eq("proposal_id", scheduleProposal.data.id);
+  assert.deepEqual(initiatorVotes.data, [{ user_id: owner.id, decision: "approve" }]);
+  const proposalNotice = await service.from("messages").select("id,agent_proposal_id").eq("agent_proposal_id", scheduleProposal.data.id);
+  assert.equal(proposalNotice.data.length, 1, "schedule proposal did not publish exactly one chat card");
+  const repeatedSchedule = await owner.client.functions.invoke("space-agent", { body: { request_id: scheduleRequest.data } });
+  assert.equal(repeatedSchedule.error, null, repeatedSchedule.error?.message);
+  assert.equal((await service.from("messages").select("id").eq("agent_proposal_id", scheduleProposal.data.id)).data.length, 1, "schedule retry duplicated the chat card");
+  const approvedSchedule = await member2.client.rpc("cast_agent_proposal_vote", { target_proposal_id: scheduleProposal.data.id, vote_decision: "approve" });
+  assert.equal(approvedSchedule.error, null, approvedSchedule.error?.message);
+  assert.equal(approvedSchedule.data, "approved");
+  const executedSchedule = await member2.client.functions.invoke("space-agent", { body: { proposal_id: scheduleProposal.data.id } });
+  assert.equal(executedSchedule.error, null, executedSchedule.error?.message);
+  assert.equal((await service.from("messages").select("id").eq("permission_source", "approved_group_schedule").eq("space_id", pair.data)).data.length, 1);
+
   const pet = await owner.client.from("pets").insert({ owner_id: owner.id, name: "测试宠" }).select("id,status").single();
   assert.equal(pet.error, null, pet.error?.message);
-  for (let turn = 1; turn <= 5; turn += 1) {
-    const row = await owner.client.from("pet_private_threads").insert({ pet_id: pet.data.id, owner_id: owner.id, role: "owner", content: `孵化对话 ${turn}` });
-    assert.equal(row.error, null, row.error?.message);
-  }
   const generationRequestId = crypto.randomUUID();
-  const generationBody = { instruction: "安静但有奇怪的感知器官", explore: false, request_id: generationRequestId };
+  const generationBody = {
+    instruction: "按这份期待生成第一版异宠", explore: false, request_id: generationRequestId,
+    expectations: { appearance: "深海鹿形，有半透明鹿角、发光鳍和完整四肢", personality: "安静敏锐，偶尔活泼", companionship: "先倾听再给简短回应", excluded_features: "普通猫狗、几何团子", additional_description: "精细像素桌宠" },
+  };
   const [generation, concurrentGeneration] = await Promise.all([
     owner.client.functions.invoke("generate-pet-candidate", { body: generationBody }),
     owner.client.functions.invoke("generate-pet-candidate", { body: generationBody }),
@@ -298,7 +352,7 @@ async function main() {
     assert.equal(remainingTesters.count, 0, "retention purge left non-admin test accounts behind");
   }
 
-  console.log(JSON.stringify({ signupInvite: "passed", pairLimit: "passed", circleLimit: "passed", rls: "passed", chatConstraints: "passed", petLock: "passed", crossSpacePetRecall: "passed", consent: "passed", petRouter: "passed", idempotentJobs: "passed", agentFeedback: "passed", aggregateAdminMetrics: "passed", petCorner: "passed", synchronizedPetMotion: "passed", petGovernance: "passed", styleFeedback: "passed", automaticEvolution: "passed", evolutionContinuity: "passed", newMemberPausesObservation: "passed", atomicQuota: "passed", exportOwnData: "passed", deleteOwnAccount: "passed", retentionPurge: process.env.DEMO_PURGE_SECRET ? "passed" : "skipped" }, null, 2));
+  console.log(JSON.stringify({ signupInvite: "passed", pairLimit: "passed", circleLimit: "passed", rls: "passed", chatConstraints: "passed", fullUnreadDigest: "passed", scheduleProposalCard: "passed", automaticInitiatorVote: "passed", proposalIdempotency: "passed", petLock: "passed", crossSpacePetRecall: "passed", consent: "passed", petRouter: "passed", idempotentJobs: "passed", agentFeedback: "passed", aggregateAdminMetrics: "passed", petCorner: "passed", synchronizedPetMotion: "passed", petGovernance: "passed", styleFeedback: "passed", automaticEvolution: "passed", evolutionContinuity: "passed", newMemberPausesObservation: "passed", atomicQuota: "passed", exportOwnData: "passed", deleteOwnAccount: "passed", retentionPurge: process.env.DEMO_PURGE_SECRET ? "passed" : "skipped" }, null, 2));
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });

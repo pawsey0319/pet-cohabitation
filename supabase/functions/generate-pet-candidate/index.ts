@@ -4,6 +4,7 @@ import { optionsResponse } from "../_shared/cors.ts";
 import { assertImageGenerationAllowed, assertStructuredPetOnboardingAllowed } from "../_shared/demoSettings.ts";
 import { sha256 } from "../_shared/hash.ts";
 import { ImageModelAdapter, TextModelAdapter, imageExtension, type GeneratedImage } from "../_shared/modelAdapters.ts";
+import { buildPixelPetPrompt } from "../_shared/petVisualPrompt.ts";
 import { finishModelRun, reserveModelRun } from "../_shared/quota.ts";
 import { errorResponse, json } from "../_shared/responses.ts";
 import { authenticatedUser, requirePost, serviceClient } from "../_shared/supabase.ts";
@@ -158,19 +159,16 @@ async function buildWork(userId: string, input: z.infer<typeof Input>): Promise<
   const signalResult = await client.from("pet_style_signals").select("tendency,rationale,confidence,pet_style_feedback(feedback_kind,correction)").eq("pet_id", pet.id).eq("active", true).order("created_at", { ascending: false }).limit(20);
   if (signalResult.error) throw signalResult.error;
   const signals = (signalResult.data ?? []).filter((signal: Record<string, any>) => signal.pet_style_feedback?.[0]?.feedback_kind !== "forgotten");
-  const prompt = [
-    `为一只名叫“${pet.name}”的唯一成长型异宠创作独立原创 2D 全身肖像。`,
-    "必须有完整且清晰可辨的身体结构。让轮廓、器官数量与位置、肢体结构、材质和表情共同体现用户期待；不得套用固定四叶团子或普通猫狗身体。每次重新探索必须优先改变身体结构，而不只是换颜色。",
-    "不采用预设统一画风；禁止模仿现有 IP、受保护角色或在世艺术家的明确风格。画面只包含异宠本体，不含文字、水印和人物。",
-    parentId ? "这是确认前的连续修改：保留当前候选可识别的生命关系，同时按反馈调整；不是完全无关的重绘。" : explore ? "这是确认前重新探索的新方向，可以与旧候选明显不同。" : "这是它的第一张外观候选。",
-    `视觉种子：${draft.visual_seed_prompt}`,
-    `人格对外观的影响：${draft.personality_seed_prompt}`,
-    `理解摘要：${draft.seed_summary}`,
-    `主人本轮意见：${instruction}`,
-    `负面约束：${draft.negative_seed_prompt}`,
-    `相处信号：${signals.map((signal: Record<string, any>) => `${signal.tendency}（${signal.rationale}）`).join("；") || "尚少，保持开放、奇异且不过度卖萌"}`,
-    "生成适合移动端展示的方形单体肖像，2D、全身、视觉完整、背景简洁。",
-  ].join("\n");
+  const prompt = buildPixelPetPrompt({
+    name: pet.name,
+    visualSeed: draft.visual_seed_prompt,
+    personalitySeed: draft.personality_seed_prompt,
+    seedSummary: draft.seed_summary,
+    instruction,
+    negativeSeed: draft.negative_seed_prompt,
+    signals: signals.map((signal: Record<string, any>) => `${signal.tendency}（${signal.rationale}）`),
+    mode: parentId ? "edit" : explore ? "explore" : "initial",
+  });
   const promptHash = await sha256(prompt);
 
   if (!input.session_id) {

@@ -1,4 +1,5 @@
 import { z } from "npm:zod@4";
+import { fallbackRecallAnswer } from "./answerQuality.ts";
 
 const JsonBooleanSchema = z.preprocess((value) => {
   if (typeof value !== "string") return value;
@@ -19,11 +20,13 @@ const SignalsSchema = z.object({ signals: z.array(z.object({
   rationale: z.string().min(1).max(1000),
   confidence: z.number().min(0).max(1),
 })).max(3) });
-const SummarySchema = z.object({
-  summary: z.string().min(1).max(1800),
-  confirmed: z.array(z.string().max(300)).max(10),
-  suggestions: z.array(z.string().max(300)).max(10),
-  pending_people: z.array(z.string().max(300)).max(10),
+const DigestModelSchema = z.object({
+  topics: z.array(z.string().min(1).max(500)).max(30).default([]),
+  decisions: z.array(z.string().min(1).max(500)).max(30).default([]),
+  todos: z.array(z.string().min(1).max(500)).max(30).default([]),
+  schedules: z.array(z.string().min(1).max(500)).max(30).default([]),
+  pending: z.array(z.string().min(1).max(500)).max(30).default([]),
+  source_message_ids: z.array(z.string().min(1).max(80)).max(240).default([]),
 });
 const SpaceQuerySchema = z.object({ answer: z.string().min(1).max(2400) });
 const PetSeedSchema = z.object({
@@ -128,10 +131,12 @@ export class TextModelAdapter {
     currentMessage: string;
     ownerPolicy: "pet_only" | "guess_low_risk" | "wait_for_owner";
     contextPolicy?: "single_space" | "owner_private_cross_space";
+    requireDirectRecall?: boolean;
   }): Promise<z.infer<typeof PetReplySchema>> {
+    const recalledMessages = input.messages.filter((message) => message.actor.startsWith("[群聊回忆"));
     if (mockMode()) return PetReplySchema.parse({
-      content: input.contextPolicy === "owner_private_cross_space" && input.messages.some((message) => message.actor.startsWith("[群聊回忆"))
-        ? `${input.petName}记得。你加入过的关系空间里，最近确实有这些对话，我把来源也一起带回来了。`
+      content: input.contextPolicy === "owner_private_cross_space" && recalledMessages.length
+        ? fallbackRecallAnswer(recalledMessages)
         : input.ownerPolicy === "wait_for_owner"
         ? "这件事还是等主人自己回来回答比较好。我可以先陪你把问题记下来。"
         : input.ownerPolicy === "guess_low_risk"
@@ -141,7 +146,7 @@ export class TextModelAdapter {
       risk: input.ownerPolicy === "wait_for_owner" ? "high" : input.ownerPolicy === "guess_low_risk" ? "low" : "none",
     });
     const contextRule = input.contextPolicy === "owner_private_cross_space"
-      ? "你正在与主人进行仅主人可见的私聊。可以使用系统已按成员权限、加入时间和异宠参与权限过滤后的跨空间群聊回忆；不要说自己听不到其他群，也不要杜撰未提供的内容。引用回忆时用‘我记得你在某空间……’自然概括，来源会由界面另行展示。"
+      ? `你正在与主人进行仅主人可见的私聊。可以使用系统已按成员权限和加入时间过滤后的跨空间群聊回忆；不要说自己听不到其他群，也不要杜撰未提供的内容。只要上下文中存在[群聊回忆]，第一段就必须直接回答用户的问题，随后用2至6条具体内容说明人物、话题、结论、待办或时间。严禁回答“我先观察/查看/整理，之后再告诉你”。来源会由界面另行展示。${input.requireDirectRecall ? "这是严格重试：上一版回答没有解决问题，本次必须引用提供的具体消息作答。" : ""}`
       : "你只使用当前关系空间提供的上下文，严禁暗示知道其他空间或主人私聊。";
     return chatJson([
       { role: "system", content: `你是成长型异宠“${input.petName}”，不是主人本人。人格摘要：${input.personality || "正在形成"}\n成长风格信号：${input.styleSignals || "暂无"}\n${contextRule}消息必须明确是异宠口吻。ownerPolicy=${input.ownerPolicy}：pet_only 只谈你自己；guess_low_risk 可以用“我猜主人可能……”表达低风险猜测；wait_for_owner 必须拒绝代答并等待主人。不得替主人承诺见面、关系变化、冲突立场、位置、健康、消费、财务或敏感授权。输出 JSON：content, concerns_owner, risk(none|low|high)。concerns_owner 必须是 JSON 布尔值 true/false，不能是字符串。` },
@@ -185,12 +190,36 @@ export class TextModelAdapter {
     return result.signals;
   }
 
-  async summarizeSpace(input: { messages: readonly { actor: string; content: string }[] }): Promise<z.infer<typeof SummarySchema>> {
-    if (mockMode()) return { summary: "大家围绕近况和下一次共同活动聊了聊。", confirmed: [], suggestions: ["可以继续确认一个大家都方便的时间"], pending_people: ["真实安排仍等待本人确认"] };
+  async summarizeSpace(input: { messages: readonly { id: string; actor: string; content: string; createdAt: string }[] }): Promise<z.infer<typeof DigestModelSchema>> {
+    if (mockMode()) {
+      const available = input.messages.filter((message) => message.content.trim());
+      const concrete = available.length > 12 ? [available[0], ...available.slice(-11)] : available;
+      return DigestModelSchema.parse({
+        topics: concrete.map((message) => `${message.actor}：${message.content.slice(0, 180)}`),
+        decisions: [], todos: [], schedules: [], pending: [],
+        source_message_ids: concrete.map((message) => message.id),
+      });
+    }
     return chatJson([
-      { role: "system", content: "你是关系空间公共主 Agent。客观总结当前空间，不读取跨空间信息。严格区分：已确认、Agent 建议、待本人确认。异宠的话不算主人的承诺。输出 JSON：summary, confirmed, suggestions, pending_people。" },
-      { role: "user", content: input.messages.map((item) => `${item.actor}: ${item.content}`).join("\n") },
-    ], SummarySchema);
+      { role: "system", content: "你是关系空间公共主 Agent。只总结给定消息，必须写出具体话题、人物、时间、结论和待办，禁止使用‘大家聊了近况’之类空泛句。严格区分已确认与待确认；异宠发言只能作为异宠观点，不能算主人的承诺。每一项都必须能追溯到给定 message_id。输出 JSON：topics, decisions, todos, schedules, pending, source_message_ids。没有对应内容就返回空数组。" },
+      { role: "user", content: input.messages.map((item) => `[${item.id}] ${item.createdAt} ${item.actor}: ${item.content}`).join("\n") },
+    ], DigestModelSchema);
+  }
+
+  async mergeSpaceDigests(input: { chunks: readonly z.infer<typeof DigestModelSchema>[] }): Promise<z.infer<typeof DigestModelSchema>> {
+    const unique = (values: readonly string[]) => [...new Set(values)].slice(0, 30);
+    if (mockMode()) return DigestModelSchema.parse({
+      topics: unique(input.chunks.flatMap((chunk) => chunk.topics)),
+      decisions: unique(input.chunks.flatMap((chunk) => chunk.decisions)),
+      todos: unique(input.chunks.flatMap((chunk) => chunk.todos)),
+      schedules: unique(input.chunks.flatMap((chunk) => chunk.schedules)),
+      pending: unique(input.chunks.flatMap((chunk) => chunk.pending)),
+      source_message_ids: [...new Set(input.chunks.flatMap((chunk) => chunk.source_message_ids))].slice(0, 240),
+    });
+    return chatJson([
+      { role: "system", content: "把多段群聊简报合并成一份具体、去重的最终简报。保留跨批次的先后关系和冲突，不得增加输入中不存在的事实。异宠发言不算主人承诺。输出 JSON：topics, decisions, todos, schedules, pending, source_message_ids；每类最多 30 项。" },
+      { role: "user", content: JSON.stringify(input.chunks) },
+    ], DigestModelSchema);
   }
 
   async planPetManagerAction(input: { message: string; spaces: readonly { name: string }[] }): Promise<z.infer<typeof PetManagerIntentSchema>> {
@@ -225,12 +254,12 @@ export class TextModelAdapter {
   async composePetSeed(input: { name: string; appearance: string; personality: string; companionship: string; excludedFeatures: string; additionalDescription: string }): Promise<z.infer<typeof PetSeedSchema>> {
     if (mockMode()) return PetSeedSchema.parse({
       personality_seed_prompt: `${input.name}会以“${input.personality}”作为初始性格倾向，并在相处中采用“${input.companionship}”的陪伴方式；它有自己的判断，不机械迎合主人。`,
-      visual_seed_prompt: `原创 2D 全身异宠，名字是${input.name}。外观期待：${input.appearance}。补充描述：${input.additionalDescription || "保持奇异、有生命感、避免普通猫狗轮廓"}。使用清晰完整的身体结构、可识别器官、简洁背景、非人形玩偶感。`,
+      visual_seed_prompt: `原创精细像素桌宠，名字是${input.name}。外观期待：${input.appearance}。补充描述：${input.additionalDescription || "保持奇异、有生命感、避免普通猫狗轮廓"}。使用清晰完整的身体结构、可识别器官、标志性配件和小尺寸可读轮廓。`,
       negative_seed_prompt: `不要文字、水印、现有 IP、真人、普通人脸、照搬猫狗模板；排除：${input.excludedFeatures || "无"}。`,
       seed_summary: `${input.name}是一只${input.personality}的异宠，外观朝“${input.appearance}”生长，习惯${input.companionship}。`,
     });
     return chatJson([
-      { role: "system", content: "你负责把用户对唯一异宠的结构化期待编排成四个种子字段。保留用户意图但不得模仿现有 IP、受保护角色或在世艺术家的风格。视觉必须是原创 2D 全身异宠，强调独特轮廓、器官组合、材质、动作和表情；人格要可成长、有独立判断且不情感绑架。输出 JSON：personality_seed_prompt, visual_seed_prompt, negative_seed_prompt, seed_summary。" },
+      { role: "system", content: "你负责把用户对唯一异宠的结构化期待编排成四个种子字段。保留用户意图但不得模仿现有 IP、受保护角色或在世艺术家的风格。视觉必须是原创精细像素桌宠、完整全身、小尺寸轮廓清晰，强调独特器官组合、材质、动作、表情和标志性配件，禁止简单几何色块；人格要可成长、有独立判断且不情感绑架。输出 JSON：personality_seed_prompt, visual_seed_prompt, negative_seed_prompt, seed_summary。" },
       { role: "user", content: JSON.stringify(input) },
     ], PetSeedSchema);
   }
