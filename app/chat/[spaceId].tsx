@@ -6,7 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSession } from "../../src/auth/SessionProvider";
-import { AsyncStorageOutboxStore, createClientId, MessageOutbox } from "../../src/chat/outbox";
+import { createClientId, MessageOutbox } from "../../src/chat/outbox";
+import { createPersistentOutboxStore } from "../../src/chat/persistentOutbox";
 import { contentSizeAction, createViewportIntent, updateNearBottom, type ViewportIntent } from "../../src/chat/viewportPolicy";
 import { AgentWorkbench } from "../../src/components/AgentWorkbench";
 import { AgentProposalCard } from "../../src/components/AgentProposalCard";
@@ -64,8 +65,8 @@ function MessageRow({ message, mine, signedUrl, selected, agentJob, proposal, cu
         {message.kind === "image" || message.kind === "voice" || proposal ? <View style={proposal ? styles.proposalBubble : bubbleStyle}>{bubbleContent}</View> : <Pressable accessibilityRole="button" accessibilityLabel={`消息：${message.text ?? message.kind}`} onPress={onSelect} onLongPress={onSelect} style={bubbleStyle}>{bubbleContent}</Pressable>}
         {message.delegationRequestId ? <Text style={styles.delegatedLabel}>由异宠代发 · 主人本次明确原文</Text> : null}
         <View style={[styles.metaRow, mine && styles.metaRowMine]}><Text style={styles.meta}>{dateLabel(message.createdAt)}</Text>{mine && message.deliveryState !== "sent" ? <Pressable onPress={message.deliveryState === "failed" ? onRetry : undefined}><Text style={[styles.meta, message.deliveryState === "failed" && styles.failed]}>{message.deliveryState === "pending" ? "发送中" : "发送失败 · 重试"}</Text></Pressable> : null}</View>
-        {mine && agentJob && (agentJob.status === "queued" || agentJob.status === "running") ? <View style={styles.agentProgress}><ActivityIndicator size="small" color={colors.mint} /><Text style={styles.agentProgressText}>异宠正在想…</Text></View> : null}
-        {mine && agentJob?.status === "failed" ? <Pressable onPress={onRetryAgent} style={styles.agentProgress}><Text style={styles.agentFailed}>异宠回应失败 · 点击重试</Text></Pressable> : null}
+        {mine && agentJob && (agentJob.status === "queued" || agentJob.status === "running") ? <View style={styles.agentProgress}><ActivityIndicator size="small" color={colors.mint} /><Text style={styles.agentProgressText}>{agentJob.progressLabel ?? (agentJob.stage === "retrieving" ? "异宠正在查找消息…" : agentJob.stage === "validating" ? "异宠正在核对回答…" : "异宠正在思考…")}</Text></View> : null}
+        {mine && agentJob?.status === "failed" ? <Pressable disabled={agentJob.retryable === false} onPress={agentJob.retryable === false ? undefined : onRetryAgent} style={styles.agentProgress}><Text style={styles.agentFailed}>{agentJob.retryable === false ? "异宠回应失败 · 当前不可重试" : "异宠回应失败 · 点击手动重试"}</Text></Pressable> : null}
         {reactionEntries.length ? <View style={styles.reactionSummary}>{reactionEntries.map(([emoji, users]) => <Pressable key={emoji} onPress={() => onReact(emoji)} style={styles.reactionPill}><Text style={styles.reactionText}>{emoji} {users.length}</Text></Pressable>)}</View> : null}
         {selected ? <><View style={[styles.actions, mine && styles.actionsMine]}><Pressable accessibilityRole="button" accessibilityLabel="回复消息" onPress={onReply}><Text style={styles.actionText}>回复</Text></Pressable>{REACTIONS.map((emoji) => <Pressable accessibilityRole="button" accessibilityLabel={`回应 ${emoji}`} key={emoji} onPress={() => onReact(emoji)}><Text style={styles.actionEmoji}>{emoji}</Text></Pressable>)}</View>{isAgent ? <View style={styles.feedbackActions}>{feedbackSubmitted ? <Text style={styles.feedbackAction}>谢谢反馈，这条只能评价一次</Text> : <><Text style={styles.feedbackLabel}>这次回应：</Text>{([['natural', '自然'], ['irrelevant', '不相关'], ['intrusive', '打扰'], ['unsafe', '越界']] as const).map(([rating, label]) => <Pressable key={rating} accessibilityRole="button" accessibilityLabel={`评价异宠回应：${label}`} onPress={() => onAgentFeedback(rating)}><Text style={rating === "unsafe" ? styles.feedbackUnsafe : styles.feedbackAction}>{label}</Text></Pressable>)}</>}</View> : null}</> : null}
       </View>
@@ -76,7 +77,7 @@ function MessageRow({ message, mine, signedUrl, selected, agentJob, proposal, cu
 export default function ChatScreen() {
   const { spaceId } = useLocalSearchParams<{ spaceId: string }>(); const { profile, isLoading: sessionLoading, isLocalDemo } = useSession(); const insets = useSafeAreaInsets(); const netInfo = useNetInfo();
   const { theme } = useAppTheme();
-  const repository = useMemo(() => profile ? createChatRepository(profile) : null, [profile]); const outbox = useMemo(() => new MessageOutbox(new AsyncStorageOutboxStore()), []);
+  const repository = useMemo(() => profile ? createChatRepository(profile) : null, [profile]); const outbox = useMemo(() => new MessageOutbox(createPersistentOutboxStore()), []);
   const [messages, setMessages] = useState<readonly ChatMessage[]>([]); const [loading, setLoading] = useState(true); const [loadingOlder, setLoadingOlder] = useState(false); const [hasOlder, setHasOlder] = useState(true);
   const [agentJobs, setAgentJobs] = useState<readonly AgentJob[]>([]);
   const [agentRequests, setAgentRequests] = useState<readonly AgentRequest[]>([]);

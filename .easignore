@@ -1,0 +1,17 @@
+node_modules/
+.expo/
+dist/
+coverage/
+.worktrees/
+.superpowers/
+*.log
+.env
+.env.local
+.env.*.local
+supabase/functions/.env.production
+playwright-report/
+test-results/
+supabase/.temp/
+supabase/.branches/
+.vercel/
+.git/

@@ -1,4 +1,4 @@
-import { router, useFocusEffect } from "expo-router";
+import { type Href, router, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -8,6 +8,7 @@ import type { ChatSpace, RelationshipKind } from "../../../src/data/types";
 import { AppButton, DemoBanner, EmptyState } from "../../../src/ui/common";
 import { colors, radii, spacing } from "../../../src/theme/tokens";
 import { useAppTheme } from "../../../src/theme/ThemeProvider";
+import { useNotificationInbox } from "../../../src/notifications/inbox";
 
 function formatTime(value?: string | null): string {
   if (!value) return "";
@@ -25,6 +26,7 @@ const kinds: readonly { value: RelationshipKind; label: string; note: string }[]
 export default function ChatsScreen() {
   const { profile, isLocalDemo } = useSession(); const insets = useSafeAreaInsets();
   const { theme } = useAppTheme();
+  const { unreadCount: notificationCount } = useNotificationInbox(30);
   const repository = useMemo(() => createChatRepository(profile!), [profile]);
   const [spaces, setSpaces] = useState<readonly ChatSpace[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false); const [name, setName] = useState(""); const [kind, setKind] = useState<RelationshipKind>("friend_pair"); const [busy, setBusy] = useState(false);
@@ -47,7 +49,13 @@ export default function ChatsScreen() {
       {isLocalDemo ? <DemoBanner /> : null}
       <View style={styles.header}>
         <View><Text style={styles.eyebrow}>只和认识的人</Text><Text style={styles.title}>消息</Text></View>
-        <Pressable accessibilityRole="button" accessibilityLabel="新建关系空间" onPress={() => setCreating(true)} style={[styles.newButton, { backgroundColor: theme.card, borderRadius: theme.radius }]}><Text style={[styles.newButtonText, { color: theme.accent }]}>＋</Text></Pressable>
+        <View style={styles.headerActions}>
+          <Pressable accessibilityRole="button" accessibilityLabel="通知" onPress={() => router.push("/notifications" as Href)} style={[styles.newButton, { backgroundColor: theme.card, borderRadius: theme.radius }]}>
+            <Text style={[styles.bellText, { color: theme.accent }]}>◷</Text>
+            {notificationCount > 0 ? <View style={styles.notificationBadge}><Text style={styles.notificationBadgeText}>{notificationCount > 99 ? "99+" : notificationCount}</Text></View> : null}
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="新建关系空间" onPress={() => setCreating(true)} style={[styles.newButton, { backgroundColor: theme.card, borderRadius: theme.radius }]}><Text style={[styles.newButtonText, { color: theme.accent }]}>＋</Text></Pressable>
+        </View>
       </View>
       {error ? <Pressable onPress={() => void load()} style={styles.error}><Text style={styles.errorText}>{error} · 点击重试</Text></Pressable> : null}
       {loading ? <ActivityIndicator style={styles.loading} color={colors.coral} /> : (
@@ -78,6 +86,9 @@ const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.canvas }, header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.md },
   eyebrow: { color: colors.mint, fontSize: 11, fontWeight: "800", letterSpacing: 1.4 }, title: { color: colors.text, fontSize: 32, fontWeight: "900" },
   newButton: { width: 43, height: 43, borderRadius: 16, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center" }, newButtonText: { color: colors.coralSoft, fontSize: 27, lineHeight: 29 },
+  headerActions: { flexDirection: "row", gap: 9 }, bellText: { fontSize: 21, fontWeight: "900" },
+  notificationBadge: { position: "absolute", right: -5, top: -5, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, backgroundColor: colors.coral, alignItems: "center", justifyContent: "center" },
+  notificationBadgeText: { color: colors.white, fontSize: 9, fontWeight: "900" },
   list: { paddingHorizontal: spacing.md, paddingBottom: 90 }, emptyList: { flexGrow: 1, justifyContent: "center" }, loading: { marginTop: 50 },
   row: { flexDirection: "row", gap: spacing.md, paddingVertical: 15, paddingHorizontal: 7 }, rowBorder: { borderTopWidth: 1, borderTopColor: colors.line },
   avatar: { width: 52, height: 52, borderRadius: 18, backgroundColor: colors.surfaceSoft, alignItems: "center", justifyContent: "center" }, avatarCircle: { backgroundColor: colors.mintDeep }, avatarText: { color: colors.lavenderSoft, fontWeight: "900" },

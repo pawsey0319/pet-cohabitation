@@ -8,6 +8,22 @@
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#16142D",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
+    "android": {
+      "package": "com.pawsey.petcohabitation",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.READ_MEDIA_IMAGES"
+      ]
+    },
     "web": {
       "bundler": "metro",
       "output": "single",
@@ -25,7 +41,18 @@
     "plugins": [
       "expo-router",
       "expo-sqlite",
-      "expo-audio"
+      "expo-audio",
+      "expo-asset",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "color": "#FF806F",
+          "defaultChannel": "messages"
+        }
+      ],
+      "expo-updates",
+      "expo-sharing"
     ]
   }
 }

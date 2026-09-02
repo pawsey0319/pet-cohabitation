@@ -88,7 +88,7 @@ async function runSummaryRequest(
     const requestResult = await client.from("agent_requests").select("*").eq("id", input.requestId).single();
     if (requestResult.error) throw requestResult.error;
     const request = requestResult.data;
-    const claimed = await client.from("agent_jobs").update({ status: "running", attempts: 1, started_at: new Date().toISOString(), error_code: null })
+    const claimed = await client.from("agent_jobs").update({ status: "running", stage: "retrieving", progress_label: "正在读取本次有权查看的群聊", provider_checked_at: new Date().toISOString(), attempts: 1, started_at: new Date().toISOString(), error_code: null })
       .eq("id", input.jobId).eq("status", "queued").select("id").maybeSingle();
     if (claimed.error) throw claimed.error;
     if (!claimed.data) return;
@@ -98,11 +98,12 @@ async function runSummaryRequest(
       const detail: SpaceDigest = { topics: [], decisions: [], todos: [], schedules: [], pending: [], covered_from: request.created_at, covered_to: request.created_at, message_count: 0, source_message_ids: [] };
       const text = "从你加入这个空间之后，到本次请求发起时，没有可总结的新消息。";
       await client.from("agent_requests").update({ status: "completed", review_decision: "approved", result: { text, detail }, updated_at: new Date().toISOString() }).eq("id", request.id);
-      await client.from("agent_jobs").update({ status: "succeeded", result: detail, completed_at: new Date().toISOString() }).eq("id", input.jobId);
+      await client.from("agent_jobs").update({ status: "succeeded", stage: "completed", progress_label: "简报已完成", retryable: false, result: detail, completed_at: new Date().toISOString() }).eq("id", input.jobId);
       return;
     }
     const promptHash = await sha256(JSON.stringify({ request: request.user_input, message_ids: messages.map((message) => message.id) }));
     runId = await reserveModelRun(client, { runKind: "read_summary", dailyLimit: 30, spaceId: request.space_id, promptHash, model: TextModelAdapter.modelName() });
+    await client.from("agent_jobs").update({ stage: "calling_model", progress_label: `正在分批整理 ${messages.length} 条消息` }).eq("id", input.jobId);
     const adapter = new TextModelAdapter();
     const chunkResults: SpaceDigest[] = [];
     for (const chunk of chunkDigestMessages(messages)) chunkResults.push(await adapter.summarizeSpace({ messages: chunk }));
@@ -123,14 +124,15 @@ async function runSummaryRequest(
       message_count: messages.length,
       source_message_ids: merged.source_message_ids.filter((id) => messages.some((message) => message.id === id)),
     };
+    await client.from("agent_jobs").update({ stage: "validating", progress_label: "正在核对话题、结论、待办与时间" }).eq("id", input.jobId);
     const text = formatSpaceDigest(detail);
     await client.from("agent_requests").update({ status: "completed", review_decision: "approved", result: { text, detail }, updated_at: new Date().toISOString() }).eq("id", request.id);
-    await client.from("agent_jobs").update({ status: "succeeded", result: detail, completed_at: new Date().toISOString() }).eq("id", input.jobId);
+    await client.from("agent_jobs").update({ status: "succeeded", stage: "completed", progress_label: "简报已完成", retryable: false, result: detail, completed_at: new Date().toISOString() }).eq("id", input.jobId);
     await finishModelRun(client, runId, { status: "succeeded", startedAt });
   } catch (reason) {
     const errorCode = reason instanceof Error ? reason.message.slice(0, 120) : "space_summary_failed";
     await client.from("agent_requests").update({ status: "failed", review_reason: "AI 暂时不可用，可稍后重试", updated_at: new Date().toISOString() }).eq("id", input.requestId);
-    await client.from("agent_jobs").update({ status: "failed", error_code: errorCode, completed_at: new Date().toISOString() }).eq("id", input.jobId);
+    await client.from("agent_jobs").update({ status: "failed", stage: "failed", progress_label: "简报失败，可手动重试", retryable: true, error_code: errorCode, completed_at: new Date().toISOString() }).eq("id", input.jobId);
     if (runId) await finishModelRun(client, runId, { status: "failed", startedAt, errorCode });
   }
 }
@@ -142,12 +144,12 @@ async function queueSummaryRequest(client: ReturnType<typeof serviceClient>, req
   let jobId = existing.data?.id as string | undefined;
   if (existing.data) {
     if (Number(existing.data.attempts) >= 3) throw new Error("agent_request_retry_limit_reached");
-    const reset = await client.from("agent_jobs").update({ status: "queued", error_code: null, completed_at: null }).eq("id", existing.data.id).select("id").single();
+    const reset = await client.from("agent_jobs").update({ status: "queued", stage: "queued", progress_label: "等待手动重试", retryable: true, error_code: null, completed_at: null }).eq("id", existing.data.id).select("id").single();
     if (reset.error) throw reset.error; jobId = reset.data.id;
   } else {
     const job = await client.from("agent_jobs").insert({
       job_kind: "agent_request_read_summary", scope_kind: "space", scope_id: request.space_id,
-      requested_by: callerId, status: "queued", input: { request_id: request.id }, agent_request_id: request.id,
+      requested_by: callerId, status: "queued", stage: "queued", progress_label: "等待整理群聊", idempotency_key: `agent_request:${request.id}`, input: { request_id: request.id }, agent_request_id: request.id,
     }).select("id").single();
     if (job.error) throw job.error; jobId = job.data.id;
   }
@@ -229,7 +231,7 @@ async function processRequest(client: ReturnType<typeof serviceClient>, requestI
   if (request.request_kind === "read_summary") return queueSummaryRequest(client, request, callerId);
   const job = await client.from("agent_jobs").insert({
     job_kind: `agent_request_${request.request_kind}`, scope_kind: request.space_id ? "space" : "user",
-    scope_id: request.space_id ?? callerId, requested_by: callerId, status: "running", input: { request_id: request.id },
+    scope_id: request.space_id ?? callerId, requested_by: callerId, status: "running", stage: "retrieving", progress_label: "空间主 Agent 正在检查请求", provider_checked_at: new Date().toISOString(), input: { request_id: request.id },
   }).select("id").single();
   if (job.error) throw job.error;
   await client.from("agent_requests").update({ status: "reviewing", updated_at: new Date().toISOString() }).eq("id", request.id);

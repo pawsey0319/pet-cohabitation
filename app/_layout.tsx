@@ -2,6 +2,7 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { SessionProvider } from "../src/auth/SessionProvider";
+import { NotificationBootstrap } from "../src/notifications/NotificationBootstrap";
 import { ThemeProvider, useAppTheme } from "../src/theme/ThemeProvider";
 
 function AppStack() {
@@ -13,7 +14,7 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <SessionProvider>
-        <ThemeProvider><AppStack /></ThemeProvider>
+        <ThemeProvider><NotificationBootstrap /><AppStack /></ThemeProvider>
       </SessionProvider>
     </SafeAreaProvider>
   );

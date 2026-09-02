@@ -109,6 +109,10 @@ export type AgentJob = Readonly<{
   attempts: number;
   createdAt: string;
   completedAt: string | null;
+  stage?: "queued" | "retrieving" | "calling_model" | "validating" | "waiting_confirmation" | "completed" | "failed" | "cancelled";
+  progressLabel?: string | null;
+  retryable?: boolean;
+  providerCheckedAt?: string | null;
 }>;
 
 export type QueuedMessage = Readonly<{

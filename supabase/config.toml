@@ -47,7 +47,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.deliver-reminders]
-verify_jwt = true
+verify_jwt = false
 
 [functions.evolve-pet]
 verify_jwt = true
@@ -69,3 +69,9 @@ verify_jwt = true
 
 [functions.purge-demo-data]
 verify_jwt = false
+
+[functions.send-push-notifications]
+verify_jwt = false
+
+[functions.model-health]
+verify_jwt = true

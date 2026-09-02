@@ -440,9 +440,9 @@ class SupabaseChatRepository implements ChatRepository {
   async setPetLocalMute(spaceId: string, petId: string, muted: boolean): Promise<void> { const { error } = await requireSupabase().rpc("set_pet_local_mute", { target_space_id: spaceId, target_pet_id: petId, decision: muted }); if (error) throw error; }
   async votePetPause(spaceId: string, petId: string, paused: boolean): Promise<void> { const { error } = await requireSupabase().rpc("vote_pet_pause", { target_space_id: spaceId, target_pet_id: petId, decision: paused }); if (error) throw error; }
   async listAgentJobs(spaceId: string): Promise<readonly AgentJob[]> {
-    const { data, error } = await requireSupabase().from("agent_jobs").select("id,job_kind,scope_id,source_message_id,status,error_code,attempts,created_at,completed_at").eq("scope_kind", "space").eq("scope_id", spaceId).order("created_at", { ascending: false }).limit(50);
+    const { data, error } = await requireSupabase().from("agent_jobs").select("id,job_kind,scope_id,source_message_id,status,error_code,attempts,created_at,completed_at,stage,progress_label,retryable,provider_checked_at").eq("scope_kind", "space").eq("scope_id", spaceId).order("created_at", { ascending: false }).limit(50);
     if (error) throw error;
-    return (data ?? []).map((row) => ({ id: row.id, kind: row.job_kind, scopeId: row.scope_id, sourceMessageId: row.source_message_id, status: row.status, errorCode: row.error_code, attempts: row.attempts, createdAt: row.created_at, completedAt: row.completed_at }));
+    return (data ?? []).map((row) => ({ id: row.id, kind: row.job_kind, scopeId: row.scope_id, sourceMessageId: row.source_message_id, status: row.status, errorCode: row.error_code, attempts: row.attempts, createdAt: row.created_at, completedAt: row.completed_at, stage: row.stage, progressLabel: row.progress_label, retryable: row.retryable, providerCheckedAt: row.provider_checked_at }));
   }
   async retryAgentDispatch(messageId: string): Promise<AgentJob> {
     const { data, error } = await requireSupabase().functions.invoke("handle-space-message", { body: { message_id: messageId } });

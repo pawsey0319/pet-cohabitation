@@ -103,12 +103,12 @@ npx supabase db push
 npx supabase secrets set --env-file supabase/functions/.env.production
 ```
 
-生产函数环境还必须加入随机生成的 `DEMO_PURGE_SECRET`。该文件已被 Git 忽略，仍应在写入 Secrets 后删除本地副本。
+生产函数环境还必须加入彼此不同的随机 `DEMO_PURGE_SECRET`、`REMINDER_CRON_SECRET` 和 `PUSH_CRON_SECRET`。该文件已被 Git 忽略，仍应在写入 Secrets 后删除本地副本。
 
 逐个部署函数：
 
 ```powershell
-$functions = @("register-with-invite","pet-chat","generate-pet-candidate","confirm-pet","handle-space-message","space-agent","evolve-pet","evaluate-pet-growth","evolution-sweep","pet-interaction","export-my-data","delete-account","purge-demo-data")
+$functions = @("register-with-invite","pet-chat","generate-pet-candidate","confirm-pet","handle-space-message","space-agent","deliver-reminders","evolve-pet","evaluate-pet-growth","evolution-sweep","pet-interaction","export-my-data","delete-account","purge-demo-data","model-health","send-push-notifications")
 $functions | ForEach-Object { npx supabase functions deploy $_ }
 ```
 
@@ -162,22 +162,50 @@ npx vercel --prod
 
 Vercel 官方说明其站点在中国大陆可能变慢或不可达，因此免费 `*.vercel.app` 只用于第一轮测试。发布前必须在电信、联通、移动网络分别验证；两家以上失败时停止扩量。参考 [Vercel 官方说明](https://vercel.com/kb/guide/accessing-vercel-hosted-sites-from-mainland-china)。
 
-## 5. 配置测试数据自动清理
+## 5. Android APK 与推送
+
+项目使用 EAS Managed Build，预览包直接产出 APK：
+
+```powershell
+npx eas-cli login
+npx eas-cli init
+npm run build:android:preview
+```
+
+`eas init` 会把 EAS Project ID 写入 Expo 配置；真实 Android 设备启动后才会请求通知权限并登记 Expo Push Token。需在 Expo/EAS 项目中按提示配置 Android FCM V1 凭据。应用包只包含 Supabase URL 和 Publishable Key，Service Role、CPA Key 与定时任务 Secret 都不能进入 EAS/Vercel 环境。
+
+在发布 APK 前先做本地原生 bundle 检查：
+
+```powershell
+npm run export:android
+```
+
+## 6. 配置服务器定时任务
+
+使用 Supabase Cron 每分钟分别调用：
+
+- `deliver-reminders`，请求头 `x-cron-secret: REMINDER_CRON_SECRET`，负责到点写入个人异宠收件箱或群聊。
+- `send-push-notifications`，请求头 `x-cron-secret: PUSH_CRON_SECRET`，负责投递持久化通知 outbox。
+
+项目 URL 与秘密应放入 Supabase Vault，再通过 `pg_cron` + `pg_net` 发起 POST；不要把 Secret 明文写进 migration。部署后先手动调用一次，响应应包含 `delivered` 或 `processed/sent/failed` 计数。
+
+## 7. 配置测试数据自动清理
 
 `purge-demo-data` 只接受带 `x-demo-purge-secret` 的服务端请求。先在 `demo_settings.test_ends_at` 设置测试结束时间；函数会在“结束时间 + purge_after_days”之前保持静默，到期后匿名化消息并删除所有非管理员测试账号。
 
 云端使用 `pg_cron` + `pg_net` 每天调用一次该函数，并把项目 URL、Publishable Key 和 `DEMO_PURGE_SECRET` 存入 Supabase Vault，不能把清理密钥直接写进 SQL。用相同方式每天调用 `evolution-sweep`，请求头使用 `x-evolution-sweep-secret`，以补偿用户达标后没有立即触发的极端情况。具体配置方式见 [Supabase 定时调用 Edge Function 文档](https://supabase.com/docs/guides/functions/schedule-functions)。部署后先手动调用一次，预期在保留期内返回 `retention_active`。
 
-## 6. 上线前检查
+## 8. 上线前检查
 
 ```powershell
 npm run test:ci
 npm run typecheck
 npm run check:models
 npm run export:web
+npm run export:android
 npx supabase db lint --level warning
 ```
 
 本地 E2E 还需要运行 Supabase、Edge Functions 和 8082 Web 服务，并向测试进程提供 `SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`。Service Role 只用于测试夹具创建和清理，不会进入浏览器 bundle。
 
-线上开放顺序固定为 3 人 24 小时、8 人 3 天、最多 20 人 7 天。模型失败率超过 5%、出现安全阻断项、重复正式进化，或两家以上运营商无法访问时立即停止扩量。当前仓库没有生产 E2EE、推送、备份恢复和应用商店发布能力，不能把这个测试 Demo 宣称为生产级通讯产品。
+线上开放顺序固定为 3 人 24 小时、8 人 3 天、最多 20 人 7 天。模型失败率超过 5%、出现安全阻断项、重复正式进化，或两家以上运营商无法访问时立即停止扩量。当前仓库没有生产 E2EE、备份恢复和应用商店发布能力，不能把这个测试版本宣称为生产级通讯产品。

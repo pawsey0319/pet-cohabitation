@@ -1,6 +1,6 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { Platform } from "react-native";
+import { authStorage } from "./authStorage";
 
 const url = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim() ?? "";
 const publishableKey = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() ?? "";
@@ -11,7 +11,7 @@ export const isLocalDemoMode = process.env.EXPO_PUBLIC_DEMO_MODE === "true" || !
 export const supabase: SupabaseClient | null = isSupabaseConfigured
   ? createClient(url, publishableKey, {
       auth: {
-        storage: AsyncStorage,
+        storage: authStorage,
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: Platform.OS === "web",

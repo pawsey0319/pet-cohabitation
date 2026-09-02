@@ -26,7 +26,7 @@ function explicitCue(text: string, candidate: Candidate, replyPetId: string | nu
 }
 
 async function finishJob(jobId: string, result: unknown): Promise<void> {
-  await serviceClient().from("agent_jobs").update({ status: "succeeded", result, completed_at: new Date().toISOString() }).eq("id", jobId);
+  await serviceClient().from("agent_jobs").update({ status: "succeeded", stage: "completed", progress_label: "已完成", retryable: false, result, completed_at: new Date().toISOString() }).eq("id", jobId);
 }
 
 async function runRouteJob(jobId: string, requestedBy: string, input: z.infer<typeof Input>): Promise<void> {
@@ -35,7 +35,7 @@ async function runRouteJob(jobId: string, requestedBy: string, input: z.infer<ty
     const currentJob = await client.from("agent_jobs").select("attempts,status").eq("id", jobId).single();
     if (currentJob.error) throw currentJob.error;
     if (currentJob.data.status === "succeeded") return;
-    const claimed = await client.from("agent_jobs").update({ status: "running", started_at: new Date().toISOString(), attempts: Math.min(3, Number(currentJob.data.attempts) + 1), error_code: null }).eq("id", jobId).eq("status", "queued").select("id").maybeSingle();
+    const claimed = await client.from("agent_jobs").update({ status: "running", stage: "retrieving", progress_label: "正在检查空间消息与异宠权限", provider_checked_at: new Date().toISOString(), started_at: new Date().toISOString(), attempts: Math.min(3, Number(currentJob.data.attempts) + 1), error_code: null }).eq("id", jobId).eq("status", "queued").select("id").maybeSingle();
     if (claimed.error) throw claimed.error;
     if (!claimed.data) return;
     const messageResult = await client.from("messages").select("id,space_id,sender_id,actor_kind,text,reply_to_message_id,created_at").eq("id", input.message_id).single();
@@ -89,7 +89,7 @@ async function runRouteJob(jobId: string, requestedBy: string, input: z.infer<ty
       const started = Date.now();
       const promptHash = await sha256(`${candidate.id}:${message.id}:${concernsOwner ? "owner" : "pet"}`);
       const runId = await reserveModelRun(client, { runKind: replyKind, dailyLimit: candidate.explicit ? 30 : 10, ownerId: candidate.owner_id, spaceId: message.space_id, petId: candidate.id, promptHash, model: TextModelAdapter.modelName() });
-      const petJob = await client.from("agent_jobs").insert({ job_kind: replyKind, scope_kind: "pet", scope_id: candidate.id, requested_by: requestedBy, source_message_id: message.id, status: "running", started_at: new Date().toISOString(), attempts: 1, input: { explicit: candidate.explicit } }).select("id").single();
+      const petJob = await client.from("agent_jobs").insert({ job_kind: replyKind, scope_kind: "pet", scope_id: candidate.id, requested_by: requestedBy, source_message_id: message.id, status: "running", stage: "calling_model", progress_label: `${candidate.name}正在思考`, provider_checked_at: new Date().toISOString(), idempotency_key: `${replyKind}:${message.id}:${candidate.id}`, started_at: new Date().toISOString(), attempts: 1, input: { explicit: candidate.explicit } }).select("id").single();
       let petJobId = petJob.data?.id as string | undefined;
       if (petJob.error?.code === "23505") {
         const existingPetJob = await client.from("agent_jobs").select("id,status,attempts").eq("job_kind", replyKind).eq("source_message_id", message.id).eq("scope_id", candidate.id).single();
@@ -104,7 +104,7 @@ async function runRouteJob(jobId: string, requestedBy: string, input: z.infer<ty
           failedReplies += 1;
           continue;
         }
-        const requeued = await client.from("agent_jobs").update({ status: "running", attempts: existingPetJob.data.attempts + 1, started_at: new Date().toISOString(), completed_at: null, error_code: null }).eq("id", existingPetJob.data.id).eq("status", "failed").select("id").maybeSingle();
+        const requeued = await client.from("agent_jobs").update({ status: "running", stage: "calling_model", progress_label: `${candidate.name}正在重新思考`, attempts: existingPetJob.data.attempts + 1, started_at: new Date().toISOString(), completed_at: null, error_code: null }).eq("id", existingPetJob.data.id).eq("status", "failed").select("id").maybeSingle();
         if (requeued.error) throw requeued.error;
         if (!requeued.data) {
           await finishModelRun(client, runId, { status: "blocked", startedAt: started, errorCode: "reply_retry_claimed_elsewhere" });
@@ -129,13 +129,13 @@ async function runRouteJob(jobId: string, requestedBy: string, input: z.infer<ty
         const experience = await client.from("pet_experiences").insert({ pet_id: candidate.id, owner_id: candidate.owner_id, space_id: message.space_id, category: "social", summary: `${candidate.name}在关系空间里认真参与了一次对话：${content.slice(0, 180)}`, source_message_id: message.id, interaction_key: `space-reply:${petJobId}` });
         if (!experience.error) runInBackground(triggerAutomaticEvolution(client, candidate.id).catch(() => null));
         if (!candidate.explicit) await client.from("pets").update({ implicit_cooldown_until: new Date(Date.now() + 10 * 60_000).toISOString() }).eq("id", candidate.id);
-        await client.from("agent_jobs").update({ status: "succeeded", result: { replied: true, policy }, completed_at: new Date().toISOString() }).eq("id", petJobId);
+        await client.from("agent_jobs").update({ status: "succeeded", stage: "completed", progress_label: "异宠已回应", retryable: false, result: { replied: true, policy }, completed_at: new Date().toISOString() }).eq("id", petJobId);
         await finishModelRun(client, runId, { status: "succeeded", startedAt: started });
         replied.push(candidate.id);
       } catch (reason) {
         await client.from("pet_runtime_states").upsert({ pet_id: candidate.id, owner_id: candidate.owner_id, state: "idle", source_kind: "system", source_id: null, started_at: new Date().toISOString(), expires_at: null, updated_at: new Date().toISOString() }, { onConflict: "pet_id" });
         const errorCode = reason instanceof Error ? reason.message.slice(0, 120) : "reply_error";
-        await client.from("agent_jobs").update({ status: "failed", error_code: errorCode, completed_at: new Date().toISOString() }).eq("id", petJobId);
+        await client.from("agent_jobs").update({ status: "failed", stage: "failed", progress_label: "异宠回应失败，可手动重试", retryable: true, error_code: errorCode, completed_at: new Date().toISOString() }).eq("id", petJobId);
         await finishModelRun(client, runId, { status: "failed", startedAt: started, errorCode });
         failedReplies += 1;
       }
@@ -152,12 +152,12 @@ async function runRouteJob(jobId: string, requestedBy: string, input: z.infer<ty
       }
     }
     if (failedReplies > 0 && selected.some((item) => item.explicit) && replied.length === 0) {
-      await client.from("agent_jobs").update({ status: "failed", error_code: "pet_reply_failed", result: { selected: selected.map((item) => item.id), replied }, completed_at: new Date().toISOString() }).eq("id", jobId);
+      await client.from("agent_jobs").update({ status: "failed", stage: "failed", progress_label: "异宠回应失败，可手动重试", retryable: true, error_code: "pet_reply_failed", result: { selected: selected.map((item) => item.id), replied }, completed_at: new Date().toISOString() }).eq("id", jobId);
       return;
     }
     await finishJob(jobId, { selected: selected.map((item) => item.id), replied });
   } catch (reason) {
-    await client.from("agent_jobs").update({ status: "failed", error_code: reason instanceof Error ? reason.message.slice(0, 120) : "routing_error", completed_at: new Date().toISOString() }).eq("id", jobId);
+    await client.from("agent_jobs").update({ status: "failed", stage: "failed", progress_label: "处理失败，可手动重试", retryable: true, error_code: reason instanceof Error ? reason.message.slice(0, 120) : "routing_error", completed_at: new Date().toISOString() }).eq("id", jobId);
   }
 }
 
@@ -173,12 +173,12 @@ Deno.serve(async (request) => {
     if (message.data.actor_kind !== "human" || !message.data.sender_id) throw new Error("only_human_messages_are_routed");
     const membership = await client.rpc("is_space_member", { target_space_id: message.data.space_id, target_user_id: caller.id });
     if (membership.error || !membership.data) throw new Error("not_space_member");
-    const inserted = await client.from("agent_jobs").insert({ job_kind: "route_space_pets", scope_kind: "space", scope_id: message.data.space_id, requested_by: caller.id, source_message_id: input.message_id, status: "queued", input }).select("id,status").single();
+    const inserted = await client.from("agent_jobs").insert({ job_kind: "route_space_pets", scope_kind: "space", scope_id: message.data.space_id, requested_by: caller.id, source_message_id: input.message_id, status: "queued", stage: "queued", progress_label: "等待异宠处理", idempotency_key: `route_space_pets:${input.message_id}:${message.data.space_id}`, input }).select("id,status").single();
     if (inserted.error?.code === "23505") {
       const existing = await client.from("agent_jobs").select("id,status,attempts").eq("job_kind", "route_space_pets").eq("source_message_id", input.message_id).eq("scope_id", message.data.space_id).single();
       if (existing.error) throw existing.error;
       if ((existing.data.status === "failed" || existing.data.status === "blocked") && existing.data.attempts < 3) {
-        const requeued = await client.from("agent_jobs").update({ status: "queued", error_code: null, completed_at: null }).eq("id", existing.data.id).in("status", ["failed", "blocked"]).select("id").maybeSingle();
+        const requeued = await client.from("agent_jobs").update({ status: "queued", stage: "queued", progress_label: "等待手动重试处理", retryable: true, error_code: null, completed_at: null }).eq("id", existing.data.id).in("status", ["failed", "blocked"]).select("id").maybeSingle();
         if (requeued.error) throw requeued.error;
         if (requeued.data) {
           runInBackground(runRouteJob(existing.data.id, caller.id, input));

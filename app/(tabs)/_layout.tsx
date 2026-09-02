@@ -1,6 +1,7 @@
 import { Redirect, Tabs } from "expo-router";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { useSession } from "../../src/auth/SessionProvider";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "../../src/theme/tokens";
 import { useAppTheme } from "../../src/theme/ThemeProvider";
 
@@ -11,6 +12,7 @@ function TabGlyph({ glyph, focused, active, muted }: Readonly<{ glyph: string; f
 export default function TabsLayout() {
   const { profile, isLoading } = useSession();
   const { theme } = useAppTheme();
+  const insets = useSafeAreaInsets();
   if (isLoading) return <View style={[styles.loading, { backgroundColor: theme.page }]}><ActivityIndicator color={theme.primary} /></View>;
   if (!profile) return <Redirect href="/login" />;
   return (
@@ -18,7 +20,8 @@ export default function TabsLayout() {
       headerShown: false,
       tabBarActiveTintColor: theme.accent,
       tabBarInactiveTintColor: theme.muted,
-      tabBarStyle: [styles.bar, { backgroundColor: theme.card, borderTopColor: theme.line }],
+      tabBarHideOnKeyboard: true,
+      tabBarStyle: [styles.bar, { height: 58 + insets.bottom, paddingBottom: Math.max(insets.bottom, 6), backgroundColor: theme.card, borderTopColor: theme.line }],
       tabBarLabelStyle: styles.label,
     }}>
       <Tabs.Screen name="chats/index" options={{ title: "消息", tabBarIcon: ({ focused }) => <TabGlyph glyph="◍" focused={focused} active={theme.accent} muted={theme.muted} /> }} />
