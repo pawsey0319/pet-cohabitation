@@ -174,6 +174,8 @@ npm run build:android:preview
 
 `eas init` 会把 EAS Project ID 写入 Expo 配置；真实 Android 设备启动后才会请求通知权限并登记 Expo Push Token。需在 Expo/EAS 项目中按提示配置 Android FCM V1 凭据。应用包只包含 Supabase URL 和 Publishable Key，Service Role、CPA Key 与定时任务 Secret 都不能进入 EAS/Vercel 环境。
 
+若本地网络无法上传到 EAS 的 Google Storage，可在 GitHub Actions 手动运行 `Android preview APK` 工作流。先把生产环境的 `EXPO_PUBLIC_SUPABASE_URL` 与 `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` 配成 GitHub Actions Secrets；工作流会在 Ubuntu Android 环境生成一个 14 天可下载的测试 APK。该备用 APK使用调试签名，不用于应用商店发布；完整推送仍以配置好 FCM 的 EAS 构建为准。
+
 在发布 APK 前先做本地原生 bundle 检查：
 
 ```powershell
