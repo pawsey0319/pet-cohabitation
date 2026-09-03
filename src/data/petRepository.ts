@@ -155,6 +155,19 @@ function mapEvolution(row: Record<string, any>): PetEvolutionEvent { return { id
 function mapRuntime(row: Record<string, any>): PetRuntimeState { return { petId: row.pet_id, state: row.expires_at && Date.parse(row.expires_at) <= Date.now() ? "idle" : row.state, sourceKind: row.source_kind, sourceId: row.source_id ?? null, startedAt: row.started_at, expiresAt: row.expires_at ?? null }; }
 
 class SupabasePetRepository implements PetRepository {
+  private async getOwnedPetId(): Promise<string | null> {
+    const client = requireSupabase();
+    const user = (await client.auth.getUser()).data.user;
+    if (!user) return null;
+    const { data, error } = await client
+      .from("pets")
+      .select("id")
+      .eq("owner_id", user.id)
+      .maybeSingle();
+    if (error) throw error;
+    return data?.id ?? null;
+  }
+
   async getPet() {
     const client = requireSupabase(); const user = (await client.auth.getUser()).data.user; if (!user) return null;
     const { data, error } = await client.from("pets").select("*").eq("owner_id", user.id).maybeSingle(); if (error) throw error; if (!data) return null;
@@ -178,7 +191,7 @@ class SupabasePetRepository implements PetRepository {
   }
   async listPrivateMessages() { const client = requireSupabase(); void client.functions.invoke("deliver-reminders", { body: {} }).catch(() => undefined); const { data, error } = await client.from("pet_private_threads").select("id,role,content,created_at,request_key,reply_status,reply_error_code,reply_phase_updated_at,in_reply_to_id,recall_sources").order("created_at"); if (error) throw error; return (data ?? []).map(mapPrivateMessage); }
   async chat(content: string, requestKey = createRequestId()): Promise<PetPrivateMessage> { const client = requireSupabase(); const { data, error } = await client.functions.invoke("pet-chat", { body: { content, request_id: requestKey } }); if (error) throw await userFacingFunctionError(error, "异宠暂时无法回答，请稍后重试。"); if (data.agent_request_id) void client.functions.invoke("space-agent", { body: { request_id: data.agent_request_id } }).catch(() => undefined); return { id: data.id, role: "pet", content: data.content, createdAt: data.created_at, inReplyToId: data.in_reply_to_id ?? null, recallSources: mapRecallSources(data.recall_sources), agentRequestId: data.agent_request_id ?? null, targetSpaceName: data.target_space_name ?? null }; }
-  async listAssets() { const { data, error } = await requireSupabase().from("pet_visual_assets").select("*").order("created_at"); if (error) throw error; return (data ?? []).map(mapAsset); }
+  async listAssets() { const petId = await this.getOwnedPetId(); if (!petId) return []; const { data, error } = await requireSupabase().from("pet_visual_assets").select("*").eq("pet_id", petId).order("created_at"); if (error) throw error; return (data ?? []).map(mapAsset); }
   async listGenerationSessions() { const { data, error } = await requireSupabase().from("pet_generation_sessions").select("id,status,instruction,base_asset_id,explore,attempts,error_code,created_at,completed_at").order("created_at", { ascending: false }).limit(30); if (error) throw error; return (data ?? []).map(mapGeneration); }
   async generateCandidate(instruction: string, baseAssetId?: string | null, explore = false, expectations?: PetExpectations) { const { data, error } = await requireSupabase().functions.invoke("generate-pet-candidate", { body: { instruction: instruction.trim() || undefined, base_asset_id: baseAssetId ?? null, explore, expectations: expectations ? { appearance: expectations.appearance, personality: expectations.personality, companionship: expectations.companionship, excluded_features: expectations.excludedFeatures, additional_description: expectations.additionalDescription } : undefined, request_id: createRequestId() } }); if (error) throw await userFacingFunctionError(error, "异宠生成请求失败，请稍后重试。"); const row = await requireSupabase().from("pet_generation_sessions").select("*").eq("id", data.session_id).single(); if (row.error) throw row.error; return mapGeneration(row.data); }
   async retryGeneration(sessionId: string) { const { data, error } = await requireSupabase().functions.invoke("generate-pet-candidate", { body: { session_id: sessionId } }); if (error) throw await userFacingFunctionError(error, "异宠生成重试失败，请稍后再试。"); const row = await requireSupabase().from("pet_generation_sessions").select("*").eq("id", data.session_id).single(); if (row.error) throw row.error; return mapGeneration(row.data); }
@@ -188,7 +201,7 @@ class SupabasePetRepository implements PetRepository {
   async createSignedAssetUrl(path: string) { const { data, error } = await requireSupabase().storage.from("pet-portraits").createSignedUrl(path, 900); if (error) throw error; return data.signedUrl; }
   async listExperiences(): Promise<readonly PetExperience[]> { const { data, error } = await requireSupabase().from("pet_experiences").select("id,category,summary,space_id,occurred_at").order("occurred_at", { ascending: false }).limit(50); if (error) throw error; return (data ?? []).map((row) => ({ id: row.id, category: row.category, summary: row.summary, spaceId: row.space_id, occurredAt: row.occurred_at })); }
   async listEvolutionEvents(): Promise<readonly PetEvolutionEvent[]> { const { data, error } = await requireSupabase().from("pet_evolution_events").select("id,parent_asset_id,official_asset_id,owner_blessing,status,failed_attempts,continuity_repair_used,error_code,created_at,growth_snapshot").order("created_at", { ascending: false }); if (error) throw error; return (data ?? []).map(mapEvolution); }
-  async getRuntimeState(): Promise<PetRuntimeState | null> { const { data, error } = await requireSupabase().from("pet_runtime_states").select("pet_id,state,source_kind,source_id,started_at,expires_at").maybeSingle(); if (error) throw error; return data ? mapRuntime(data) : null; }
+  async getRuntimeState(): Promise<PetRuntimeState | null> { const petId = await this.getOwnedPetId(); if (!petId) return null; const { data, error } = await requireSupabase().from("pet_runtime_states").select("pet_id,state,source_kind,source_id,started_at,expires_at").eq("pet_id", petId).maybeSingle(); if (error) throw error; return data ? mapRuntime(data) : null; }
   async performAction(action: "care" | "feed" | "play" | "rest"): Promise<PetRuntimeState> { const client = requireSupabase(); const petId = (await this.getPet())?.id; if (!petId) throw new Error("请先孵化异宠"); const { error } = await client.rpc("perform_pet_action", { target_pet_id: petId, action_kind: action, target_space_id: null, action_note: "", request_id: createRequestId() }); if (error) throw error; void client.functions.invoke("evaluate-pet-growth", { body: { pet_id: petId } }).catch(() => undefined); const state = await this.getRuntimeState(); if (!state) throw new Error("异宠动作状态写入失败"); return state; }
   async retryEvolution(eventId: string, continuityRepair = false): Promise<PetEvolutionEvent> { const { data, error } = await requireSupabase().functions.invoke("evolve-pet", { body: { event_id: eventId, continuity_repair: continuityRepair } }); if (error) throw error; const row = await requireSupabase().from("pet_evolution_events").select("*").eq("id", data.event_id).single(); if (row.error) throw row.error; return mapEvolution(row.data); }
   subscribe(onChange: () => void): () => void {
