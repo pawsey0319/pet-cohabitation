@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { isLocalDemoMode, requireSupabase } from "../lib/supabase";
+import { readMediaForUpload } from "../chat/mediaFile";
 import type { AgentFeedbackRating, AgentJob, AgentProposal, AgentRequest, AppProfile, ChatMessage, ChatSpace, PetCornerStory, PetObservationStatus, QueuedMessage, RelationshipKind, SubmitAgentRequestInput } from "./types";
 
 const LOCAL_CHAT_KEY = "pet-cohabitation-local-chat-v2";
@@ -400,12 +401,11 @@ class SupabaseChatRepository implements ChatRepository {
 
   async uploadMedia(message: QueuedMessage): Promise<string | null> {
     if (!message.localMediaUri || message.kind === "text") return null;
-    const response = await fetch(message.localMediaUri);
-    const body = await response.blob();
+    const media = await readMediaForUpload(message.localMediaUri, (message.kind === "image" ? 8 : 5) * 1024 * 1024);
     const extension = message.kind === "image" ? "jpg" : "m4a";
     const path = `${message.spaceId}/${message.senderId}/${message.clientId}.${extension}`;
-    const { error } = await requireSupabase().storage.from("chat-media").upload(path, body, {
-      contentType: message.mediaMimeType ?? (message.kind === "image" ? "image/jpeg" : "audio/mp4"),
+    const { error } = await requireSupabase().storage.from("chat-media").upload(path, media.body, {
+      contentType: message.mediaMimeType || media.mimeType || (message.kind === "image" ? "image/jpeg" : "audio/mp4"),
       upsert: false,
     });
     if (error && !/already exists/i.test(error.message)) throw error;

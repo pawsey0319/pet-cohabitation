@@ -1,6 +1,7 @@
 import NetInfo, { useNetInfo } from "@react-native-community/netinfo";
 import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioPlayer, useAudioRecorder, useAudioRecorderState } from "expo-audio";
 import * as ImagePicker from "expo-image-picker";
+import { getMediaInfo } from "../../src/chat/mediaFile";
 import Constants from "expo-constants";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -235,21 +236,27 @@ export default function ChatScreen() {
   };
 
   const pickImage = async () => {
+    try {
     setMenu(false); const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.82, allowsEditing: false });
     if (result.canceled) return; const asset = result.assets[0];
     if ((asset.fileSize ?? 0) > 8 * 1024 * 1024) { setError("图片不能超过 8 MB"); return; }
     await enqueueAndSend({ kind: "image", text: null, localMediaUri: asset.uri, mediaMimeType: asset.mimeType ?? "image/jpeg", mediaSizeBytes: asset.fileSize });
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "图片无法读取，请重新选择。"); }
   };
 
   const startVoice = async () => {
+    try {
     setMenu(false); const permission = await requestRecordingPermissionsAsync(); if (!permission.granted) { setError("需要麦克风权限才能录制语音"); return; }
     await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true }); await recorder.prepareToRecordAsync(); recorder.record({ forDuration: 60 });
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "录音无法开始，请检查麦克风权限。"); }
   };
   const stopVoice = async () => {
+    try {
     const seconds = Math.min(60, Math.max(1, recorderState.durationMillis / 1000)); await recorder.stop(); const uri = recorder.uri;
     await setAudioModeAsync({ allowsRecording: false }); if (!uri) { setError("没有取得录音文件"); return; }
-    const blob = await (await fetch(uri)).blob(); if (blob.size > 5 * 1024 * 1024) { setError("语音不能超过 5 MB"); return; }
-    await enqueueAndSend({ kind: "voice", text: null, localMediaUri: uri, mediaMimeType: blob.type || "audio/mp4", mediaSizeBytes: blob.size, mediaDurationSeconds: seconds });
+    const media = await getMediaInfo(uri); if (media.size > 5 * 1024 * 1024) { setError("语音不能超过 5 MB"); return; }
+    await enqueueAndSend({ kind: "voice", text: null, localMediaUri: uri, mediaMimeType: media.mimeType || "audio/mp4", mediaSizeBytes: media.size, mediaDurationSeconds: seconds });
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "录音无法读取，请重试。"); }
   };
 
   const loadOlder = async () => {
