@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { createRequestId } from "../lib/uuid";
 import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import type { ChatRepository } from "../data/chatRepository";
 import type { AgentRequest, AgentRequestKind } from "../data/types";
@@ -28,7 +29,7 @@ export function AgentWorkbench({ visible, spaceId, repository, onClose, onPublis
     if (!text.trim() || busy) return;
     setBusy(true); setError(null);
     try {
-      await repository.submitAgentRequest({ spaceId, origin: "space_panel", kind, text: text.trim(), exactContent: kind === "delegated_message" ? text.trim() : null, idempotencyKey: crypto.randomUUID() });
+      await repository.submitAgentRequest({ spaceId, origin: "space_panel", kind, text: text.trim(), exactContent: kind === "delegated_message" ? text.trim() : null, idempotencyKey: createRequestId() });
       setText(""); await load(); onPublished();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "请求提交失败"); }
     finally { setBusy(false); }

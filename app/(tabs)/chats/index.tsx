@@ -9,6 +9,7 @@ import { AppButton, DemoBanner, EmptyState } from "../../../src/ui/common";
 import { colors, radii, spacing } from "../../../src/theme/tokens";
 import { useAppTheme } from "../../../src/theme/ThemeProvider";
 import { useNotificationInbox } from "../../../src/notifications/inbox";
+import { JoinSpaceSheet } from "../../../src/components/JoinSpaceSheet";
 
 function formatTime(value?: string | null): string {
   if (!value) return "";
@@ -30,6 +31,7 @@ export default function ChatsScreen() {
   const repository = useMemo(() => createChatRepository(profile!), [profile]);
   const [spaces, setSpaces] = useState<readonly ChatSpace[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false); const [name, setName] = useState(""); const [kind, setKind] = useState<RelationshipKind>("friend_pair"); const [busy, setBusy] = useState(false);
+  const [joining, setJoining] = useState(false);
   const load = useCallback(async () => {
     try { setSpaces(await repository.listSpaces(profile!.id)); setError(null); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "会话加载失败"); }
@@ -50,9 +52,14 @@ export default function ChatsScreen() {
       <View style={styles.header}>
         <View><Text style={styles.eyebrow}>只和认识的人</Text><Text style={styles.title}>消息</Text></View>
         <View style={styles.headerActions}>
-          <Pressable accessibilityRole="button" accessibilityLabel="通知" onPress={() => router.push("/notifications" as Href)} style={[styles.newButton, { backgroundColor: theme.card, borderRadius: theme.radius }]}>
+          <Pressable accessibilityRole="button" accessibilityLabel="通知" onPress={() => router.push("/notifications" as Href)} style={[styles.labeledButton, { backgroundColor: theme.card, borderRadius: theme.radius }]}>
             <Text style={[styles.bellText, { color: theme.accent }]}>◷</Text>
+            <Text style={[styles.actionLabel, { color: theme.accent }]}>通知</Text>
             {notificationCount > 0 ? <View style={styles.notificationBadge}><Text style={styles.notificationBadgeText}>{notificationCount > 99 ? "99+" : notificationCount}</Text></View> : null}
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="通过邀请链接加入群聊" onPress={() => setJoining(true)} style={[styles.labeledButton, { backgroundColor: theme.card, borderRadius: theme.radius }]}>
+            <Text style={[styles.bellText, { color: theme.accent }]}>↗</Text>
+            <Text style={[styles.actionLabel, { color: theme.accent }]}>加入群聊</Text>
           </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="新建关系空间" onPress={() => setCreating(true)} style={[styles.newButton, { backgroundColor: theme.card, borderRadius: theme.radius }]}><Text style={[styles.newButtonText, { color: theme.accent }]}>＋</Text></Pressable>
         </View>
@@ -70,6 +77,7 @@ export default function ChatsScreen() {
           )}
         />
       )}
+      <JoinSpaceSheet visible={joining} onClose={() => setJoining(false)} onOpenInvite={(token) => router.push({ pathname: "/invite/[token]", params: { token } })} />
       <Modal animationType="fade" transparent visible={creating} onRequestClose={() => setCreating(false)}>
         <Pressable style={styles.overlay} onPress={() => setCreating(false)}><Pressable style={[styles.sheet, { backgroundColor: theme.card, borderRadius: theme.radius + 10 }]} onPress={() => undefined}>
           <Text style={styles.sheetTitle}>新建关系空间</Text>
@@ -87,6 +95,8 @@ const styles = StyleSheet.create({
   eyebrow: { color: colors.mint, fontSize: 11, fontWeight: "800", letterSpacing: 1.4 }, title: { color: colors.text, fontSize: 32, fontWeight: "900" },
   newButton: { width: 43, height: 43, borderRadius: 16, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center" }, newButtonText: { color: colors.coralSoft, fontSize: 27, lineHeight: 29 },
   headerActions: { flexDirection: "row", gap: 9 }, bellText: { fontSize: 21, fontWeight: "900" },
+  labeledButton: { width: 59, minHeight: 50, alignItems: "center", justifyContent: "center", gap: 1 },
+  actionLabel: { fontSize: 10, fontWeight: "800" },
   notificationBadge: { position: "absolute", right: -5, top: -5, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, backgroundColor: colors.coral, alignItems: "center", justifyContent: "center" },
   notificationBadgeText: { color: colors.white, fontSize: 9, fontWeight: "900" },
   list: { paddingHorizontal: spacing.md, paddingBottom: 90 }, emptyList: { flexGrow: 1, justifyContent: "center" }, loading: { marginTop: 50 },

@@ -67,10 +67,22 @@ jobs:
           -Pkotlin.compiler.execution.strategy=in-process
           -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=1536m -Dfile.encoding=UTF-8"
 
+      - name: Verify APK and record signing certificate
+        shell: bash
+        run: |
+          build_tools="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
+          apk="android/app/build/outputs/apk/release/app-release.apk"
+          "$build_tools/apksigner" verify --verbose --print-certs "$apk" > android/app/build/outputs/apk/release/verification.txt
+          "$build_tools/aapt" dump badging "$apk" | sed -n '1p' >> android/app/build/outputs/apk/release/verification.txt
+          sha256sum "$apk" >> android/app/build/outputs/apk/release/verification.txt
+          cat android/app/build/outputs/apk/release/verification.txt
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: pet-cohabitation-android-preview
-          path: android/app/build/outputs/apk/release/app-release.apk
+          path: |
+            android/app/build/outputs/apk/release/app-release.apk
+            android/app/build/outputs/apk/release/verification.txt
           if-no-files-found: error
           retention-days: 14

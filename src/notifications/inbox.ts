@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSession } from "../auth/SessionProvider";
 import { requireSupabase } from "../lib/supabase";
+import { createRequestId } from "../lib/uuid";
 
 export type NotificationEvent = Readonly<{
   id: string;
@@ -36,47 +37,63 @@ function mapRow(row: NotificationRow): NotificationEvent {
 
 export function useNotificationInbox(limit = 50) {
   const { profile, isLocalDemo } = useSession();
+  const userId = profile?.id;
   const [events, setEvents] = useState<readonly NotificationEvent[]>([]);
   const [loading, setLoading] = useState(!isLocalDemo);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
-    if (!profile || isLocalDemo) {
+    if (!userId || isLocalDemo) {
       setEvents([]);
       setLoading(false);
       return;
     }
     setLoading(true);
-    const { data, error: queryError } = await requireSupabase()
-      .from("notification_events")
-      .select("id,kind,title,body,route,read_at,created_at")
-      .eq("user_id", profile.id)
-      .order("created_at", { ascending: false })
-      .limit(limit);
-    if (queryError) {
-      setError(queryError.message);
-    } else {
-      setEvents(((data ?? []) as NotificationRow[]).map(mapRow));
-      setError(null);
+    try {
+      const { data, error: queryError } = await requireSupabase()
+        .from("notification_events")
+        .select("id,kind,title,body,route,read_at,created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (queryError) {
+        setError(queryError.message);
+      } else {
+        setEvents(((data ?? []) as NotificationRow[]).map(mapRow));
+        setError(null);
+      }
+    } catch {
+      setError("通知暂时加载失败，请重试。");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  }, [isLocalDemo, limit, profile]);
+  }, [isLocalDemo, limit, userId]);
 
   useEffect(() => {
     void reload();
-    if (!profile || isLocalDemo) return;
-    const channel = requireSupabase()
-      .channel(`notification-inbox:${profile.id}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "notification_events", filter: `user_id=eq.${profile.id}` },
-        () => void reload(),
-      )
-      .subscribe();
+    if (!userId || isLocalDemo) return;
+    const client = requireSupabase();
+    // The chats tab stays mounted beneath the inbox screen. Each consumer must
+    // own its channel: Supabase reuses a channel with the same name, and adding
+    // callbacks after the first subscription crashes older SDK builds.
+    const channel = client.channel(`notification-inbox:${userId}:${createRequestId()}`);
+    try {
+      channel
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "notification_events", filter: `user_id=eq.${userId}` },
+          () => void reload(),
+        )
+        .subscribe((status) => {
+          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") setError("实时通知连接中断，可点击重试刷新。");
+        });
+    } catch {
+      setError("实时通知暂不可用，可点击重试刷新。");
+    }
     return () => {
-      void requireSupabase().removeChannel(channel);
+      void client.removeChannel(channel).catch(() => undefined);
     };
-  }, [isLocalDemo, profile, reload]);
+  }, [isLocalDemo, userId, reload]);
 
   const markRead = useCallback(async (eventId: string) => {
     if (isLocalDemo) return;

@@ -1,5 +1,6 @@
 import { Redirect } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createRequestId } from "../../src/lib/uuid";
 import {
   ActivityIndicator,
   FlatList,
@@ -288,7 +289,7 @@ export default function PetRoute() {
     }
   }, [assets, repository, urls]);
   const sendChat = useCallback(
-    async (submittedText = chat, requestKey: string = crypto.randomUUID()) => {
+    async (submittedText = chat, requestKey: string = createRequestId()) => {
       const content = submittedText.trim();
       if (!content || busy || !repository) return;
       setBusy(true);
@@ -930,7 +931,7 @@ export default function PetRoute() {
                           onRetry={() =>
                             void sendChat(
                               message.content,
-                              message.requestKey ?? crypto.randomUUID(),
+                              message.requestKey ?? createRequestId(),
                             )
                           }
                         />

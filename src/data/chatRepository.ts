@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { createRequestId } from "../lib/uuid";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { isLocalDemoMode, requireSupabase } from "../lib/supabase";
 import { readMediaForUpload } from "../chat/mediaFile";
@@ -369,7 +370,7 @@ class SupabaseChatRepository implements ChatRepository {
 
   subscribe(spaceId: string, onChange: () => void): Unsubscribe {
     const client = requireSupabase();
-    const subscriptionId = crypto.randomUUID();
+    const subscriptionId = createRequestId();
     const channels: RealtimeChannel[] = [
       client.channel(`messages:${spaceId}:${subscriptionId}`).on("postgres_changes", { event: "*", schema: "public", table: "messages", filter: `space_id=eq.${spaceId}` }, onChange).subscribe(),
       client.channel(`reactions:${spaceId}:${subscriptionId}`).on("postgres_changes", { event: "*", schema: "public", table: "message_reactions", filter: `space_id=eq.${spaceId}` }, onChange).subscribe(),
@@ -433,7 +434,7 @@ class SupabaseChatRepository implements ChatRepository {
     return (data ?? []).map((row: Record<string, any>) => ({ id: row.id, spaceId: row.space_id, petId: row.pet_id, petName: row.pets?.name ?? "异宠", content: row.content, createdAt: row.created_at }));
   }
   async interactWithPet(spaceId: string, petId: string, action: "care" | "feed" | "play", note = ""): Promise<PetCornerStory> {
-    const { data, error } = await requireSupabase().functions.invoke("pet-interaction", { body: { space_id: spaceId, pet_id: petId, action, note, request_id: crypto.randomUUID() } });
+    const { data, error } = await requireSupabase().functions.invoke("pet-interaction", { body: { space_id: spaceId, pet_id: petId, action, note, request_id: createRequestId() } });
     if (error) throw error;
     return { id: data.id, spaceId: data.space_id, petId: data.pet_id, petName: data.pet_name, content: data.content, createdAt: data.created_at };
   }
