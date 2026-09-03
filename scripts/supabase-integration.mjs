@@ -5,6 +5,11 @@ const url = process.env.SUPABASE_URL;
 const anonKey = process.env.SUPABASE_ANON_KEY;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 if (!url || !anonKey || !serviceKey) throw new Error("Local Supabase environment is missing");
+// This suite changes global demo settings and may exercise retention deletion.
+// Never point it at the shared/public environment; cloud smoke tests use scoped fixtures.
+if (!["localhost", "127.0.0.1", "[::1]"].includes(new URL(url).hostname)) {
+  throw new Error("Full integration suite requires a disposable local Supabase database; use scoped cloud diagnostics for the public Demo");
+}
 
 const service = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 const anon = () => createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });

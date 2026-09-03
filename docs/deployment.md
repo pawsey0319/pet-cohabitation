@@ -214,6 +214,8 @@ npx supabase db lint --level warning
 
 本地 E2E 还需要运行 Supabase、Edge Functions 和 8082 Web 服务，并向测试进程提供 `SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`。Service Role 只用于测试夹具创建和清理，不会进入浏览器 bundle。
 
+`npm run test:integration` 包含全局测试设置与数据保留清理场景，只允许在可丢弃的本地数据库运行；脚本会拒绝云端地址。不要为了在线验收而放开这层保护，公网使用下列仅操作自身夹具的诊断脚本。
+
 测试已部署的站点时，将 `E2E_BASE_URL` 设置为正式站点；设置 `E2E_DEVICE=mobile` 可复用同一用例验证 Pixel 7 手机浏览器布局。`node scripts/notification-integration.mjs` 验证通知权限且不注册推送 token。`node scripts/cloud-summary-diagnostic.mjs` 用 125 条合成消息验证分批摘要及首尾话题，不读取真实用户群聊。
 
 文本适配器会检查模型 `finish_reason`，截断或结构不合法时用原始上下文重试一次并增加输出预算；不会从截断对象内部抽取数组冒充成功。群摘要预算为 4096 tokens，合并为 6144，重试最多 8192。允许完整 JSON 外的代码围栏，但所有结果仍必须通过 schema 校验；错误仅保留标准错误码，不打印原始输出。
