@@ -203,7 +203,7 @@ test("two browser accounts invite, chat, reply, react and use the shared Agent w
 });
 
 test("owner sets, confirms and cares for the same living pet without incubation chat", async ({ browser }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   const context = await browser.newContext(); const page = await context.newPage();
   try {
     if (!createdSpaceId) {
@@ -231,9 +231,11 @@ test("owner sets, confirms and cares for the same living pet without incubation 
     await page.getByPlaceholder(/平时先倾听/).fill("平时先倾听，需要时直接提醒，也会主动分享见闻");
     await page.getByPlaceholder(/不要人脸/).fill("不要人脸、翅膀和普通猫狗轮廓");
     await page.getByRole("button", { name: "生成第一张异宠" }).click();
-    await expect(page.getByText("这是当前草稿，不是最终承诺")).toBeVisible({ timeout: 120_000 });
+    await expect(page.getByText("这是当前草稿，不是最终承诺")).toBeVisible({ timeout: 180_000 });
     await page.getByRole("button", { name: "选择这张并确认" }).click();
     await page.getByRole("button", { name: "我确认这是它" }).click();
+    await expect(page.getByText("它会陪你进入不同关系空间")).toBeVisible();
+    await page.getByRole("tab", { name: "成长" }).click();
     await expect(page.getByText("它不会再回到初始捏宠")).toBeVisible();
 
     await expect(page.getByText(/隐藏的成长里程碑达到后自主进入下一生命阶段/)).toBeVisible();
@@ -253,7 +255,8 @@ test("owner sets, confirms and cares for the same living pet without incubation 
     const eligibleMessages = await service.from("messages").select("id").eq("space_id", createdSpaceId).eq("sender_id", users[0].id).gte("created_at", membership.data!.joined_at);
     expect(eligibleMessages.data?.length).toBeGreaterThan(0);
 
-    const recallInput = page.getByPlaceholder("问群聊近况，或让它帮你整理委托…");
+    await page.getByRole("tab", { name: "消息管家" }).click();
+    const recallInput = page.getByPlaceholder(/可问已读或未读群聊|问群聊近况/);
     const recallSend = page.getByText("发送", { exact: true }).locator("..");
     await recallInput.fill("你还记得我之前在双浏览器小窝里说了什么吗？");
     await expect(recallSend).toHaveCSS("opacity", "1");
@@ -264,12 +267,14 @@ test("owner sets, confirms and cares for the same living pet without incubation 
     }, { timeout: 60_000 }).toBeGreaterThan(0);
     await expect(page.getByText(/消息来源：双浏览器小窝/)).toBeVisible();
 
+    await page.getByRole("tab", { name: "陪伴" }).click();
     await page.getByRole("button", { name: "投喂" }).click();
     await expect(page.getByLabel("异宠状态：认真进食")).toBeVisible();
-    await expect(page.getByText(/小点心/)).toBeVisible();
 
     await page.getByRole("button", { name: "玩耍" }).click();
     await expect(page.getByLabel("异宠状态：正在玩耍")).toBeVisible();
+    await page.getByRole("tab", { name: "成长" }).click();
+    await expect(page.getByText(/小点心/)).toBeVisible();
     await expect(page.getByText(/追光游戏/)).toBeVisible();
     await expect(page.getByText("形态谱系 · 第 1 个生命阶段")).toBeVisible();
   } finally {

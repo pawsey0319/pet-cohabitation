@@ -1,5 +1,6 @@
 import { z } from "npm:zod@4";
 import { fallbackRecallAnswer, normalizeDigestStringList } from "./answerQuality.ts";
+import { extractJsonValue } from "./jsonExtraction.ts";
 
 const JsonBooleanSchema = z.preprocess((value) => {
   if (typeof value !== "string") return value;
@@ -116,12 +117,7 @@ async function chatJson<T>(messages: readonly ChatMessage[], schema: z.ZodType<T
   const payload = await response.json();
   const content = payload?.choices?.[0]?.message?.content;
   if (typeof content !== "string") throw new Error("text_model_missing_content");
-  let parsed: unknown;
-  try {
-    const trimmed = content.trim();
-    const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-    parsed = JSON.parse(fenced?.[1]?.trim() ?? trimmed);
-  } catch { throw new Error("text_model_invalid_json"); }
+  const parsed = extractJsonValue(content);
   return schema.parse(parsed);
 }
 
