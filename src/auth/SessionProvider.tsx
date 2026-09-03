@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { User } from "@supabase/supabase-js";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type PropsWithChildren } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from "react";
 import { isLocalDemoMode, requireSupabase, supabase } from "../lib/supabase";
 import type { AppProfile } from "../data/types";
 
@@ -36,16 +36,33 @@ function profileFromUser(user: User, row?: Record<string, unknown> | null): AppP
 export function SessionProvider({ children }: PropsWithChildren) {
   const [profile, setProfile] = useState<AppProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const activeUserIdRef = useRef<string | null>(null);
+  const scheduledProfileRefreshRef = useRef<string | null>(null);
 
   const loadRemoteProfile = useCallback(async (user: User | null) => {
     if (!user) {
-      setProfile(null);
+      if (activeUserIdRef.current === null) setProfile(null);
       return;
     }
     const client = requireSupabase();
     const { data } = await client.from("profiles").select("nickname, avatar_url, is_admin").eq("id", user.id).maybeSingle();
-    setProfile(profileFromUser(user, data));
+    if (activeUserIdRef.current === user.id) setProfile(profileFromUser(user, data));
   }, []);
+
+  const adoptRemoteUser = useCallback((user: User | null, refresh = true) => {
+    activeUserIdRef.current = user?.id ?? null;
+    setProfile(user ? profileFromUser(user) : null);
+    if (user && refresh && scheduledProfileRefreshRef.current !== user.id) {
+      // Defer the authoritative profile row so navigation is never held behind
+      // a second cross-border request after Auth has already succeeded.
+      scheduledProfileRefreshRef.current = user.id;
+      setTimeout(() => {
+        void loadRemoteProfile(user).catch(() => undefined).finally(() => {
+          if (scheduledProfileRefreshRef.current === user.id) scheduledProfileRefreshRef.current = null;
+        });
+      }, 0);
+    }
+  }, [loadRemoteProfile]);
 
   useEffect(() => {
     let mounted = true;
@@ -58,17 +75,25 @@ export function SessionProvider({ children }: PropsWithChildren) {
       return () => { mounted = false; };
     }
 
-    void supabase!.auth.getUser().then(({ data }) => loadRemoteProfile(data.user)).finally(() => {
+    // getSession reads the locally persisted, signed session first. Server-side
+    // RLS still validates every subsequent request; boot navigation need not
+    // wait for the remote getUser endpoint on a slow mobile connection.
+    void supabase!.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
+      adoptRemoteUser(data.session?.user ?? null);
+    }).catch(() => {
+      if (mounted) adoptRemoteUser(null, false);
+    }).finally(() => {
       if (mounted) setIsLoading(false);
     });
     const { data: listener } = supabase!.auth.onAuthStateChange((_event, session) => {
-      if (mounted) void loadRemoteProfile(session?.user ?? null);
+      if (mounted) adoptRemoteUser(session?.user ?? null);
     });
     return () => {
       mounted = false;
       listener.subscription.unsubscribe();
     };
-  }, [loadRemoteProfile]);
+  }, [adoptRemoteUser]);
 
   const login = useCallback(async (email: string, password: string) => {
     if (isLocalDemoMode) {
@@ -77,9 +102,10 @@ export function SessionProvider({ children }: PropsWithChildren) {
       setProfile(local);
       return;
     }
-    const { error } = await requireSupabase().auth.signInWithPassword({ email, password });
+    const { data, error } = await requireSupabase().auth.signInWithPassword({ email, password });
     if (error) throw error;
-  }, []);
+    adoptRemoteUser(data.user);
+  }, [adoptRemoteUser]);
 
   const register = useCallback(async (input: { inviteCode: string; email: string; password: string; nickname: string }) => {
     if (isLocalDemoMode) {
@@ -92,9 +118,10 @@ export function SessionProvider({ children }: PropsWithChildren) {
     const { data, error } = await client.functions.invoke("register-with-invite", { body: input });
     if (error) throw error;
     if (!data?.access_token || !data?.refresh_token) throw new Error("注册成功但未取得登录会话");
-    const { error: sessionError } = await client.auth.setSession({ access_token: data.access_token, refresh_token: data.refresh_token });
+    const { data: sessionData, error: sessionError } = await client.auth.setSession({ access_token: data.access_token, refresh_token: data.refresh_token });
     if (sessionError) throw sessionError;
-  }, []);
+    adoptRemoteUser(sessionData.user);
+  }, [adoptRemoteUser]);
 
   const logout = useCallback(async () => {
     if (isLocalDemoMode) {
@@ -104,7 +131,8 @@ export function SessionProvider({ children }: PropsWithChildren) {
     }
     const { error } = await requireSupabase().auth.signOut();
     if (error) throw error;
-  }, []);
+    adoptRemoteUser(null, false);
+  }, [adoptRemoteUser]);
 
   const value = useMemo<SessionValue>(() => ({
     profile,
@@ -115,8 +143,8 @@ export function SessionProvider({ children }: PropsWithChildren) {
     logout,
     refreshProfile: async () => {
       if (isLocalDemoMode) return;
-      const { data } = await requireSupabase().auth.getUser();
-      await loadRemoteProfile(data.user);
+      const { data } = await requireSupabase().auth.getSession();
+      await loadRemoteProfile(data.session?.user ?? null);
     },
   }), [isLoading, loadRemoteProfile, login, logout, profile, register]);
 
