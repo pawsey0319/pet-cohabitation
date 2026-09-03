@@ -6,6 +6,13 @@
 
 GitHub Actions 备用包使用调试签名，不是商店正式版。当前没有配置 FCM，不能依赖系统通知栏提醒；应用内通知收件箱及聊天历史仍保存在云端。iPhone 本轮继续使用手机浏览器，不安装此 APK。
 
+## 2026-09-03 构建产物
+
+- [构建记录](https://github.com/pawsey0319/pet-cohabitation/actions/runs/33714157242)：成功，应用代码提交 `2b31583`；后续提交只更新测试和文档。
+- 本地文件：`.expo/artifacts/android-preview/app-release.apk`，53,932,969 字节（约 54 MB）。GitHub 仓库为私有，下载 Actions 产物需登录；可将此 APK 转交给受邀测试者。
+- SHA-256：`F76C7AA82B2D134E7920DAA359C8DEC1E44019D2117B30B9BCCF1AA3E0128459`。
+- 已检查 APK 压缩结构、Manifest、DEX、26 个 arm64 原生库、正式云端地址；JS bundle 中不存在现用的 CPA 密钥与 Service Role 密钥。尚未在真机安装或验证系统推送。
+
 ## 安装和邀请
 
 1. 只安装本项目提供的 APK，按手机提示允许当前下载/文件应用安装；不要安装来历不明的同名包。

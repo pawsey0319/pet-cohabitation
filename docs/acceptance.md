@@ -14,6 +14,8 @@
 - 结构化模型回归：识别 `finish_reason=length`，拒绝半截 JSON 和无关对象，格式修复最多重试一次，错误日志不保存模型原文。
 - 云端 125 条未读合成消息简报通过，首尾话题均保留、计数正确，本次总耗时约 9.3 秒（单次冒烟，不代表 p95 指标）。
 - 已读消息回忆与 Realtime 阶段状态通过：`queued → classifying → retrieving → thinking → succeeded`；重试同一请求仅保留一条主人消息和一条回复。
+- 云端 `public` schema 的 `db lint --level error` 通过；全部 16 个 Edge Function 的 Deno 类型检查通过；Expo 依赖检查、Web 构建、Android Hermes bundle 导出通过。
+- Android 备用构建 `33714157242` 成功，产出约 54 MB 的 arm64 测试 APK，版本与校验信息见 `docs/android-preview.md`。该结果只表示编译和产物检查完成，不等同于真机功能验收。
 
 原有邀请码/人数上限/RLS/账号注销等集成脚本仍保留，但不能将历史通过结果当作本轮重新验证。APK 安装、系统软键盘、录音权限、后台恢复和 FCM 推送须在真实手机单独验收。
 
