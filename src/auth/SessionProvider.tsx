@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { User } from "@supabase/supabase-js";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from "react";
+import { AppState, Platform, type AppStateStatus } from "react-native";
 import { isLocalDemoMode, requireSupabase, supabase } from "../lib/supabase";
 import type { AppProfile } from "../data/types";
 
@@ -38,6 +39,21 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const [isLoading, setIsLoading] = useState(true);
   const activeUserIdRef = useRef<string | null>(null);
   const scheduledProfileRefreshRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (isLocalDemoMode || Platform.OS === "web") return;
+    const auth = requireSupabase().auth;
+    const syncRefresh = (state: AppStateStatus) => {
+      if (state === "active") auth.startAutoRefresh();
+      else auth.stopAutoRefresh();
+    };
+    auth.startAutoRefresh();
+    const listener = AppState.addEventListener("change", syncRefresh);
+    return () => {
+      listener?.remove();
+      auth.stopAutoRefresh();
+    };
+  }, []);
 
   const loadRemoteProfile = useCallback(async (user: User | null) => {
     if (!user) {

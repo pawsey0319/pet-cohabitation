@@ -2,7 +2,7 @@
   "expo": {
     "name": "异宠共生空间",
     "slug": "pet-cohabitation",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "description": "轻量真实聊天与可培养生成式异宠 Demo。",
     "scheme": "pet-cohabitation",
     "orientation": "portrait",
@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "com.pawsey.petcohabitation",
-      "versionCode": 3,
+      "versionCode": 4,
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.POST_NOTIFICATIONS",

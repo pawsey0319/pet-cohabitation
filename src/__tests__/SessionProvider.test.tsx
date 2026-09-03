@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import { Pressable, Text, View } from "react-native";
+import { AppState, Pressable, Text, View } from "react-native";
 
 const mockUser = {
   id: "00000000-0000-4000-8000-000000000055",
@@ -13,6 +13,8 @@ const mockSignOut = jest.fn();
 const mockSetSession = jest.fn();
 const mockMaybeSingle = jest.fn();
 const mockUnsubscribe = jest.fn();
+const mockStartAutoRefresh = jest.fn();
+const mockStopAutoRefresh = jest.fn();
 let mockAuthListener: ((event: string, session: { user: typeof mockUser } | null) => void) | null = null;
 
 jest.mock("@react-native-async-storage/async-storage", () => require("@react-native-async-storage/async-storage/jest/async-storage-mock"));
@@ -22,6 +24,8 @@ jest.mock("../lib/supabase", () => {
     signInWithPassword: (...args: unknown[]) => mockSignIn(...args),
     signOut: (...args: unknown[]) => mockSignOut(...args),
     setSession: (...args: unknown[]) => mockSetSession(...args),
+    startAutoRefresh: (...args: unknown[]) => mockStartAutoRefresh(...args),
+    stopAutoRefresh: (...args: unknown[]) => mockStopAutoRefresh(...args),
     onAuthStateChange: (listener: typeof mockAuthListener) => {
       mockAuthListener = listener;
       return { data: { subscription: { unsubscribe: mockUnsubscribe } } };
@@ -49,6 +53,30 @@ beforeEach(() => {
   mockGetSession.mockReset().mockResolvedValue({ data: { session: null }, error: null });
   mockSignIn.mockReset(); mockSignOut.mockReset().mockResolvedValue({ error: null }); mockSetSession.mockReset();
   mockMaybeSingle.mockReset(); mockUnsubscribe.mockClear();
+  mockStartAutoRefresh.mockClear(); mockStopAutoRefresh.mockClear();
+});
+
+it("refreshes the native auth session only while the app is active", async () => {
+  let handleAppState!: (state: string) => void;
+  const remove = jest.fn();
+  const appStateListener = jest.spyOn(AppState, "addEventListener").mockImplementation(((_type: string, listener: (state: string) => void) => {
+    handleAppState = listener;
+    return { remove };
+  }) as typeof AppState.addEventListener);
+
+  const view = await render(<SessionProvider><Probe /></SessionProvider>);
+  await waitFor(() => expect(screen.getByText("ready:signed-out:member")).toBeTruthy());
+  expect(mockStartAutoRefresh).toHaveBeenCalledTimes(1);
+
+  await act(async () => handleAppState("background"));
+  expect(mockStopAutoRefresh).toHaveBeenCalledTimes(1);
+  await act(async () => handleAppState("active"));
+  expect(mockStartAutoRefresh).toHaveBeenCalledTimes(2);
+
+  await act(async () => view.unmount());
+  expect(remove).toHaveBeenCalledTimes(1);
+  expect(mockStopAutoRefresh).toHaveBeenCalledTimes(2);
+  appStateListener.mockRestore();
 });
 
 it("shows a persisted session before the remote profile request finishes", async () => {
