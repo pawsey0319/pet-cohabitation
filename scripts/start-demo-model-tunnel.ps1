@@ -4,7 +4,7 @@ param(
   [string]$CpaConfigPath = $env:CPA_CONFIG_PATH,
   [switch]$SkipLocalPublicProbe,
   [ValidateSet("auto", "http2", "quic")]
-  [string]$TunnelProtocol = "quic"
+  [string]$TunnelProtocol = "http2"
 )
 
 $ErrorActionPreference = "Stop"
@@ -81,7 +81,15 @@ $modelBase = "$tunnelUrl/v1"
 $publicReady = $false
 if (-not $SkipLocalPublicProbe) {
   for ($attempt = 0; $attempt -lt 60; $attempt += 1) {
-    try { $null = Invoke-WebRequest -UseBasicParsing -Uri "$modelBase/models" -Headers $headers -TimeoutSec 8; $publicReady = $true; break }
+    try {
+      $probeArguments = @{ UseBasicParsing = $true; Uri = "$modelBase/models"; Headers = $headers; TimeoutSec = 8 }
+      if ((Get-Command Invoke-WebRequest).Parameters.ContainsKey("SkipCertificateCheck")) {
+        $probeArguments.SkipCertificateCheck = $true
+      }
+      $null = Invoke-WebRequest @probeArguments
+      $publicReady = $true
+      break
+    }
     catch { Start-Sleep -Seconds 1 }
   }
 }
