@@ -78,6 +78,46 @@ test.afterAll(async () => {
   for (const user of users) if (user.id) await service.auth.admin.deleteUser(user.id);
 });
 
+test("shared device never displays or sends another account's pending messages", async ({ browser }) => {
+  const context = await browser.newContext(contextOptions);
+  const page = await context.newPage();
+  const ownerClient = createClient(supabaseUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  const loginResult = await ownerClient.auth.signInWithPassword({ email: users[0].email, password: users[0].password });
+  expect(loginResult.error).toBeNull();
+  const created = await ownerClient.rpc("create_relationship_space", { space_name: "共享设备队列隔离", space_kind: "friend_pair" });
+  expect(created.error).toBeNull();
+  const spaceId = created.data as string;
+  try {
+    expect((await service.from("space_members").insert({ space_id: spaceId, user_id: users[1].id })).error).toBeNull();
+    await page.goto("/login");
+    const pendingText = `甲尚未发送的私人草稿-${suffix}`;
+    await page.evaluate(({ ownerId, spaceId, pendingText, suffix }) => {
+      localStorage.setItem("pet-cohabitation-chat-outbox-v2", JSON.stringify([{
+        clientId: `private-pending-${suffix}`, spaceId, senderId: ownerId, kind: "text", text: pendingText,
+        createdAt: new Date().toISOString(), attempts: 0,
+      }]));
+    }, { ownerId: users[0].id, spaceId, pendingText, suffix });
+    await login(page, users[1]);
+    await page.goto(`/chat/${spaceId}`);
+    await expect(page.getByRole("textbox", { name: "消息内容" })).toBeVisible();
+    await expect.poll(async () => page.evaluate((userId) => localStorage.getItem(`pet-cohabitation-chat-outbox-v2:${userId}`), users[1].id)).toBe("[]");
+    await expect(page.getByText(pendingText, { exact: true })).toHaveCount(0);
+    const ownText = `乙正常发送-${suffix}`;
+    await page.getByRole("textbox", { name: "消息内容" }).fill(ownText);
+    await page.getByRole("button", { name: "发送消息", exact: true }).click();
+    await expect.poll(async () => (await service.from("messages").select("id", { count: "exact", head: true }).eq("space_id", spaceId).eq("text", ownText)).count).toBe(1);
+    expect((await service.from("messages").select("id", { count: "exact", head: true }).eq("space_id", spaceId).eq("text", pendingText)).count).toBe(0);
+    await page.reload();
+    await expect(page.getByText(ownText, { exact: true })).toBeVisible();
+    await expect(page.getByText(pendingText, { exact: true })).toHaveCount(0);
+    // The other account's private queue remains available when it signs back in.
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem("pet-cohabitation-chat-outbox-v2") ?? "[]").length)).toBe(1);
+  } finally {
+    await context.close().catch(() => undefined);
+    await service.from("spaces").delete().eq("id", spaceId);
+  }
+});
+
 test("two browser accounts invite, chat, reply, react and use the shared Agent workbench", async ({ browser }) => {
   test.setTimeout(180_000);
   const contextA: BrowserContext = await browser.newContext(contextOptions);
