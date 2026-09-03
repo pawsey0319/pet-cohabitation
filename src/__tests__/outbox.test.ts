@@ -2,7 +2,7 @@ jest.mock("@react-native-async-storage/async-storage", () =>
   require("@react-native-async-storage/async-storage/jest/async-storage-mock"),
 );
 
-import { MessageOutbox, type OutboxStore } from "../chat/outbox";
+import { AccountOutboxStore, MessageOutbox, OUTBOX_KEY, type OutboxStore } from "../chat/outbox";
 import type { QueuedMessage } from "../data/types";
 
 class MemoryStore implements OutboxStore {
@@ -19,6 +19,56 @@ const message = (id: string): QueuedMessage => ({
   text: id,
   createdAt: "2026-08-21T00:00:00.000Z",
   attempts: 0,
+});
+
+describe("account-scoped persistent outbox", () => {
+  function setup() {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: async (key: string) => values.get(key) ?? null,
+      setItem: async (key: string, value: string) => { values.set(key, value); },
+    };
+    return { values, storage };
+  }
+
+  it("migrates only the signed-in account's legacy pending messages", async () => {
+    const { values, storage } = setup();
+    const other = { ...message("other-private-draft"), senderId: "user-2" };
+    values.set(OUTBOX_KEY, JSON.stringify([message("own"), other]));
+    expect(await new AccountOutboxStore(storage, "user-1").load()).toEqual([message("own")]);
+    expect(await new AccountOutboxStore(storage, "user-2").load()).toEqual([other]);
+    expect(JSON.parse(values.get(OUTBOX_KEY)!)).toHaveLength(2);
+  });
+
+  it("does not resurrect a migrated message after it has been sent", async () => {
+    const { values, storage } = setup();
+    values.set(OUTBOX_KEY, JSON.stringify([message("legacy")]));
+    const queue = new MessageOutbox(new AccountOutboxStore(storage, "user-1"));
+    await queue.flush(async () => undefined);
+    expect(await new AccountOutboxStore(storage, "user-1").load()).toEqual([]);
+  });
+
+  it("keeps queues independent when two accounts use the same device", async () => {
+    const { storage } = setup();
+    const first = new AccountOutboxStore(storage, "user-1");
+    const second = new AccountOutboxStore(storage, "user-2");
+    const other = { ...message("second"), senderId: "user-2" };
+    await Promise.all([first.save([message("first")]), second.save([other])]);
+    await first.save([]);
+    expect(await second.load()).toEqual([other]);
+    expect(await first.load()).toEqual([]);
+  });
+
+  it("rejects writes attributed to a different account", async () => {
+    const { storage } = setup();
+    await expect(new AccountOutboxStore(storage, "user-2").save([message("wrong-owner")])).rejects.toThrow("mismatch");
+  });
+
+  it("filters foreign records even in a malformed account-specific cache", async () => {
+    const { values, storage } = setup();
+    values.set(`${OUTBOX_KEY}:user-2`, JSON.stringify([null, message("wrong-owner")]));
+    expect(await new AccountOutboxStore(storage, "user-2").load()).toEqual([]);
+  });
 });
 
 describe("MessageOutbox", () => {

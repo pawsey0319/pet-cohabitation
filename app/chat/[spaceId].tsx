@@ -80,7 +80,7 @@ function MessageRow({ message, mine, signedUrl, selected, agentJob, proposal, cu
 export default function ChatScreen() {
   const { spaceId } = useLocalSearchParams<{ spaceId: string }>(); const { profile, isLoading: sessionLoading, isLocalDemo } = useSession(); const insets = useSafeAreaInsets(); const netInfo = useNetInfo();
   const { theme } = useAppTheme();
-  const repository = useMemo(() => profile ? createChatRepository(profile) : null, [profile]); const outbox = useMemo(() => new MessageOutbox(createPersistentOutboxStore()), []);
+  const repository = useMemo(() => profile ? createChatRepository(profile) : null, [profile]); const outbox = useMemo(() => new MessageOutbox(createPersistentOutboxStore(profile?.id ?? "signed-out")), [profile?.id]);
   const [messages, setMessages] = useState<readonly ChatMessage[]>([]); const [loading, setLoading] = useState(true); const [loadingOlder, setLoadingOlder] = useState(false); const [hasOlder, setHasOlder] = useState(true);
   const [agentJobs, setAgentJobs] = useState<readonly AgentJob[]>([]);
   const [agentRequests, setAgentRequests] = useState<readonly AgentRequest[]>([]);
@@ -152,7 +152,7 @@ export default function ChatScreen() {
     if (!repository) return;
     try {
       const [remote, jobs, requests] = await Promise.all([repository.listMessages(spaceId, null, 50), repository.listAgentJobs(spaceId), repository.listAgentRequests(spaceId)]);
-      const queued = (await outbox.list()).filter((item) => item.spaceId === spaceId).map<ChatMessage>((item) => ({
+      const queued = (await outbox.list()).filter((item) => item.spaceId === spaceId && item.senderId === profile!.id).map<ChatMessage>((item) => ({
         id: item.clientId, clientId: item.clientId, spaceId: item.spaceId, senderId: item.senderId, actorKind: "human", actorName: profile!.nickname, kind: item.kind,
         text: item.text, mediaPath: item.localMediaUri ?? null, mediaDurationSeconds: item.mediaDurationSeconds ?? null, replyToMessageId: item.replyToMessageId ?? null, replyPreview: item.replyPreview ?? null,
         createdAt: item.createdAt, deliveryState: connected ? "pending" : "failed", reactions: {},
@@ -180,7 +180,10 @@ export default function ChatScreen() {
 
   const flush = useCallback(async () => {
     if (!repository || !connected) return;
-    const failed = await outbox.flush(async (queued) => { await repository.sendMessage(queued, profile!.nickname); });
+    const failed = await outbox.flush(async (queued) => {
+      if (queued.senderId !== profile!.id) throw new Error("待发送消息不属于当前账号");
+      await repository.sendMessage(queued, profile!.nickname);
+    });
     await loadLatest();
     const failedIds = new Set(failed.map((item) => item.clientId));
     publishMessages(messagesRef.current.map((message) => failedIds.has(message.clientId) ? { ...message, deliveryState: "failed" } : message));

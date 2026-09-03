@@ -1,6 +1,5 @@
 import * as SQLite from "expo-sqlite";
-import type { QueuedMessage } from "../data/types";
-import { OUTBOX_KEY, type OutboxStore } from "./outbox";
+import { AccountOutboxStore, type OutboxKeyValueStore, type OutboxStore } from "./outbox";
 
 const database = SQLite.openDatabaseAsync("pet-cohabitation-local.db");
 
@@ -17,30 +16,24 @@ async function ready() {
   return db;
 }
 
-class SqliteOutboxStore implements OutboxStore {
-  async load(): Promise<readonly QueuedMessage[]> {
+const sqliteKeyValues: OutboxKeyValueStore = {
+  async getItem(key: string): Promise<string | null> {
     const db = await ready();
-    const row = await db.getFirstAsync<{ value: string }>("SELECT value FROM local_state WHERE key = ?", OUTBOX_KEY);
-    if (!row) return [];
-    try {
-      const parsed = JSON.parse(row.value);
-      return Array.isArray(parsed) ? parsed as readonly QueuedMessage[] : [];
-    } catch {
-      return [];
-    }
-  }
+    const row = await db.getFirstAsync<{ value: string }>("SELECT value FROM local_state WHERE key = ?", key);
+    return row?.value ?? null;
+  },
 
-  async save(messages: readonly QueuedMessage[]): Promise<void> {
+  async setItem(key: string, value: string): Promise<void> {
     const db = await ready();
     await db.runAsync(
       "INSERT INTO local_state(key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
-      OUTBOX_KEY,
-      JSON.stringify(messages),
+      key,
+      value,
       new Date().toISOString(),
     );
-  }
-}
+  },
+};
 
-export function createPersistentOutboxStore(): OutboxStore {
-  return new SqliteOutboxStore();
+export function createPersistentOutboxStore(ownerId: string): OutboxStore {
+  return new AccountOutboxStore(sqliteKeyValues, ownerId);
 }

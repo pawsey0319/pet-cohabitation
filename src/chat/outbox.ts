@@ -8,21 +8,41 @@ export interface OutboxStore {
   save(messages: readonly QueuedMessage[]): Promise<void>;
 }
 
-export class AsyncStorageOutboxStore implements OutboxStore {
+export interface OutboxKeyValueStore {
+  getItem(key: string): Promise<string | null>;
+  setItem(key: string, value: string): Promise<void>;
+}
+
+export class AccountOutboxStore implements OutboxStore {
+  private readonly key: string;
+
+  constructor(private readonly storage: OutboxKeyValueStore, private readonly ownerId: string) {
+    if (!ownerId) throw new Error("Outbox requires an account");
+    this.key = `${OUTBOX_KEY}:${encodeURIComponent(ownerId)}`;
+  }
+
   async load(): Promise<readonly QueuedMessage[]> {
-    const raw = await AsyncStorage.getItem(OUTBOX_KEY);
-    if (!raw) return [];
+    const ownRaw = await this.storage.getItem(this.key);
+    const raw = ownRaw ?? await this.storage.getItem(OUTBOX_KEY);
+    let ownMessages: readonly QueuedMessage[] = [];
     try {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
+      const parsed = raw ? JSON.parse(raw) : [];
+      ownMessages = Array.isArray(parsed) ? parsed.filter((item) => item?.senderId === this.ownerId) : [];
+    } catch { /* Do not expose malformed legacy data. */ }
+    // Migrate only this account. Retain other accounts' legacy records, and save
+    // even an empty queue so a sent legacy message cannot reappear next launch.
+    if (ownRaw === null) await this.save(ownMessages);
+    return ownMessages;
   }
 
   async save(messages: readonly QueuedMessage[]): Promise<void> {
-    await AsyncStorage.setItem(OUTBOX_KEY, JSON.stringify(messages));
+    if (messages.some((message) => message.senderId !== this.ownerId)) throw new Error("Outbox account mismatch");
+    await this.storage.setItem(this.key, JSON.stringify(messages));
   }
+}
+
+export class AsyncStorageOutboxStore extends AccountOutboxStore {
+  constructor(ownerId: string) { super(AsyncStorage, ownerId); }
 }
 
 export class MessageOutbox {
