@@ -55,6 +55,7 @@ Deno.serve(async (request) => {
       const resumed = await client.from("model_runs").update({ status: "running", error_code: null, completed_at: null, latency_ms: null }).eq("id", runId);
       if (resumed.error) throw resumed.error;
     } else runId = await reserveModelRun(client, { runKind: "pet_private_reply", dailyLimit: 50, ownerId: user.id, petId: pet.id, promptHash, model: TextModelAdapter.modelName() });
+    if (!runId) throw new Error("model_run_reservation_failed");
     await client.from("pet_private_threads").update({ model_run_id: runId }).eq("id", ownerMessageId);
     await client.from("pet_runtime_states").upsert({ pet_id: pet.id, owner_id: user.id, state: "thinking", source_kind: "private_chat", source_id: ownerMessageId, started_at: new Date().toISOString(), expires_at: new Date(Date.now() + 45_000).toISOString(), updated_at: new Date().toISOString() }, { onConflict: "pet_id" });
     await setReplyStatus("classifying");

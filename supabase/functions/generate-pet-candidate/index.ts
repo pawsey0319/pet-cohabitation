@@ -122,6 +122,8 @@ async function buildWork(userId: string, input: z.infer<typeof Input>): Promise<
     } else if (explore) parentId = null;
   }
 
+  if (!instruction) throw new Error("instruction_required");
+
   if (input.expectations && !input.session_id) {
     const startedAt = Date.now();
     const seedPromptHash = await sha256(JSON.stringify(input.expectations));

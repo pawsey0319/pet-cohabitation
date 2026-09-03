@@ -176,6 +176,8 @@ npm run build:android:preview
 
 若本地网络无法上传到 EAS 的 Google Storage，可在 GitHub Actions 手动运行 `Android preview APK` 工作流。先把生产环境的 `EXPO_PUBLIC_SUPABASE_URL` 与 `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` 配成 GitHub Actions Secrets；工作流会在 Ubuntu Android 环境生成一个 14 天可下载的测试 APK。该备用 APK使用调试签名，不用于应用商店发布；完整推送仍以配置好 FCM 的 EAS 构建为准。
 
+备用包仅构建 `arm64-v8a`，不支持 32 位旧手机与 x86 模拟器。Gradle 限制 2 个 worker、禁用项目并行，并将堆/Metaspace 分别设为 3 GB / 1.5 GB，避免 Expo 默认 512 MB Metaspace 导致构建长时间失去响应。不要把“APK 已生成”写成“真机测试已通过”；安装、登录恢复、系统键盘、录音、相册、通知和后台恢复仍需在设备上逐项检查。
+
 在发布 APK 前先做本地原生 bundle 检查：
 
 ```powershell
@@ -209,5 +211,9 @@ npx supabase db lint --level warning
 ```
 
 本地 E2E 还需要运行 Supabase、Edge Functions 和 8082 Web 服务，并向测试进程提供 `SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`。Service Role 只用于测试夹具创建和清理，不会进入浏览器 bundle。
+
+测试已部署的站点时，将 `E2E_BASE_URL` 设置为正式站点；设置 `E2E_DEVICE=mobile` 可复用同一用例验证 Pixel 7 手机浏览器布局。`node scripts/notification-integration.mjs` 验证通知权限且不注册推送 token。`node scripts/cloud-summary-diagnostic.mjs` 用 125 条合成消息验证分批摘要及首尾话题，不读取真实用户群聊。
+
+文本适配器会检查模型 `finish_reason`，截断或结构不合法时用原始上下文重试一次并增加输出预算；不会从截断对象内部抽取数组冒充成功。群摘要预算为 4096 tokens，合并为 6144，重试最多 8192。允许完整 JSON 外的代码围栏，但所有结果仍必须通过 schema 校验；错误仅保留标准错误码，不打印原始输出。
 
 线上开放顺序固定为 3 人 24 小时、8 人 3 天、最多 20 人 7 天。模型失败率超过 5%、出现安全阻断项、重复正式进化，或两家以上运营商无法访问时立即停止扩量。当前仓库没有生产 E2EE、备份恢复和应用商店发布能力，不能把这个测试版本宣称为生产级通讯产品。

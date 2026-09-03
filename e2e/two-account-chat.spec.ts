@@ -1,4 +1,4 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { devices, expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 import { Buffer } from "node:buffer";
 
@@ -12,6 +12,7 @@ const users = [
   { email: `browser-b-${suffix}@example.test`, password: `Browser-b-${suffix}`, nickname: "浏览器乙", id: "" },
 ];
 let createdSpaceId = "";
+const contextOptions = process.env.E2E_DEVICE === "mobile" ? devices["Pixel 7"] : {};
 
 async function login(page: Page, user: typeof users[number]) {
   await page.goto("/login");
@@ -79,8 +80,8 @@ test.afterAll(async () => {
 
 test("two browser accounts invite, chat, reply, react and use the shared Agent workbench", async ({ browser }) => {
   test.setTimeout(180_000);
-  const contextA: BrowserContext = await browser.newContext();
-  const contextB: BrowserContext = await browser.newContext();
+  const contextA: BrowserContext = await browser.newContext(contextOptions);
+  const contextB: BrowserContext = await browser.newContext(contextOptions);
   const pageA = await contextA.newPage(); const pageB = await contextB.newPage();
   try {
     await login(pageA, users[0]);
@@ -204,7 +205,7 @@ test("two browser accounts invite, chat, reply, react and use the shared Agent w
 
 test("owner sets, confirms and cares for the same living pet without incubation chat", async ({ browser }) => {
   test.setTimeout(300_000);
-  const context = await browser.newContext(); const page = await context.newPage();
+  const context = await browser.newContext(contextOptions); const page = await context.newPage();
   try {
     if (!createdSpaceId) {
       const space = await service.from("spaces").insert({ name: "双浏览器小窝", kind: "friend_pair", created_by: users[0].id }).select("id").single();

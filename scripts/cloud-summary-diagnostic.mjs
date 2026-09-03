@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { createClient } from "@supabase/supabase-js";
 
 const url = process.env.SUPABASE_URL;
@@ -40,7 +41,8 @@ try {
   const base = Math.max(Date.now() + 10, Date.parse(membership.data.joined_at) + 10);
   const read = await service.from("space_members").update({ last_read_at: new Date(base - 1).toISOString() }).eq("space_id", spaceId).eq("user_id", userId);
   if (read.error) throw read.error;
-  const rows = Array.from({ length: 70 }, (_, index) => ({
+  const messageCount = 125;
+  const rows = Array.from({ length: messageCount }, (_, index) => ({
     client_id: `summary-diagnostic-${suffix}-${index}`,
     space_id: spaceId,
     sender_id: null,
@@ -48,7 +50,7 @@ try {
     actor_id: spaceId,
     actor_name: "空间记录",
     kind: "system",
-    text: index === 0 ? "开头：小林建议周六下午去公园野餐" : index === 69 ? "结尾：大家决定由小周准备雨天备选地点" : `讨论记录 ${index + 1}：继续确认食物和出发时间`,
+    text: index === 0 ? "开头：小林建议周六下午去公园野餐" : index === messageCount - 1 ? "结尾：大家决定由小周准备雨天备选地点" : `讨论记录 ${index + 1}：继续确认食物和出发时间`,
     permission_source: "cloud_summary_diagnostic",
     created_at: new Date(base + index).toISOString(),
   }));
@@ -77,6 +79,10 @@ try {
     jobs: jobs.data,
     model_runs: runs.data,
   }, null, 2));
+  assert.equal(terminal.status, "completed");
+  assert.equal(terminal.result.detail.message_count, messageCount);
+  assert.match(terminal.result.text, /公园|野餐/);
+  assert.match(terminal.result.text, /雨天|备选/);
 } finally {
   if (spaceId) await service.from("spaces").delete().eq("id", spaceId);
   if (userId) await service.auth.admin.deleteUser(userId);

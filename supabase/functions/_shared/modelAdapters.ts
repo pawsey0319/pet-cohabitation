@@ -1,6 +1,6 @@
 import { z } from "npm:zod@4";
 import { fallbackRecallAnswer, normalizeDigestStringList } from "./answerQuality.ts";
-import { extractJsonValue } from "./jsonExtraction.ts";
+import { parseStructuredModelContent } from "./jsonExtraction.ts";
 
 const JsonBooleanSchema = z.preprocess((value) => {
   if (typeof value !== "string") return value;
@@ -23,7 +23,7 @@ const SignalsSchema = z.object({ signals: z.array(z.object({
 })).max(3) });
 const DigestTextListSchema = z.preprocess(normalizeDigestStringList, z.array(z.string().min(1).max(500)).max(30));
 const DigestModelSchema = z.object({
-  topics: DigestTextListSchema.default([]),
+  topics: DigestTextListSchema,
   decisions: DigestTextListSchema.default([]),
   todos: DigestTextListSchema.default([]),
   schedules: DigestTextListSchema.default([]),
@@ -100,25 +100,45 @@ async function responseError(kind: "text" | "image", response: Response): Promis
 
 async function chatJson<T>(messages: readonly ChatMessage[], schema: z.ZodType<T>, options: Readonly<{ maxTokens?: number }> = {}): Promise<T> {
   if (mockMode()) throw new Error("mock_result_required");
-  let response: Response;
-  try {
-    response = await fetchWithRetry(() => fetch(endpoint(required("TEXT_API_BASE_URL"), "chat/completions"), {
-      method: "POST",
-      headers: { Authorization: `Bearer ${required("TEXT_API_KEY")}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: required("TEXT_MODEL"), messages, temperature: 0.35,
-        max_tokens: options.maxTokens ?? 1200, reasoning_effort: "low",
-        response_format: { type: "json_object" },
-      }),
-      signal: AbortSignal.timeout(30_000),
-    }));
-  } catch (reason) { throw normalizedRequestError("text", reason); }
-  if (!response.ok) throw await responseError("text", response);
-  const payload = await response.json();
-  const content = payload?.choices?.[0]?.message?.content;
-  if (typeof content !== "string") throw new Error("text_model_missing_content");
-  const parsed = extractJsonValue(content);
-  return schema.parse(parsed);
+  let attemptMessages = [...messages];
+  let lastError = new Error("text_model_invalid_json");
+  const initialTokens = options.maxTokens ?? 1200;
+
+  for (let structureAttempt = 0; structureAttempt < 2; structureAttempt += 1) {
+    let response: Response;
+    try {
+      response = await fetchWithRetry(() => fetch(endpoint(required("TEXT_API_BASE_URL"), "chat/completions"), {
+        method: "POST",
+        headers: { Authorization: `Bearer ${required("TEXT_API_KEY")}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: required("TEXT_MODEL"), messages: attemptMessages, temperature: structureAttempt === 0 ? 0.35 : 0,
+          max_tokens: structureAttempt === 0 ? initialTokens : Math.min(initialTokens * 2, 8192), reasoning_effort: "low",
+          response_format: { type: "json_object" },
+        }),
+        signal: AbortSignal.timeout(30_000),
+      }));
+    } catch (reason) { throw normalizedRequestError("text", reason); }
+    if (!response.ok) throw await responseError("text", response);
+    const payload = await response.json();
+    const content = payload?.choices?.[0]?.message?.content;
+    if (typeof content !== "string") throw new Error("text_model_missing_content");
+
+    try {
+      return parseStructuredModelContent(content, payload?.choices?.[0]?.finish_reason, (candidate) => schema.safeParse(candidate));
+    } catch (reason) {
+      lastError = reason instanceof Error ? reason : new Error("text_model_invalid_structure");
+      if (lastError.message === "text_model_content_blocked") throw lastError;
+    }
+
+    if (structureAttempt === 0) {
+      attemptMessages = [
+        ...messages,
+        { role: "user", content: "上一次输出被截断或结构不符合要求。请依据原始输入重新输出完整 JSON 对象，保持简洁；顶层必须是对象，不要输出数组、Markdown、推理过程或解释，也不要增加新事实。确保所有字符串、数组和对象完整闭合。" },
+      ];
+    }
+  }
+
+  throw lastError;
 }
 
 export class TextModelAdapter {
@@ -158,7 +178,7 @@ export class TextModelAdapter {
     return chatJson([
       { role: "system", content: `你是成长型异宠“${input.petName}”，不是主人本人。人格摘要：${input.personality || "正在形成"}\n成长风格信号：${input.styleSignals || "暂无"}\n${contextRule}消息必须明确是异宠口吻。ownerPolicy=${input.ownerPolicy}：pet_only 只谈你自己；guess_low_risk 可以用“我猜主人可能……”表达低风险猜测；wait_for_owner 必须拒绝代答并等待主人。不得替主人承诺见面、关系变化、冲突立场、位置、健康、消费、财务或敏感授权。输出 JSON：content, concerns_owner, risk(none|low|high)。concerns_owner 必须是 JSON 布尔值 true/false，不能是字符串。` },
       { role: "user", content: `空间最近消息：\n${input.messages.map((item) => `${item.actor}: ${item.content}`).join("\n")}\n\n当前消息：${input.currentMessage}` },
-    ], PetReplySchema, { maxTokens: input.contextPolicy === "owner_private_cross_space" && input.responseStyle !== "detailed" ? 440 : 640 });
+    ], PetReplySchema, { maxTokens: input.responseStyle === "detailed" ? 1800 : 1200 });
   }
 
   async planPetRecall(input: { question: string; spaces: readonly { name: string }[] }): Promise<z.infer<typeof RecallPlanSchema>> {
@@ -207,10 +227,12 @@ export class TextModelAdapter {
         source_message_ids: concrete.map((message) => message.id),
       });
     }
-    return chatJson([
-      { role: "system", content: "你是关系空间公共主 Agent。只总结给定消息，必须写出具体话题、人物、时间、结论和待办，禁止使用‘大家聊了近况’之类空泛句。严格区分已确认与待确认；异宠发言只能作为异宠观点，不能算主人的承诺。每一项都必须能追溯到给定 message_id。输出 JSON：topics, decisions, todos, schedules, pending, source_message_ids。没有对应内容就返回空数组。" },
-      { role: "user", content: input.messages.map((item) => `[${item.id}] ${item.createdAt} ${item.actor}: ${item.content}`).join("\n") },
-    ], DigestModelSchema, { maxTokens: 800 });
+    const references = new Map(input.messages.map((message, index) => [`m${index + 1}`, message.id]));
+    const result = await chatJson([
+      { role: "system", content: "你是关系空间公共主 Agent。只总结给定消息，必须写出具体话题、人物、时间、结论和待办，禁止使用‘大家聊了近况’之类空泛句。按话题合并重复讨论，不要逐条复述；每个栏目最多8条简明字符串。严格区分已确认与待确认；异宠发言只能作为异宠观点，不能算主人的承诺。每一项都必须能追溯到给定消息引用。输出 JSON：topics, decisions, todos, schedules, pending, source_message_ids。没有对应内容就返回空数组。source_message_ids 只填支撑简报的 m1、m2 等引用标签，不要生成 UUID。" },
+      { role: "user", content: input.messages.map((item, index) => `[m${index + 1}] ${item.createdAt} ${item.actor}: ${item.content}`).join("\n") },
+    ], DigestModelSchema, { maxTokens: 4096 });
+    return { ...result, source_message_ids: [...new Set(result.source_message_ids.flatMap((reference) => references.has(reference) ? [references.get(reference)!] : []))] };
   }
 
   async mergeSpaceDigests(input: { chunks: readonly z.infer<typeof DigestModelSchema>[] }): Promise<z.infer<typeof DigestModelSchema>> {
@@ -223,10 +245,11 @@ export class TextModelAdapter {
       pending: unique(input.chunks.flatMap((chunk) => chunk.pending)),
       source_message_ids: [...new Set(input.chunks.flatMap((chunk) => chunk.source_message_ids))].slice(0, 240),
     });
-    return chatJson([
-      { role: "system", content: "把多段群聊简报合并成一份具体、去重的最终简报。保留跨批次的先后关系和冲突，不得增加输入中不存在的事实。异宠发言不算主人承诺。输出 JSON：topics, decisions, todos, schedules, pending, source_message_ids；每类最多 30 项。" },
-      { role: "user", content: JSON.stringify(input.chunks) },
-    ], DigestModelSchema, { maxTokens: 800 });
+    const result = await chatJson([
+      { role: "system", content: "把多段群聊简报合并成一份具体、去重的最终简报。保留跨批次的先后关系和冲突，不得增加输入中不存在的事实。异宠发言不算主人承诺。输出 JSON：topics, decisions, todos, schedules, pending；每类为简明字符串数组，最多30项。来源由服务端自动合并，不要生成来源ID。" },
+      { role: "user", content: JSON.stringify(input.chunks.map(({ source_message_ids: _sources, ...detail }) => detail)) },
+    ], DigestModelSchema, { maxTokens: 6144 });
+    return { ...result, source_message_ids: [...new Set(input.chunks.flatMap((chunk) => chunk.source_message_ids))].slice(0, 240) };
   }
 
   async planPetManagerAction(input: { message: string; spaces: readonly { name: string }[] }): Promise<z.infer<typeof PetManagerIntentSchema>> {
@@ -268,7 +291,7 @@ export class TextModelAdapter {
     return chatJson([
       { role: "system", content: "将用户的异宠期待编排成简短 JSON。只输出 personality_seed_prompt、visual_seed_prompt、negative_seed_prompt、seed_summary 四个字符串，每项不超过 120 字。视觉为原创精细像素全身桌宠，轮廓、器官、材质和配件独特，不模仿现有 IP；人格可成长、有独立判断且不情感绑架。" },
       { role: "user", content: JSON.stringify(input) },
-    ], PetSeedSchema, { maxTokens: 512 });
+    ], PetSeedSchema, { maxTokens: 1024 });
   }
 }
 
@@ -322,7 +345,7 @@ export class ImageModelAdapter {
     if (input.parent) {
       const form = new FormData();
       form.append("model", required("IMAGE_MODEL")); form.append("prompt", input.prompt); form.append("size", "1024x1024"); form.append("response_format", "b64_json");
-      form.append("image", new Blob([input.parent.bytes], { type: input.parent.mimeType }), `parent.${input.parent.mimeType.split("/")[1]}`);
+      form.append("image", new Blob([new Uint8Array(input.parent.bytes).buffer], { type: input.parent.mimeType }), `parent.${input.parent.mimeType.split("/")[1]}`);
       try { response = await fetchWithRetry(() => fetch(endpoint(base, "images/edits"), { method: "POST", headers: { Authorization: `Bearer ${apiKey}` }, body: form, signal: AbortSignal.timeout(90_000) })); }
       catch (reason) { throw normalizedRequestError("image", reason); }
     } else {

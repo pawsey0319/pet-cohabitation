@@ -105,11 +105,11 @@ async function runSummaryRequest(
     runId = await reserveModelRun(client, { runKind: "read_summary", dailyLimit: 30, spaceId: request.space_id, promptHash, model: TextModelAdapter.modelName() });
     await client.from("agent_jobs").update({ stage: "calling_model", progress_label: `正在分批整理 ${messages.length} 条消息` }).eq("id", input.jobId);
     const adapter = new TextModelAdapter();
-    const chunkResults: SpaceDigest[] = [];
+    const chunkResults: Awaited<ReturnType<TextModelAdapter["summarizeSpace"]>>[] = [];
     for (const chunk of chunkDigestMessages(messages)) chunkResults.push(await adapter.summarizeSpace({ messages: chunk }));
     let digestLevel = chunkResults;
     while (digestLevel.length > 1) {
-      const nextLevel: SpaceDigest[] = [];
+      const nextLevel: typeof chunkResults = [];
       for (let index = 0; index < digestLevel.length; index += 8) {
         const group = digestLevel.slice(index, index + 8);
         nextLevel.push(group.length === 1 ? group[0] : await adapter.mergeSpaceDigests({ chunks: group }));
