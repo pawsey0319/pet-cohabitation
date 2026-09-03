@@ -16,7 +16,8 @@
     "export:web": "expo export --platform web",
     "export:android": "expo export --platform android --output-dir .expo/android-export",
     "build:android:preview": "npx eas-cli build --platform android --profile preview",
-    "build:android:production": "npx eas-cli build --platform android --profile production"
+    "build:android:production": "npx eas-cli build --platform android --profile production",
+    "update:preview": "npx eas-cli update --channel preview --platform android --environment preview"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.15",
