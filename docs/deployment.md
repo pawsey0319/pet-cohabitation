@@ -174,6 +174,8 @@ npm run build:android:preview
 
 `eas init` 会把 EAS Project ID 写入 Expo 配置；真实 Android 设备启动后才会请求通知权限并登记 Expo Push Token。需在 Expo/EAS 项目中按提示配置 Android FCM V1 凭据。应用包只包含 Supabase URL 和 Publishable Key，Service Role、CPA Key 与定时任务 Secret 都不能进入 EAS/Vercel 环境。
 
+原生邀请链接从 `EXPO_PUBLIC_APP_URL` 或 `app.json` 的 `expo.extra.publicAppUrl` 读取正式 HTTPS 站点；配置中禁止本机、占位地址和 URL 凭据。当前默认站点为 `https://pet-cohabitation-public.vercel.app`。Web 邀请继续使用实际页面来源。迁移域名时同时更新此配置并重新出包，否则旧安装包仍会分享旧域名。
+
 若本地网络无法上传到 EAS 的 Google Storage，可在 GitHub Actions 手动运行 `Android preview APK` 工作流。先把生产环境的 `EXPO_PUBLIC_SUPABASE_URL` 与 `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` 配成 GitHub Actions Secrets；工作流会在 Ubuntu Android 环境生成一个 14 天可下载的测试 APK。该备用 APK使用调试签名，不用于应用商店发布；完整推送仍以配置好 FCM 的 EAS 构建为准。
 
 备用包仅构建 `arm64-v8a`，不支持 32 位旧手机与 x86 模拟器。Gradle 限制 2 个 worker、禁用项目并行，并将堆/Metaspace 分别设为 3 GB / 1.5 GB，避免 Expo 默认 512 MB Metaspace 导致构建长时间失去响应。不要把“APK 已生成”写成“真机测试已通过”；安装、登录恢复、系统键盘、录音、相册、通知和后台恢复仍需在设备上逐项检查。

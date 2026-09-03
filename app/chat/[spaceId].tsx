@@ -1,6 +1,7 @@
 import NetInfo, { useNetInfo } from "@react-native-community/netinfo";
 import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioPlayer, useAudioRecorder, useAudioRecorderState } from "expo-audio";
 import * as ImagePicker from "expo-image-picker";
+import Constants from "expo-constants";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
@@ -18,6 +19,7 @@ import type { AgentFeedbackRating, AgentJob, AgentProposal, AgentRequest, ChatMe
 import { AppButton } from "../../src/ui/common";
 import { colors, radii, spacing } from "../../src/theme/tokens";
 import { useAppTheme } from "../../src/theme/ThemeProvider";
+import { spaceInviteUrl } from "../../src/lib/publicLinks";
 
 const REACTIONS = ["👍", "❤️", "😂", "😢"] as const;
 
@@ -257,7 +259,18 @@ export default function ChatScreen() {
     finally { setLoadingOlder(false); }
   };
 
-  const invitePeople = async () => { const result = await repository.createSpaceInvite(spaceId); const origin = Platform.OS === "web" && typeof window !== "undefined" ? window.location.origin : "https://your-app.vercel.app"; setInvite(`${origin}/invite/${result.token}`); };
+  const invitePeople = async () => {
+    try {
+      const options = {
+        platform: Platform.OS,
+        browserOrigin: Platform.OS === "web" && typeof window !== "undefined" ? window.location.origin : undefined,
+        publicAppUrl: process.env.EXPO_PUBLIC_APP_URL ?? Constants.expoConfig?.extra?.publicAppUrl,
+      };
+      spaceInviteUrl("validate", options);
+      const result = await repository.createSpaceInvite(spaceId);
+      setInvite(spaceInviteUrl(result.token, options));
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "邀请创建失败，请稍后重试。"); }
+  };
   const loadObservations = async () => { setPanelBusy(true); try { setObservations(await repository.listPetObservation(spaceId)); } catch (reason) { setError(reason instanceof Error ? reason.message : "观察授权加载失败"); } finally { setPanelBusy(false); } };
   const openObservation = () => { setMenu(false); setObservationOpen(true); void loadObservations(); };
   const openCorner = async () => { setMenu(false); setCornerOpen(true); setPanelBusy(true); try { const [nextStories, nextPets] = await Promise.all([repository.listPetCorner(spaceId), repository.listPetObservation(spaceId)]); setStories(nextStories); setObservations(nextPets); } catch (reason) { setError(reason instanceof Error ? reason.message : "宠物角加载失败"); } finally { setPanelBusy(false); } };

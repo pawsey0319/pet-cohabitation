@@ -58,6 +58,7 @@
       "expo-sharing"
     ],
     "extra": {
+      "publicAppUrl": "https://pet-cohabitation-public.vercel.app",
       "router": {},
       "eas": {
         "projectId": "8cc62f33-fbad-4b84-b0c7-2f579cbc9e37"
