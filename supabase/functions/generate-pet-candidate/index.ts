@@ -10,7 +10,10 @@ import { errorResponse, json } from "../_shared/responses.ts";
 import { authenticatedUser, requirePost, serviceClient } from "../_shared/supabase.ts";
 
 const Input = z.object({
-  instruction: z.string().trim().min(1).max(2000).optional(),
+  instruction: z.preprocess(
+    (value) => typeof value === "string" && !value.trim() ? undefined : value,
+    z.string().trim().min(1).max(2000).optional(),
+  ),
   base_asset_id: z.string().uuid().nullable().optional(),
   explore: z.boolean().default(false),
   request_id: z.string().uuid().optional(),
