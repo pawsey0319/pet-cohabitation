@@ -20,3 +20,9 @@ export async function readMediaForUpload(uri: string, maxBytes: number): Promise
   validateMediaSize(body.size, maxBytes);
   return { body, size: body.size, mimeType: body.type };
 }
+
+export async function stabilizeMediaForOutbox(uri: string, _ownerId: string, _clientId: string): Promise<string> {
+  return uri;
+}
+
+export async function removeStabilizedMedia(_uri: string): Promise<void> {}

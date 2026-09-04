@@ -9,6 +9,8 @@ export type NotificationEvent = Readonly<{
   title: string;
   body: string;
   route: string;
+  spaceId: string | null;
+  messageId: string | null;
   readAt: string | null;
   createdAt: string;
 }>;
@@ -19,6 +21,7 @@ type NotificationRow = Readonly<{
   title: string;
   body: string;
   route: string;
+  payload: { space_id?: string; message_id?: string } | null;
   read_at: string | null;
   created_at: string;
 }>;
@@ -30,6 +33,8 @@ function mapRow(row: NotificationRow): NotificationEvent {
     title: row.title,
     body: row.body,
     route: row.route,
+    spaceId: row.payload?.space_id ?? null,
+    messageId: row.payload?.message_id ?? null,
     readAt: row.read_at,
     createdAt: row.created_at,
   };
@@ -52,7 +57,7 @@ export function useNotificationInbox(limit = 50) {
     try {
       const { data, error: queryError } = await requireSupabase()
         .from("notification_events")
-        .select("id,kind,title,body,route,read_at,created_at")
+        .select("id,kind,title,body,route,payload,read_at,created_at")
         .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(limit);

@@ -1,7 +1,7 @@
 export type RelationshipKind = "friend_pair" | "lover_pair" | "friend_circle";
 export type MessageKind = "text" | "image" | "voice" | "system";
 export type ActorKind = "human" | "pet" | "space_agent";
-export type DeliveryState = "pending" | "sent" | "failed";
+export type DeliveryState = "preparing" | "uploading" | "pending" | "sent" | "failed";
 export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "blocked";
 export type AgentFeedbackRating = "natural" | "irrelevant" | "intrusive" | "unsafe";
 export type PetMotionState = "idle" | "listening" | "thinking" | "speaking" | "happy" | "eating" | "playing" | "sleeping";
@@ -50,6 +50,21 @@ export type ChatMessage = Readonly<{
   delegatedByPetId?: string | null;
   delegationRequestId?: string | null;
   agentProposalId?: string | null;
+  mentions?: readonly MessageMention[];
+}>;
+
+export type MentionTarget = Readonly<{
+  kind: "user" | "pet";
+  id: string;
+  displayName: string;
+  ownerName: string | null;
+  avatarUrl: string | null;
+}>;
+
+export type MessageMention = Readonly<{
+  kind: "user" | "pet";
+  targetId: string;
+  displayText: string;
 }>;
 
 export type AgentProposalVote = Readonly<{
@@ -127,6 +142,8 @@ export type QueuedMessage = Readonly<{
   mediaDurationSeconds?: number | null;
   replyToMessageId?: string | null;
   replyPreview?: string | null;
+  mentionedUserIds?: readonly string[];
+  mentionedPetIds?: readonly string[];
   createdAt: string;
   attempts: number;
 }>;
@@ -195,6 +212,14 @@ export type PetPrivateMessage = Readonly<{
   targetSpaceName?: string | null;
 }>;
 
+export type PetDashboard = Readonly<{
+  pet: PetRecord | null;
+  expectations: PetExpectations | null;
+  currentAsset: PetVisualAsset | null;
+  runtimeState: PetRuntimeState | null;
+  latestGeneration: PetGenerationSession | null;
+}>;
+
 export type PetRecallSource = Readonly<{
   spaceId: string;
   spaceName: string;
@@ -261,6 +286,9 @@ export type PetGenerationSession = Readonly<{
   explore: boolean;
   attempts: number;
   errorCode: string | null;
+  stage?: "queued" | "compiling" | "generating" | "uploading" | "completed" | "failed";
+  progressLabel?: string | null;
+  retryable?: boolean;
   createdAt: string;
   completedAt: string | null;
 }>;

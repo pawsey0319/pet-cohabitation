@@ -1,5 +1,5 @@
 import { type Href, router, useFocusEffect } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSession } from "../../../src/auth/SessionProvider";
@@ -38,6 +38,12 @@ export default function ChatsScreen() {
     finally { setLoading(false); }
   }, [profile, repository]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
+  const spaceSubscriptionKey = spaces.map((space) => space.id).sort().join(",");
+  useEffect(() => {
+    if (!spaceSubscriptionKey) return;
+    const unsubscribers = spaceSubscriptionKey.split(",").filter(Boolean).map((spaceId) => repository.subscribe(spaceId, () => void load()));
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [load, repository, spaceSubscriptionKey]);
 
   const create = async () => {
     if (!name.trim()) return; setBusy(true);

@@ -31,7 +31,8 @@ export default function NotificationsScreen() {
     try {
       if (!event.readAt) await markRead(event.id);
     } finally {
-      router.push(event.route as Href);
+      if (event.spaceId && event.messageId) router.push({ pathname: "/chat/[spaceId]", params: { spaceId: event.spaceId, messageId: event.messageId } });
+      else router.push(event.route as Href);
     }
   };
 

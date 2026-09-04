@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AppState, Platform, type AppStateStatus } from "react-native";
 import { isLocalDemoMode, requireSupabase, supabase } from "../lib/supabase";
 import type { AppProfile } from "../data/types";
+import { clearMediaCache } from "../chat/mediaCache";
 
 const LOCAL_PROFILE_KEY = "pet-cohabitation-local-profile-v2";
 const LOCAL_USER_ID = "00000000-0000-4000-8000-000000000001";
@@ -140,15 +141,18 @@ export function SessionProvider({ children }: PropsWithChildren) {
   }, [adoptRemoteUser]);
 
   const logout = useCallback(async () => {
+    const ownerId = profile?.id;
     if (isLocalDemoMode) {
       await AsyncStorage.removeItem(LOCAL_PROFILE_KEY);
+      if (ownerId) await clearMediaCache(ownerId).catch(() => undefined);
       setProfile(null);
       return;
     }
     const { error } = await requireSupabase().auth.signOut();
     if (error) throw error;
+    if (ownerId) await clearMediaCache(ownerId).catch(() => undefined);
     adoptRemoteUser(null, false);
-  }, [adoptRemoteUser]);
+  }, [adoptRemoteUser, profile?.id]);
 
   const value = useMemo<SessionValue>(() => ({
     profile,

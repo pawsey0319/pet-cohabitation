@@ -200,6 +200,7 @@ export default function PetRoute() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadWarnings, setLoadWarnings] = useState<readonly string[]>([]);
   const [confirming, setConfirming] = useState(false);
   const [correcting, setCorrecting] = useState<StyleSignal | null>(null);
   const [correction, setCorrection] = useState("");
@@ -210,39 +211,16 @@ export default function PetRoute() {
   const load = useCallback(async () => {
     if (!repository) return;
     try {
-      const [
-        nextPet,
-        nextMessages,
-        nextAssets,
-        nextSignals,
-        nextExperiences,
-        nextEvents,
-        nextGenerations,
-        nextRuntime,
-        nextExpectations,
-      ] = await Promise.all([
-        repository.getPet(),
-        repository.listPrivateMessages(),
-        repository.listAssets(),
-        repository.listStyleSignals(),
-        repository.listExperiences(),
-        repository.listEvolutionEvents(),
-        repository.listGenerationSessions(),
-        repository.getRuntimeState(),
-        repository.getExpectations(),
-      ]);
+      const dashboard = await repository.getDashboard();
+      const nextPet = dashboard.pet;
+      const nextExpectations = dashboard.expectations;
       setPet(nextPet);
-      setMessages(nextMessages);
-      setAssets(nextAssets);
-      setSignals(nextSignals);
-      setExperiences(nextExperiences);
-      setEvents(nextEvents);
-      setGenerationSessions(nextGenerations);
-      setRuntime(nextRuntime);
+      setRuntime(dashboard.runtimeState);
+      setGenerationSessions(dashboard.latestGeneration ? [dashboard.latestGeneration] : []);
       setSelectedAssetId(
         nextPet?.status === "confirmed"
           ? nextPet.currentAssetId
-          : (nextAssets.at(-1)?.id ?? null),
+          : (dashboard.currentAsset?.id ?? null),
       );
       if (nextExpectations) {
         setName(nextExpectations.name);
@@ -255,6 +233,29 @@ export default function PetRoute() {
         setSeedSummary(nextExpectations.seedSummary ?? null);
       } else if (nextPet) setName(nextPet.name);
       setError(null);
+      setLoading(false);
+      if (!nextPet) {
+        setMessages([]); setAssets([]); setSignals([]); setExperiences([]); setEvents([]); setLoadWarnings([]);
+        return;
+      }
+
+      const sections = await Promise.allSettled([
+        repository.listPrivateMessages(), repository.listAssets(), repository.listStyleSignals(),
+        repository.listExperiences(), repository.listEvolutionEvents(), repository.listGenerationSessions(),
+      ]);
+      const warnings: string[] = [];
+      if (sections[0].status === "fulfilled") setMessages(sections[0].value); else warnings.push("私聊记录暂时无法加载");
+      if (sections[1].status === "fulfilled") {
+        setAssets(sections[1].value);
+        if (nextPet.status !== "confirmed") setSelectedAssetId(sections[1].value.at(-1)?.id ?? dashboard.currentAsset?.id ?? null);
+      } else {
+        setAssets(dashboard.currentAsset ? [dashboard.currentAsset] : []); warnings.push("异宠图片暂时无法加载");
+      }
+      if (sections[2].status === "fulfilled") setSignals(sections[2].value); else warnings.push("成长札记暂时无法加载");
+      if (sections[3].status === "fulfilled") setExperiences(sections[3].value); else warnings.push("成长经历暂时无法加载");
+      if (sections[4].status === "fulfilled") setEvents(sections[4].value); else warnings.push("进化记录暂时无法加载");
+      if (sections[5].status === "fulfilled") setGenerationSessions(sections[5].value); else warnings.push("生成历史暂时无法加载");
+      setLoadWarnings(warnings);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "异宠档案加载失败");
     } finally {
@@ -408,8 +409,13 @@ export default function PetRoute() {
         <Text style={styles.title}>{pet ? pet.name : "孵化你的异宠"}</Text>
       </View>
       {error ? (
-        <Pressable onPress={() => setError(null)} style={styles.error}>
-          <Text style={styles.errorText}>{error}</Text>
+        <Pressable onPress={() => void load()} style={styles.error}>
+          <Text style={styles.errorText}>{error} · 点击重试</Text>
+        </Pressable>
+      ) : null}
+      {loadWarnings.length ? (
+        <Pressable onPress={() => void load()} style={styles.warning}>
+          <Text style={styles.warningText}>{loadWarnings.join("；")} · 点击重试</Text>
         </Pressable>
       ) : null}
       {latestGeneration &&
@@ -422,9 +428,9 @@ export default function PetRoute() {
               </Text>
               <Text style={styles.copy}>
                 {latestGeneration.status === "queued"
-                  ? "已排队，可以离开页面，完成后会自动出现。"
+                  ? (latestGeneration.progressLabel ?? "已排队，可以离开页面，完成后会自动出现。")
                   : latestGeneration.status === "running"
-                    ? `正在连接图像模型 · 第 ${latestGeneration.attempts || 1} 次尝试`
+                    ? `${latestGeneration.progressLabel ?? "正在连接模型"} · 第 ${latestGeneration.attempts || 1} 次尝试`
                     : `原因：${latestGeneration.errorCode ?? "模型暂时不可用"}`}
               </Text>
             </View>
@@ -433,7 +439,7 @@ export default function PetRoute() {
             ) : null}
           </View>
           {latestGeneration.status === "failed" &&
-          latestGeneration.attempts < 2 ? (
+          latestGeneration.retryable !== false && latestGeneration.attempts < 2 ? (
             <AppButton
               label="用同一任务重试"
               variant="quiet"
@@ -1300,6 +1306,8 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
   },
   errorText: { color: colors.coralSoft, textAlign: "center" },
+  warning: { backgroundColor: "#3D365E", borderRadius: radii.md, padding: spacing.sm },
+  warningText: { color: colors.lavenderSoft, textAlign: "center", fontSize: 12, lineHeight: 18 },
   overlay: {
     flex: 1,
     backgroundColor: "rgba(4,3,13,.78)",

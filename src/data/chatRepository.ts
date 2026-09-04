@@ -3,7 +3,7 @@ import { createRequestId } from "../lib/uuid";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { isLocalDemoMode, requireSupabase } from "../lib/supabase";
 import { readMediaForUpload } from "../chat/mediaFile";
-import type { AgentFeedbackRating, AgentJob, AgentProposal, AgentRequest, AppProfile, ChatMessage, ChatSpace, PetCornerStory, PetObservationStatus, QueuedMessage, RelationshipKind, SubmitAgentRequestInput } from "./types";
+import type { AgentFeedbackRating, AgentJob, AgentProposal, AgentRequest, AppProfile, ChatMessage, ChatSpace, MentionTarget, PetCornerStory, PetObservationStatus, QueuedMessage, RelationshipKind, SubmitAgentRequestInput } from "./types";
 
 const LOCAL_CHAT_KEY = "pet-cohabitation-local-chat-v2";
 let lastReminderDeliveryAt = 0;
@@ -20,9 +20,11 @@ type Unsubscribe = () => void;
 export interface ChatRepository {
   listSpaces(userId: string): Promise<readonly ChatSpace[]>;
   listMessages(spaceId: string, before?: string | null, limit?: number): Promise<readonly ChatMessage[]>;
+  listMessagesAround(spaceId: string, messageId: string, limit?: number): Promise<readonly ChatMessage[]>;
   sendMessage(message: QueuedMessage, actorName: string): Promise<ChatMessage>;
   toggleReaction(messageId: string, emoji: string, userId: string): Promise<void>;
-  markRead(spaceId: string): Promise<void>;
+  markRead(spaceId: string, throughMessageId?: string | null): Promise<void>;
+  listMentionTargets(spaceId: string): Promise<readonly MentionTarget[]>;
   subscribe(spaceId: string, onChange: () => void): Unsubscribe;
   createSpace(input: { name: string; kind: RelationshipKind }): Promise<string>;
   createSpaceInvite(spaceId: string): Promise<{ token: string; expiresAt: string }>;
@@ -107,6 +109,17 @@ class LocalChatRepository implements ChatRepository {
     return messages;
   }
 
+  async listMessagesAround(spaceId: string, messageId: string, limit = 50): Promise<readonly ChatMessage[]> {
+    const state = await loadLocal(this.profile);
+    const target = state.messages.find((message) => message.spaceId === spaceId && message.id === messageId);
+    if (!target) return [];
+    return state.messages
+      .filter((message) => message.spaceId === spaceId && message.createdAt <= target.createdAt)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, limit)
+      .reverse();
+  }
+
   async sendMessage(input: QueuedMessage, actorName: string): Promise<ChatMessage> {
     const state = await loadLocal(this.profile);
     const existing = state.messages.find((item) => item.clientId === input.clientId && item.senderId === input.senderId);
@@ -166,6 +179,12 @@ class LocalChatRepository implements ChatRepository {
     // Read-state changes must not notify the message subscription. Otherwise
     // ChatScreen reloads, marks read again, and creates an endless local loop.
     await AsyncStorage.setItem(LOCAL_CHAT_KEY, JSON.stringify({ ...state, spaces: state.spaces.map((space) => space.id === spaceId ? { ...space, unreadCount: 0 } : space) }));
+  }
+  async listMentionTargets(): Promise<readonly MentionTarget[]> {
+    return [
+      { kind: "user", id: "local-friend", displayName: "小灯", ownerName: null, avatarUrl: null },
+      { kind: "pet", id: "local-pet", displayName: "芽芽", ownerName: this.profile.nickname, avatarUrl: null },
+    ];
   }
 
   subscribe(spaceId: string, onChange: () => void): Unsubscribe {
@@ -271,6 +290,11 @@ function mapRemoteMessage(row: Record<string, any>): ChatMessage {
     delegatedByPetId: row.delegated_by_pet_id ?? null,
     delegationRequestId: row.delegation_request_id ?? null,
     agentProposalId: row.agent_proposal_id ?? null,
+    mentions: (row.message_mentions ?? []).flatMap((mention: Record<string, any>) => {
+      const targetId = mention.target_user_id ?? mention.target_pet_id;
+      if (!targetId) return [];
+      return [{ kind: mention.target_pet_id ? "pet" as const : "user" as const, targetId, displayText: mention.display_text }];
+    }),
   };
 }
 
@@ -316,7 +340,7 @@ class SupabaseChatRepository implements ChatRepository {
   async listMessages(spaceId: string, before?: string | null, limit = 50): Promise<readonly ChatMessage[]> {
     deliverDueReminders();
     let query = requireSupabase().from("messages")
-      .select("*, profiles:sender_id(nickname), message_reactions(emoji,user_id)")
+      .select("*, profiles:sender_id(nickname), message_reactions(emoji,user_id), message_mentions(target_user_id,target_pet_id,display_text)")
       .eq("space_id", spaceId)
       .order("created_at", { ascending: false })
       .limit(limit);
@@ -328,31 +352,45 @@ class SupabaseChatRepository implements ChatRepository {
     return (data ?? []).filter((row) => row.actor_kind !== "pet" || !muted.has(row.actor_id)).map(mapRemoteMessage).reverse();
   }
 
+  async listMessagesAround(spaceId: string, messageId: string, limit = 50): Promise<readonly ChatMessage[]> {
+    const client = requireSupabase();
+    const anchor = await client.from("messages").select("created_at").eq("space_id", spaceId).eq("id", messageId).maybeSingle();
+    if (anchor.error) throw anchor.error;
+    if (!anchor.data) return [];
+    const [{ data, error }, mutedResult] = await Promise.all([
+      client.from("messages")
+        .select("*, profiles:sender_id(nickname), message_reactions(emoji,user_id), message_mentions(target_user_id,target_pet_id,display_text)")
+        .eq("space_id", spaceId)
+        .lte("created_at", anchor.data.created_at)
+        .order("created_at", { ascending: false })
+        .limit(limit),
+      client.from("space_member_pet_settings").select("pet_id").eq("space_id", spaceId).eq("muted", true),
+    ]);
+    if (error) throw error;
+    if (mutedResult.error) throw mutedResult.error;
+    const muted = new Set((mutedResult.data ?? []).map((row) => row.pet_id));
+    return (data ?? []).filter((row) => row.actor_kind !== "pet" || !muted.has(row.actor_id)).map(mapRemoteMessage).reverse();
+  }
+
   async sendMessage(input: QueuedMessage, actorName: string): Promise<ChatMessage> {
     const mediaPath = await this.uploadMedia(input);
-    const payload = {
-      client_id: input.clientId,
-      space_id: input.spaceId,
-      sender_id: input.senderId,
-      actor_kind: "human",
-      actor_name: actorName,
-      kind: input.kind,
-      text: input.text,
-      media_path: mediaPath,
-      media_duration_seconds: input.mediaDurationSeconds ?? null,
-      reply_to_message_id: input.replyToMessageId ?? null,
-      reply_preview: input.replyPreview ?? null,
-    };
     const client = requireSupabase();
-    const { data, error } = await client.from("messages").insert(payload).select("*, profiles:sender_id(nickname), message_reactions(emoji,user_id)").single();
-    if (error && error.code !== "23505") throw error;
-    if (data) {
-      await client.functions.invoke("handle-space-message", { body: { message_id: data.id } }).catch(() => undefined);
-      return mapRemoteMessage(data);
-    }
+    const sent = await client.rpc("send_space_message", {
+      message_client_id: input.clientId,
+      target_space_id: input.spaceId,
+      message_kind: input.kind,
+      message_text: input.text,
+      message_media_path: mediaPath,
+      message_media_duration_seconds: input.mediaDurationSeconds ?? null,
+      reply_message_id: input.replyToMessageId ?? null,
+      reply_message_preview: input.replyPreview ?? null,
+      mentioned_user_ids: input.mentionedUserIds ?? [],
+      mentioned_pet_ids: input.mentionedPetIds ?? [],
+    });
+    if (sent.error) throw sent.error;
     const existing = await client.from("messages")
-      .select("*, profiles:sender_id(nickname), message_reactions(emoji,user_id)")
-      .eq("sender_id", input.senderId).eq("client_id", input.clientId).single();
+      .select("*, profiles:sender_id(nickname), message_reactions(emoji,user_id), message_mentions(target_user_id,target_pet_id,display_text)")
+      .eq("id", sent.data).single();
     if (existing.error) throw existing.error;
     await client.functions.invoke("handle-space-message", { body: { message_id: existing.data.id } }).catch(() => undefined);
     return mapRemoteMessage(existing.data);
@@ -363,9 +401,17 @@ class SupabaseChatRepository implements ChatRepository {
     if (error) throw error;
   }
 
-  async markRead(spaceId: string): Promise<void> {
-    const { error } = await requireSupabase().rpc("mark_space_read", { target_space_id: spaceId });
+  async markRead(spaceId: string, throughMessageId?: string | null): Promise<void> {
+    const { error } = throughMessageId
+      ? await requireSupabase().rpc("mark_space_read_through", { target_space_id: spaceId, through_message_id: throughMessageId })
+      : await requireSupabase().rpc("mark_space_read", { target_space_id: spaceId });
     if (error) throw error;
+  }
+
+  async listMentionTargets(spaceId: string): Promise<readonly MentionTarget[]> {
+    const { data, error } = await requireSupabase().rpc("list_space_mention_targets", { target_space_id: spaceId });
+    if (error) throw error;
+    return (data ?? []).map((row: Record<string, any>) => ({ kind: row.target_kind, id: row.target_id, displayName: row.display_name, ownerName: row.owner_name ?? null, avatarUrl: row.avatar_url ?? null }));
   }
 
   subscribe(spaceId: string, onChange: () => void): Unsubscribe {
@@ -373,6 +419,7 @@ class SupabaseChatRepository implements ChatRepository {
     const subscriptionId = createRequestId();
     const channels: RealtimeChannel[] = [
       client.channel(`messages:${spaceId}:${subscriptionId}`).on("postgres_changes", { event: "*", schema: "public", table: "messages", filter: `space_id=eq.${spaceId}` }, onChange).subscribe(),
+      client.channel(`mentions:${spaceId}:${subscriptionId}`).on("postgres_changes", { event: "*", schema: "public", table: "message_mentions", filter: `space_id=eq.${spaceId}` }, onChange).subscribe(),
       client.channel(`reactions:${spaceId}:${subscriptionId}`).on("postgres_changes", { event: "*", schema: "public", table: "message_reactions", filter: `space_id=eq.${spaceId}` }, onChange).subscribe(),
       client.channel(`agent-jobs:${spaceId}:${subscriptionId}`).on("postgres_changes", { event: "*", schema: "public", table: "agent_jobs", filter: `scope_id=eq.${spaceId}` }, onChange).subscribe(),
       client.channel(`agent-requests:${spaceId}:${subscriptionId}`).on("postgres_changes", { event: "*", schema: "public", table: "agent_requests", filter: `space_id=eq.${spaceId}` }, onChange).subscribe(),
@@ -403,10 +450,13 @@ class SupabaseChatRepository implements ChatRepository {
   async uploadMedia(message: QueuedMessage): Promise<string | null> {
     if (!message.localMediaUri || message.kind === "text") return null;
     const media = await readMediaForUpload(message.localMediaUri, (message.kind === "image" ? 8 : 5) * 1024 * 1024);
-    const extension = message.kind === "image" ? "jpg" : "m4a";
+    const mime = message.mediaMimeType || media.mimeType || (message.kind === "image" ? "image/jpeg" : "audio/mp4");
+    const extension = message.kind === "image"
+      ? mime.includes("png") ? "png" : mime.includes("webp") ? "webp" : "jpg"
+      : mime.includes("webm") ? "webm" : mime.includes("m4a") ? "m4a" : "mp4";
     const path = `${message.spaceId}/${message.senderId}/${message.clientId}.${extension}`;
     const { error } = await requireSupabase().storage.from("chat-media").upload(path, media.body, {
-      contentType: message.mediaMimeType || media.mimeType || (message.kind === "image" ? "image/jpeg" : "audio/mp4"),
+      contentType: mime,
       upsert: false,
     });
     if (error && !/already exists/i.test(error.message)) throw error;

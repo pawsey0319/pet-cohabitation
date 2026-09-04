@@ -11,6 +11,16 @@ import { authenticatedUser, requirePost, serviceClient } from "../_shared/supaba
 const Input = z.object({ message_id: z.string().uuid(), cue_pet_ids: z.array(z.string().uuid()).max(3).optional().default([]) });
 const HIGH_RISK = /(见面|分手|复合|承诺|同意|立场|地址|位置|定位|生病|健康|医院|钱|转账|消费|购买|密码|身份证)/;
 
+type PetInteraction = Readonly<{ state: "happy" | "eating" | "playing" | "sleeping"; category: "care" | "social" | "shared"; label: string; durationSeconds: number }>;
+
+function explicitPetInteraction(text: string): PetInteraction | null {
+  if (/(投喂|喂你|给你.{0,12}(吃|苹果|零食|点心|食物)|吃点)/.test(text)) return { state: "eating", category: "care", label: "收到了一次投喂", durationSeconds: 12 };
+  if (/(陪我?玩|一起玩|玩一会|做游戏|玩游戏)/.test(text)) return { state: "playing", category: "social", label: "和成员玩了一会儿", durationSeconds: 12 };
+  if (/(摸摸|抱抱|抱一下|陪陪|陪我|安慰)/.test(text)) return { state: "happy", category: "care", label: "收到了一次陪伴", durationSeconds: 10 };
+  if (/(早点休息|去休息|睡觉吧|晚安|好好睡)/.test(text)) return { state: "sleeping", category: "shared", label: "在成员的关心下进入休息状态", durationSeconds: 30 };
+  return null;
+}
+
 type Candidate = Readonly<{
   id: string;
   name: string;
@@ -42,6 +52,9 @@ async function runRouteJob(jobId: string, requestedBy: string, input: z.infer<ty
     if (messageResult.error) throw messageResult.error;
     const message = messageResult.data;
     if (message.actor_kind !== "human" || !message.sender_id) throw new Error("only_human_messages_are_routed");
+    const structuredMentions = await client.from("message_mentions").select("target_pet_id").eq("message_id", message.id).not("target_pet_id", "is", null);
+    if (structuredMentions.error) throw structuredMentions.error;
+    const selectedPetIds = [...new Set([...input.cue_pet_ids, ...(structuredMentions.data ?? []).map((row) => row.target_pet_id).filter(Boolean)])];
     const permissionResult = await client.from("space_pet_permissions").select("pet_id,participation_enabled,proactive_paused,paused_by_vote").eq("space_id", message.space_id);
     if (permissionResult.error) throw permissionResult.error;
     const petIds = (permissionResult.data ?? []).map((row) => row.pet_id);
@@ -67,12 +80,12 @@ async function runRouteJob(jobId: string, requestedBy: string, input: z.infer<ty
       if (parent.data?.actor_kind === "pet") replyPetId = parent.data.actor_id;
     }
     const text = message.text ?? "";
-    if (pausedCandidates.some((candidate) => explicitCue(text, candidate, replyPetId, input.cue_pet_ids))) {
+    if (pausedCandidates.some((candidate) => explicitCue(text, candidate, replyPetId, selectedPetIds))) {
       const notice = await client.from("messages").insert({ client_id: `paused-${message.id}`, space_id: message.space_id, sender_id: null, actor_kind: "space_agent", actor_id: message.space_id, actor_name: "空间主 Agent", kind: "system", text: "当前异宠参与已暂停。空间成员仍可正常聊天，也可以在“观察授权”中查看或调整权限。", reply_to_message_id: message.id, reply_preview: text.slice(0, 160), permission_source: "pet_participation_paused" });
       if (notice.error && notice.error.code !== "23505") throw notice.error;
     }
 
-    const explicitCandidates = candidates.filter((candidate) => explicitCue(text, candidate, replyPetId, input.cue_pet_ids)).slice(0, 3);
+    const explicitCandidates = candidates.filter((candidate) => explicitCue(text, candidate, replyPetId, selectedPetIds)).slice(0, 3);
     const selected: Array<Candidate & { explicit: boolean }> = explicitCandidates.map((candidate) => ({ ...candidate, explicit: true }));
 
     const recentRows = await client.from("messages").select("actor_name,text,kind").eq("space_id", message.space_id).order("created_at", { ascending: false }).limit(20);
@@ -81,6 +94,7 @@ async function runRouteJob(jobId: string, requestedBy: string, input: z.infer<ty
     const replied: string[] = [];
     let failedReplies = 0;
     for (const candidate of selected) {
+      const interaction = candidate.explicit ? explicitPetInteraction(text) : null;
       const concernsOwner = text.includes(candidate.ownerName);
       const ownerOnline = Date.now() - Date.parse(candidate.ownerLastActiveAt) <= 5 * 60_000;
       const highRisk = concernsOwner && HIGH_RISK.test(text);
@@ -125,8 +139,8 @@ async function runRouteJob(jobId: string, requestedBy: string, input: z.infer<ty
         const content = policy === "wait_for_owner" && !/主人|本人|自己/.test(reply.content) ? `这件事要等主人本人回答。${reply.content}` : reply.content;
         const inserted = await client.from("messages").insert({ client_id: `agent-${petJobId}`, space_id: message.space_id, sender_id: null, actor_kind: "pet", actor_id: candidate.id, actor_name: candidate.name, kind: "text", text: content, reply_to_message_id: message.id, reply_preview: text.slice(0, 160), permission_source: candidate.explicit ? "explicit_pet_cue" : "implicit_relevance_router" }).select("id").single();
         if (inserted.error) throw inserted.error;
-        await client.from("pet_runtime_states").upsert({ pet_id: candidate.id, owner_id: candidate.owner_id, state: "speaking", source_kind: "space_chat", source_id: inserted.data.id, started_at: new Date().toISOString(), expires_at: new Date(Date.now() + 8_000).toISOString(), updated_at: new Date().toISOString() }, { onConflict: "pet_id" });
-        const experience = await client.from("pet_experiences").insert({ pet_id: candidate.id, owner_id: candidate.owner_id, space_id: message.space_id, category: "social", summary: `${candidate.name}在关系空间里认真参与了一次对话：${content.slice(0, 180)}`, source_message_id: message.id, interaction_key: `space-reply:${petJobId}` });
+        await client.from("pet_runtime_states").upsert({ pet_id: candidate.id, owner_id: candidate.owner_id, state: interaction?.state ?? "speaking", source_kind: "space_chat", source_id: inserted.data.id, started_at: new Date().toISOString(), expires_at: new Date(Date.now() + (interaction?.durationSeconds ?? 8) * 1_000).toISOString(), updated_at: new Date().toISOString() }, { onConflict: "pet_id" });
+        const experience = await client.from("pet_experiences").insert({ pet_id: candidate.id, owner_id: candidate.owner_id, space_id: message.space_id, category: interaction?.category ?? "social", summary: interaction ? `${candidate.name}${interaction.label}：${text.slice(0, 180)}` : `${candidate.name}在关系空间里认真参与了一次对话：${content.slice(0, 180)}`, source_message_id: message.id, interaction_key: `space-reply:${petJobId}` });
         if (!experience.error) runInBackground(triggerAutomaticEvolution(client, candidate.id).catch(() => null));
         if (!candidate.explicit) await client.from("pets").update({ implicit_cooldown_until: new Date(Date.now() + 10 * 60_000).toISOString() }).eq("id", candidate.id);
         await client.from("agent_jobs").update({ status: "succeeded", stage: "completed", progress_label: "异宠已回应", retryable: false, result: { replied: true, policy }, completed_at: new Date().toISOString() }).eq("id", petJobId);

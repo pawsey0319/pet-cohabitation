@@ -4,7 +4,7 @@ import { userFacingFunctionError } from "../lib/functionError";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { isLocalDemoMode, requireSupabase } from "../lib/supabase";
 import { DAILY_CANDIDATE_LIMIT, canGenerateInitialCandidate } from "../pets/rules";
-import type { AppProfile, PetEvolutionEvent, PetExpectations, PetExperience, PetGenerationSession, PetMotionState, PetPrivateMessage, PetRecallSource, PetRecord, PetRuntimeState, PetVisualAsset, StyleSignal } from "./types";
+import type { AppProfile, PetDashboard, PetEvolutionEvent, PetExpectations, PetExperience, PetGenerationSession, PetMotionState, PetPrivateMessage, PetRecallSource, PetRecord, PetRuntimeState, PetVisualAsset, StyleSignal } from "./types";
 
 const LOCAL_PET_KEY = "pet-cohabitation-local-pet-v2";
 
@@ -22,6 +22,7 @@ type LocalPetState = Readonly<{
 }>;
 
 export interface PetRepository {
+  getDashboard(): Promise<PetDashboard>;
   getPet(): Promise<PetRecord | null>;
   createPet(name: string): Promise<PetRecord>;
   getExpectations(): Promise<PetExpectations | null>;
@@ -56,6 +57,12 @@ function remaining(state: LocalPetState): number { return Math.max(0, DAILY_CAND
 
 class LocalPetRepository implements PetRepository {
   constructor(private readonly profile: AppProfile) {}
+  async getDashboard(): Promise<PetDashboard> {
+    const state = await loadLocal();
+    const pet = await this.getPet();
+    const currentAsset = pet?.currentAssetId ? state.assets.find((asset) => asset.id === pet.currentAssetId) ?? null : null;
+    return { pet, expectations: state.expectations ?? null, currentAsset, runtimeState: await this.getRuntimeState(), latestGeneration: (state.generationSessions ?? [])[0] ?? null };
+  }
   async getPet() { const state = await loadLocal(); return state.pet ? { ...state.pet, conversationTurns: state.messages.filter((message) => message.role === "owner").length, generationsRemainingToday: remaining(state) } : null; }
   async createPet(name: string) {
     const state = await loadLocal(); if (state.pet) return state.pet;
@@ -148,7 +155,7 @@ class LocalPetRepository implements PetRepository {
 
 function mapPet(row: Record<string, any>, turns: number, remainingToday: number): PetRecord { return { id: row.id, ownerId: row.owner_id, name: row.name, status: row.status, conversationTurns: turns, currentAssetId: row.current_asset_id, confirmedAt: row.confirmed_at, generationsRemainingToday: remainingToday }; }
 function mapAsset(row: Record<string, any>): PetVisualAsset { return { id: row.id, petId: row.pet_id, storagePath: row.storage_path, parentAssetId: row.parent_asset_id, evolutionEventId: row.evolution_event_id, isDraft: row.is_draft, createdAt: row.created_at }; }
-function mapGeneration(row: Record<string, any>): PetGenerationSession { return { id: row.id, status: row.status, instruction: row.instruction, baseAssetId: row.base_asset_id, explore: row.explore, attempts: Number(row.attempts ?? 0), errorCode: row.error_code ?? null, createdAt: row.created_at, completedAt: row.completed_at ?? null }; }
+function mapGeneration(row: Record<string, any>): PetGenerationSession { return { id: row.id, status: row.status, instruction: row.instruction, baseAssetId: row.base_asset_id, explore: row.explore, attempts: Number(row.attempts ?? 0), errorCode: row.error_code ?? null, stage: row.stage ?? undefined, progressLabel: row.progress_label ?? null, retryable: row.retryable ?? undefined, createdAt: row.created_at, completedAt: row.completed_at ?? null }; }
 function mapRecallSources(value: unknown): readonly PetRecallSource[] { return Array.isArray(value) ? value.map((source: Record<string, any>) => ({ spaceId: source.space_id, spaceName: source.space_name, messageId: source.message_id, createdAt: source.created_at })).filter((source) => source.spaceId && source.messageId) : []; }
 function mapPrivateMessage(row: Record<string, any>): PetPrivateMessage { return { id: row.id, role: row.role, content: row.content, createdAt: row.created_at, requestKey: row.request_key ?? null, replyStatus: row.reply_status ?? null, replyErrorCode: row.reply_error_code ?? null, replyPhaseUpdatedAt: row.reply_phase_updated_at ?? null, inReplyToId: row.in_reply_to_id ?? null, recallSources: mapRecallSources(row.recall_sources) }; }
 function mapEvolution(row: Record<string, any>): PetEvolutionEvent { return { id: row.id, parentAssetId: row.parent_asset_id, officialAssetId: row.official_asset_id, ownerBlessing: row.owner_blessing, status: row.status, failedAttempts: row.failed_attempts, continuityRepairUsed: row.continuity_repair_used, errorCode: row.error_code ?? null, createdAt: row.created_at, growthSnapshot: row.growth_snapshot ?? {} }; }
@@ -166,6 +173,21 @@ class SupabasePetRepository implements PetRepository {
       .maybeSingle();
     if (error) throw error;
     return data?.id ?? null;
+  }
+
+  async getDashboard(): Promise<PetDashboard> {
+    const { data, error } = await requireSupabase().rpc("get_my_pet_dashboard");
+    if (error) throw error;
+    const value = (data ?? {}) as Record<string, any>;
+    const petRow = value.pet as Record<string, any> | null | undefined;
+    const expectation = value.expectations as Record<string, any> | null | undefined;
+    return {
+      pet: petRow ? mapPet(petRow, Number(petRow.conversation_turns ?? 0), Number(petRow.generations_remaining_today ?? DAILY_CANDIDATE_LIMIT)) : null,
+      expectations: expectation ? { name: petRow?.name ?? "", appearance: expectation.appearance_expectation ?? "", personality: expectation.personality_expectation ?? "", companionship: expectation.companionship_expectation ?? "", excludedFeatures: expectation.excluded_features ?? "", additionalDescription: expectation.additional_description ?? "", personalitySeedPrompt: expectation.personality_seed_prompt ?? null, visualSeedPrompt: expectation.visual_seed_prompt ?? null, negativeSeedPrompt: expectation.negative_seed_prompt ?? null, seedSummary: expectation.seed_summary ?? null, version: Number(expectation.version ?? 0) } : null,
+      currentAsset: value.current_asset ? mapAsset(value.current_asset) : null,
+      runtimeState: value.runtime_state ? mapRuntime(value.runtime_state) : null,
+      latestGeneration: value.latest_generation ? mapGeneration(value.latest_generation) : null,
+    };
   }
 
   async getPet() {
@@ -192,15 +214,15 @@ class SupabasePetRepository implements PetRepository {
   async listPrivateMessages() { const client = requireSupabase(); void client.functions.invoke("deliver-reminders", { body: {} }).catch(() => undefined); const { data, error } = await client.from("pet_private_threads").select("id,role,content,created_at,request_key,reply_status,reply_error_code,reply_phase_updated_at,in_reply_to_id,recall_sources").order("created_at"); if (error) throw error; return (data ?? []).map(mapPrivateMessage); }
   async chat(content: string, requestKey = createRequestId()): Promise<PetPrivateMessage> { const client = requireSupabase(); const { data, error } = await client.functions.invoke("pet-chat", { body: { content, request_id: requestKey } }); if (error) throw await userFacingFunctionError(error, "异宠暂时无法回答，请稍后重试。"); if (data.agent_request_id) void client.functions.invoke("space-agent", { body: { request_id: data.agent_request_id } }).catch(() => undefined); return { id: data.id, role: "pet", content: data.content, createdAt: data.created_at, inReplyToId: data.in_reply_to_id ?? null, recallSources: mapRecallSources(data.recall_sources), agentRequestId: data.agent_request_id ?? null, targetSpaceName: data.target_space_name ?? null }; }
   async listAssets() { const petId = await this.getOwnedPetId(); if (!petId) return []; const { data, error } = await requireSupabase().from("pet_visual_assets").select("*").eq("pet_id", petId).order("created_at"); if (error) throw error; return (data ?? []).map(mapAsset); }
-  async listGenerationSessions() { const { data, error } = await requireSupabase().from("pet_generation_sessions").select("id,status,instruction,base_asset_id,explore,attempts,error_code,created_at,completed_at").order("created_at", { ascending: false }).limit(30); if (error) throw error; return (data ?? []).map(mapGeneration); }
+  async listGenerationSessions() { const petId = await this.getOwnedPetId(); if (!petId) return []; const { data, error } = await requireSupabase().from("pet_generation_sessions").select("id,status,instruction,base_asset_id,explore,attempts,error_code,stage,progress_label,retryable,created_at,completed_at").eq("pet_id", petId).order("created_at", { ascending: false }).limit(30); if (error) throw error; return (data ?? []).map(mapGeneration); }
   async generateCandidate(instruction: string, baseAssetId?: string | null, explore = false, expectations?: PetExpectations) { const { data, error } = await requireSupabase().functions.invoke("generate-pet-candidate", { body: { instruction: instruction.trim() || undefined, base_asset_id: baseAssetId ?? null, explore, expectations: expectations ? { appearance: expectations.appearance, personality: expectations.personality, companionship: expectations.companionship, excluded_features: expectations.excludedFeatures, additional_description: expectations.additionalDescription } : undefined, request_id: createRequestId() } }); if (error) throw await userFacingFunctionError(error, "异宠生成请求失败，请稍后重试。"); const row = await requireSupabase().from("pet_generation_sessions").select("*").eq("id", data.session_id).single(); if (row.error) throw row.error; return mapGeneration(row.data); }
   async retryGeneration(sessionId: string) { const { data, error } = await requireSupabase().functions.invoke("generate-pet-candidate", { body: { session_id: sessionId } }); if (error) throw await userFacingFunctionError(error, "异宠生成重试失败，请稍后再试。"); const row = await requireSupabase().from("pet_generation_sessions").select("*").eq("id", data.session_id).single(); if (row.error) throw row.error; return mapGeneration(row.data); }
   async confirmPet(assetId: string) { const { error } = await requireSupabase().functions.invoke("confirm-pet", { body: { asset_id: assetId } }); if (error) throw await userFacingFunctionError(error, "异宠确认失败，请稍后重试。"); }
-  async listStyleSignals() { const { data, error } = await requireSupabase().from("pet_style_signals").select("*, pet_style_feedback(feedback_kind,correction)").eq("active", true).order("created_at", { ascending: false }); if (error) throw error; return (data ?? []).map((row: Record<string, any>) => ({ id: row.id, tendency: row.tendency, rationale: row.rationale, sourceKind: row.source_kind, sourceLabel: row.source_label, confidence: Number(row.confidence), createdAt: row.created_at, feedback: row.pet_style_feedback?.[0]?.feedback_kind ?? null })); }
+  async listStyleSignals() { const petId = await this.getOwnedPetId(); if (!petId) return []; const { data, error } = await requireSupabase().from("pet_style_signals").select("*, pet_style_feedback(feedback_kind,correction)").eq("pet_id", petId).eq("active", true).order("created_at", { ascending: false }); if (error) throw error; return (data ?? []).map((row: Record<string, any>) => ({ id: row.id, tendency: row.tendency, rationale: row.rationale, sourceKind: row.source_kind, sourceLabel: row.source_label, confidence: Number(row.confidence), createdAt: row.created_at, feedback: row.pet_style_feedback?.[0]?.feedback_kind ?? null })); }
   async feedback(signalId: string, feedback: "accepted" | "corrected" | "forgotten", correction?: string) { const { error } = await requireSupabase().from("pet_style_feedback").upsert({ signal_id: signalId, feedback_kind: feedback, correction: correction ?? null }, { onConflict: "signal_id" }); if (error) throw error; }
   async createSignedAssetUrl(path: string) { const { data, error } = await requireSupabase().storage.from("pet-portraits").createSignedUrl(path, 900); if (error) throw error; return data.signedUrl; }
-  async listExperiences(): Promise<readonly PetExperience[]> { const { data, error } = await requireSupabase().from("pet_experiences").select("id,category,summary,space_id,occurred_at").order("occurred_at", { ascending: false }).limit(50); if (error) throw error; return (data ?? []).map((row) => ({ id: row.id, category: row.category, summary: row.summary, spaceId: row.space_id, occurredAt: row.occurred_at })); }
-  async listEvolutionEvents(): Promise<readonly PetEvolutionEvent[]> { const { data, error } = await requireSupabase().from("pet_evolution_events").select("id,parent_asset_id,official_asset_id,owner_blessing,status,failed_attempts,continuity_repair_used,error_code,created_at,growth_snapshot").order("created_at", { ascending: false }); if (error) throw error; return (data ?? []).map(mapEvolution); }
+  async listExperiences(): Promise<readonly PetExperience[]> { const petId = await this.getOwnedPetId(); if (!petId) return []; const { data, error } = await requireSupabase().from("pet_experiences").select("id,category,summary,space_id,occurred_at").eq("pet_id", petId).order("occurred_at", { ascending: false }).limit(50); if (error) throw error; return (data ?? []).map((row) => ({ id: row.id, category: row.category, summary: row.summary, spaceId: row.space_id, occurredAt: row.occurred_at })); }
+  async listEvolutionEvents(): Promise<readonly PetEvolutionEvent[]> { const petId = await this.getOwnedPetId(); if (!petId) return []; const { data, error } = await requireSupabase().from("pet_evolution_events").select("id,parent_asset_id,official_asset_id,owner_blessing,status,failed_attempts,continuity_repair_used,error_code,created_at,growth_snapshot").eq("pet_id", petId).order("created_at", { ascending: false }); if (error) throw error; return (data ?? []).map(mapEvolution); }
   async getRuntimeState(): Promise<PetRuntimeState | null> { const petId = await this.getOwnedPetId(); if (!petId) return null; const { data, error } = await requireSupabase().from("pet_runtime_states").select("pet_id,state,source_kind,source_id,started_at,expires_at").eq("pet_id", petId).maybeSingle(); if (error) throw error; return data ? mapRuntime(data) : null; }
   async performAction(action: "care" | "feed" | "play" | "rest"): Promise<PetRuntimeState> { const client = requireSupabase(); const petId = (await this.getPet())?.id; if (!petId) throw new Error("请先孵化异宠"); const { error } = await client.rpc("perform_pet_action", { target_pet_id: petId, action_kind: action, target_space_id: null, action_note: "", request_id: createRequestId() }); if (error) throw error; void client.functions.invoke("evaluate-pet-growth", { body: { pet_id: petId } }).catch(() => undefined); const state = await this.getRuntimeState(); if (!state) throw new Error("异宠动作状态写入失败"); return state; }
   async retryEvolution(eventId: string, continuityRepair = false): Promise<PetEvolutionEvent> { const { data, error } = await requireSupabase().functions.invoke("evolve-pet", { body: { event_id: eventId, continuity_repair: continuityRepair } }); if (error) throw error; const row = await requireSupabase().from("pet_evolution_events").select("*").eq("id", data.event_id).single(); if (row.error) throw row.error; return mapEvolution(row.data); }
