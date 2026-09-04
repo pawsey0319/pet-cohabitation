@@ -6,6 +6,13 @@
 
 GitHub Actions 备用包使用调试签名，不是商店正式版。当前没有配置 FCM，不能依赖系统通知栏提醒；应用内通知收件箱及聊天历史仍保存在云端。iPhone 本轮继续使用手机浏览器，不安装此 APK。
 
+## 2026-09-04 登录修复包（1.0.4）
+
+- [EAS 构建记录与安装入口](https://expo.dev/accounts/pawsey/projects/pet-cohabitation/builds/32d2631c-fda3-4cf0-86bc-97c01e2b74fd)：构建成功，版本 `1.0.4`，versionCode `5`，应用代码提交 `14f02a7`。
+- 本地文件：`.expo/artifacts/android-preview/pet-cohabitation-1.0.4.apk`，121,367,511 字节。SHA-256：`F8C1A86BF76E30286C119A2A1DD036110FD33804911D6CFD9951A9B10D04BD7A`。
+- 已从 APK 内部核对正式 Supabase 地址和 publishable key，并用该 key 请求 Auth 设置接口，返回 HTTP 200。构建前脚本也会执行相同检查，错误 key 或本机地址会直接阻断出包。
+- 旧 `1.0.0` APK 没有配置 OTA 更新地址，不能自动取得本次修复。请覆盖安装 `1.0.4`；若系统拒绝覆盖，卸载旧版后再安装，并重新登录。
+
 ## 2026-09-03 构建产物
 
 - [构建记录](https://github.com/pawsey0319/pet-cohabitation/actions/runs/33714157242)：成功，应用代码提交 `2b31583`；后续提交只更新测试和文档。
