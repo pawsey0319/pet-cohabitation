@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit",
     "export:web": "expo export --platform web",
     "export:android": "expo export --platform android --output-dir .expo/android-export",
-    "build:android:preview": "npx eas-cli build --platform android --profile preview",
+    "build:android:preview": "node scripts/update-preview-safe.mjs --build",
     "build:android:production": "npx eas-cli build --platform android --profile production",
     "update:preview": "node scripts/update-preview-safe.mjs"
   },

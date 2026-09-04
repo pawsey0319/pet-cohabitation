@@ -51,22 +51,41 @@ if (previewEnvironment.EXPO_PUBLIC_DEMO_MODE !== "false") {
   fail("EAS preview 未明确关闭 Demo 模式，已取消 OTA 发布。");
 }
 
-console.log(`发布前检查通过：Android 将连接 ${parsedUrl.origin}`);
+let authCheck;
+try {
+  authCheck = await fetch(`${parsedUrl.origin}/auth/v1/settings`, {
+    headers: {
+      apikey: publishableKey,
+      Authorization: `Bearer ${publishableKey}`,
+    },
+    signal: AbortSignal.timeout(15_000),
+  });
+} catch {
+  fail("无法使用 EAS preview 配置连接 Supabase Auth，已取消 OTA 发布。");
+}
+if (!authCheck.ok) {
+  fail(`Supabase 拒绝当前 Publishable Key（HTTP ${authCheck.status}），已取消 OTA 发布。`);
+}
+
+console.log(`发布前检查通过：Android 将连接 ${parsedUrl.origin}，API Key 已通过 Auth 验证。`);
 
 const messageIndex = process.argv.indexOf("--message");
 const message = messageIndex >= 0 ? process.argv[messageIndex + 1] : "Android preview update";
+const isBuild = process.argv.includes("--build");
 const published = run(
-  [
-    "update",
-    "--channel",
-    "preview",
-    "--platform",
-    "android",
-    "--environment",
-    "preview",
-    "--message",
-    message,
-  ],
+  isBuild
+    ? ["build", "--platform", "android", "--profile", "preview", "--non-interactive"]
+    : [
+        "update",
+        "--channel",
+        "preview",
+        "--platform",
+        "android",
+        "--environment",
+        "preview",
+        "--message",
+        message,
+      ],
   {
     env: { ...process.env, ...previewEnvironment },
     stdio: "inherit",
