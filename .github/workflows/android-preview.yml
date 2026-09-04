@@ -52,6 +52,15 @@ jobs:
             https://*.supabase.co) ;;
             *) echo "Supabase URL must be a cloud URL" >&2; exit 1 ;;
           esac
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --max-time 15 \
+            --header "apikey: $EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY" \
+            --header "Authorization: Bearer $EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY" \
+            "$EXPO_PUBLIC_SUPABASE_URL/auth/v1/settings" \
+            > /dev/null
 
       - name: Generate Android project
         run: npx expo prebuild --platform android --clean --non-interactive
