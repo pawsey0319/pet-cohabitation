@@ -126,6 +126,8 @@ $functions | ForEach-Object { npx supabase functions deploy $_ }
 
 ### 临时使用本机 CPA
 
+本机日常操作请优先阅读 [自己重启 AI 隧道](restart-ai.md)，直接双击仓库内的 `启动AI隧道.cmd`。它会同步地址并通过临时诊断账号从云端验证文本、图片接口；完成后自动删除诊断账号，不读取真实聊天或异宠。
+
 电脑开机测试时，可以把本机 CPA 安全映射给 Supabase 云函数：
 
 ```powershell

@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$ProjectRef = "",
   [string]$AllowedOrigin = "",
   [string]$CpaConfigPath = $env:CPA_CONFIG_PATH,
@@ -63,9 +63,9 @@ if (-not $cloudflared) { throw "未找到 cloudflared。请先执行 winget inst
 
 $stateDir = Join-Path $repoRoot "supabase/.temp"
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
-$stdout = Join-Path $stateDir "model-tunnel.stdout.log"
-$stderr = Join-Path $stateDir "model-tunnel.stderr.log"
-Remove-Item -LiteralPath $stdout, $stderr -Force -ErrorAction SilentlyContinue
+$logStamp = Get-Date -Format "yyyyMMdd-HHmmss-fff"
+$stdout = Join-Path $stateDir "model-tunnel-$logStamp.stdout.log"
+$stderr = Join-Path $stateDir "model-tunnel-$logStamp.stderr.log"
 $process = Start-Process -FilePath $cloudflared -ArgumentList @("tunnel", "--url", "http://127.0.0.1:8317", "--protocol", $TunnelProtocol, "--no-autoupdate") -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
 
 $tunnelUrl = ""
@@ -80,12 +80,10 @@ if (-not $tunnelUrl) { Stop-Process -Id $process.Id -Force -ErrorAction Silently
 $modelBase = "$tunnelUrl/v1"
 $publicReady = $false
 if (-not $SkipLocalPublicProbe) {
-  for ($attempt = 0; $attempt -lt 60; $attempt += 1) {
+  $probeClock = [System.Diagnostics.Stopwatch]::StartNew()
+  while ($probeClock.Elapsed.TotalSeconds -lt 60) {
     try {
       $probeArguments = @{ UseBasicParsing = $true; Uri = "$modelBase/models"; Headers = $headers; TimeoutSec = 8 }
-      if ((Get-Command Invoke-WebRequest).Parameters.ContainsKey("SkipCertificateCheck")) {
-        $probeArguments.SkipCertificateCheck = $true
-      }
       $null = Invoke-WebRequest @probeArguments
       $publicReady = $true
       break
@@ -96,7 +94,7 @@ if (-not $SkipLocalPublicProbe) {
 if (-not $publicReady -and $ProjectRef -and -not $SkipLocalPublicProbe) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue; throw "隧道已经建立，但 60 秒内公网模型探测仍失败，因此没有更新 Supabase Secrets。请检查当前网络是否能访问 trycloudflare.com。" }
 if (-not $publicReady) { Write-Warning "隧道连接已建立，但本机未完成公网探测；进程会继续运行，部署后必须从云端再次验证。" }
 
-@{ process_id = $process.Id; tunnel_url = $tunnelUrl; public_probe_passed = $publicReady; started_at = (Get-Date).ToString("o"); stdout = $stdout; stderr = $stderr } |
+@{ process_id = $process.Id; process_started_at = $process.StartTime.ToUniversalTime().ToString("o"); tunnel_url = $tunnelUrl; public_probe_passed = $publicReady; started_at = (Get-Date).ToString("o"); stdout = $stdout; stderr = $stderr } |
   ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stateDir "model-tunnel.json") -Encoding UTF8
 
 if ($ProjectRef) {
@@ -111,9 +109,15 @@ if ($ProjectRef) {
   )
   if ($settings.DEMO_PURGE_SECRET) { $secrets += "DEMO_PURGE_SECRET=$($settings.DEMO_PURGE_SECRET)" }
   if ($AllowedOrigin) { $secrets += "ALLOWED_ORIGINS=$AllowedOrigin,http://localhost:8081,http://localhost:8082,http://localhost:3000" }
-  & npx --yes supabase secrets set --project-ref $ProjectRef @secrets
-  if ($LASTEXITCODE -ne 0) { throw "隧道已启动，但 Supabase Secrets 更新失败。" }
+  $secretFile = Join-Path $stateDir ("model-secrets-" + [guid]::NewGuid().ToString("N") + ".env")
+  try {
+    [System.IO.File]::WriteAllLines($secretFile, $secrets, (New-Object System.Text.UTF8Encoding($false)))
+    & npx.cmd --yes supabase secrets set --project-ref $ProjectRef --env-file $secretFile
+    if ($LASTEXITCODE -ne 0) { throw "隧道已启动，但 Supabase Secrets 更新失败。" }
+  } finally {
+    if (Test-Path -LiteralPath $secretFile) { Remove-Item -LiteralPath $secretFile -Force }
+  }
 }
 
-Write-Output "CPA 公网隧道已就绪：$tunnelUrl"
-Write-Output "进程 ID：$($process.Id)。电脑、CPA 和该进程运行期间，云端异宠模型可用。"
+Write-Output "CPA 公网隧道地址：$tunnelUrl"
+Write-Output "进程 ID：$($process.Id)。请保持电脑、CPA 和该进程运行；实际可用性以云端检查为准。"
