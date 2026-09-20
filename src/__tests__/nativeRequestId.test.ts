@@ -40,12 +40,14 @@ describe("native request IDs without browser crypto", () => {
   it("mounts two pet subscriptions and releases only the owner's channels", () => {
     const repo = createPetRepository({ id: "owner", email: "test@example.test", nickname: "测试", isAdmin: false });
     const stopA = repo.subscribe(() => undefined);
+    const firstCount = mockChannels.length;
+    expect(mockChannels.some(name => name.includes("pet_memory_evidence"))).toBe(true);
     const stopB = repo.subscribe(() => undefined);
-    expect(mockChannels).toHaveLength(10);
-    expect(new Set(mockChannels).size).toBe(10);
+    expect(mockChannels).toHaveLength(firstCount * 2);
+    expect(new Set(mockChannels).size).toBe(firstCount * 2);
     stopB();
-    expect(mockRemoveChannel).toHaveBeenCalledTimes(5);
+    expect(mockRemoveChannel).toHaveBeenCalledTimes(firstCount);
     stopA();
-    expect(mockRemoveChannel).toHaveBeenCalledTimes(10);
+    expect(mockRemoveChannel).toHaveBeenCalledTimes(firstCount * 2);
   });
 });

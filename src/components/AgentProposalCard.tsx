@@ -1,3 +1,4 @@
+import { createThemedStyles } from "../theme/themedStyles";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { AgentProposal } from "../data/types";
 import { colors, radii, spacing } from "../theme/tokens";
@@ -16,6 +17,7 @@ export function AgentProposalCard({ proposal, currentUserId, onVote, disabled = 
   onVote(decision: "approve" | "reject"): void;
   disabled?: boolean;
 }>) {
+  const { styles, colors } = useStyles();
   const kind = String(proposal.content.request_kind ?? "group_plan");
   const summary = String(proposal.content.summary ?? proposal.title);
   const scheduledFor = typeof proposal.content.scheduled_for === "string" ? proposal.content.scheduled_for : null;
@@ -35,9 +37,9 @@ export function AgentProposalCard({ proposal, currentUserId, onVote, disabled = 
   </View>;
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors, theme) => ({
   card: { width: "100%", minWidth: 250, maxWidth: 460, padding: spacing.md, borderRadius: radii.md, borderWidth: 1, borderColor: colors.mint, backgroundColor: colors.canvasRaised, gap: 7 },
-  head: { flexDirection: "row", justifyContent: "space-between", gap: 8 }, kind: { color: colors.mint, fontWeight: "900", fontSize: 12 }, status: { color: colors.lavender, fontSize: 11 },
-  title: { color: colors.text, fontSize: 16, fontWeight: "900", lineHeight: 23 }, detail: { color: colors.textMuted, fontSize: 12 }, voteCount: { color: colors.lavenderSoft, fontSize: 11 },
-  actions: { flexDirection: "row", gap: 8, marginTop: 3 }, button: { flex: 1, minHeight: 36, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: colors.surface }, approveActive: { borderWidth: 1, borderColor: colors.mint }, rejectActive: { borderWidth: 1, borderColor: colors.coral }, approve: { color: colors.mint, fontWeight: "900" }, reject: { color: colors.coralSoft, fontWeight: "900" }, expires: { color: colors.textMuted, fontSize: 9 },
-});
+  head: { flexDirection: "row", justifyContent: "space-between", gap: 8 }, kind: { color: colors.mint, fontWeight: "700", fontSize: 12 }, status: { color: colors.lavender, fontSize: 11 },
+  title: { color: colors.text, fontSize: 16, fontWeight: "700", lineHeight: 23 }, detail: { color: colors.textMuted, fontSize: 12 }, voteCount: { color: colors.lavenderSoft, fontSize: 11 },
+  actions: { flexDirection: "row", gap: 8, marginTop: 3 }, button: { flex: 1, minHeight: 36, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: colors.surface }, approveActive: { borderWidth: 1, borderColor: colors.mint }, rejectActive: { borderWidth: 1, borderColor: colors.coral }, approve: { color: colors.mint, fontWeight: "700" }, reject: { color: theme.danger, fontWeight: "700" }, expires: { color: colors.textMuted, fontSize: 9 },
+}));

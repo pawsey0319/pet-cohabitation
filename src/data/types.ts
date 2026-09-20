@@ -37,6 +37,7 @@ export type ChatMessage = Readonly<{
   actorKind: ActorKind;
   actorId?: string | null;
   actorName: string;
+  senderAvatarUrl?: string | null;
   kind: MessageKind;
   text: string | null;
   mediaPath: string | null;
@@ -44,11 +45,14 @@ export type ChatMessage = Readonly<{
   replyToMessageId: string | null;
   replyPreview: string | null;
   createdAt: string;
+  updatedAt?: string;
   deliveryState: DeliveryState;
   reactions: Readonly<Record<string, readonly string[]>>;
   deletedAt?: string | null;
   delegatedByPetId?: string | null;
   delegationRequestId?: string | null;
+  delegationConfirmedAt?: string | null;
+  delegationConfirmedBy?: string | null;
   agentProposalId?: string | null;
   mentions?: readonly MessageMention[];
 }>;
@@ -128,6 +132,7 @@ export type AgentJob = Readonly<{
   progressLabel?: string | null;
   retryable?: boolean;
   providerCheckedAt?: string | null;
+  replyPetIds?: readonly string[];
 }>;
 
 export type QueuedMessage = Readonly<{
@@ -197,7 +202,16 @@ export type StyleSignal = Readonly<{
   feedback: "accepted" | "corrected" | "forgotten" | null;
 }>;
 
+export type PetChatMode = "companion" | "steward";
+export type PetConversationKind = PetChatMode | "legacy";
+
 export type PetPrivateMessage = Readonly<{
+  imageAssetId?: string | null;
+  imageAssetVersion?: number | null;
+  conversationKind?: PetConversationKind;
+  memoryEvidenceIds?: readonly string[];
+  manualMemoryIds?: readonly string[];
+  contextMessageIds?: readonly string[];
   id: string;
   role: "owner" | "pet";
   content: string;
@@ -318,4 +332,32 @@ export type AdminDemoMetrics = Readonly<{
   averageLatencyMs: number;
   feedback: Readonly<Record<string, number>>;
   recentErrors: readonly Readonly<{ error_code: string; total: number }>[];
+}>;
+
+export type PetPersonalMemory = Readonly<{
+  id: string;
+  content: string;
+  sourceMessageId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}>;
+
+export type PetCompanionContext = Readonly<{
+  revision?: number;
+  memories: readonly PetPersonalMemory[];
+  contextStartedAt: string | null;
+  preferences?: readonly import("../../supabase/functions/_shared/preferenceMemory").PreferenceView[];
+  excludedMessageIds?: readonly string[];
+  manualHistory?: readonly { id: string; memoryId: string; content: string; createdAt: string }[];
+  pendingExtractions?: number;
+  failedExtractions?: number;
+}>;
+
+export type PreferenceAction = Readonly<{ key: string; action: "important" | "positive" | "negative" | "retract" | "forget"; important?: boolean; evidenceId?: string }>;
+export type MemoryEvidencePage = Readonly<{ items: readonly import("../../supabase/functions/_shared/preferenceMemory").MemoryEvidence[]; nextOffset: number | null }>;
+
+export type SavePetMemoryInput = Readonly<{
+  id?: string;
+  content: string;
+  sourceMessageId?: string | null;
 }>;

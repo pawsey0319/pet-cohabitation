@@ -16,8 +16,8 @@ Deno.serve(async (request) => {
     const verified = await anonClient().auth.signInWithPassword({ email: user.email, password: input.password });
     if (verified.error || verified.data.user?.id !== user.id) throw new Error("password_verification_failed");
 
-    const redactedAt = await redactAndDeleteAccount(serviceClient(), user.id);
-    return json(request, { deleted: true, redacted_at: redactedAt });
+    const result = await redactAndDeleteAccount(serviceClient(), user.id);
+    return json(request, { deleted: true, redacted_at: result.redactedAt, storage_cleanup: result.storageCleanup });
   } catch (reason) {
     return errorResponse(request, reason);
   }

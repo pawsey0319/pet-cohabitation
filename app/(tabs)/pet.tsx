@@ -1,5 +1,20 @@
-import { Redirect } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { WorkActionCard } from "../../src/work/WorkActionCard";
+import { StewardActionCard } from "../../src/work/StewardActionCard";
+import type { PrivateStreamEvent, PrivateChatOptions } from "../../src/pets/streamClient";
+import { usePetDisplay, PetDisplayControls } from "../../src/avatars/petDisplay";
+import { ChatBackgroundEditor } from "../../src/backgrounds/ChatBackgroundEditor";
+import { ChatBackgroundSurface, useChatBackgroundColors } from "../../src/backgrounds/ChatBackgroundSurface";
+import { Icon } from "../../src/ui/Icon";
+import { PetSectionNav } from "../../src/components/PetSectionNav";
+import { createThemedStyles } from "../../src/theme/themedStyles";
+import { PetCompanionPanel } from "../../src/components/PetCompanionPanel";
+import type { PetCompanionContext } from "../../src/data/types";
+import { KeyboardScreen, KeyboardScrollView, KeyboardTextInput } from "../../src/components/KeyboardLayout";
+import { Redirect, useFocusEffect, useLocalSearchParams, useRouter, type Href } from "expo-router";
+import { mergePrivateHistory } from "../../src/pets/privateHistory";
+import { MemorySourceModal, type MemorySourceTarget } from "../../src/memory/MemorySourceModal";
+import { MemoryReviewPanel } from "../../src/memory/MemoryReviewPanel";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRequestId } from "../../src/lib/uuid";
 import {
   ActivityIndicator,
@@ -17,6 +32,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSession } from "../../src/auth/SessionProvider";
 import { GenerativePetPreview } from "../../src/components/GenerativePetPreview";
 import { LivingPetPortrait } from "../../src/components/LivingPetPortrait";
+import { DraggablePetStage } from "../../src/components/DraggablePetStage";
 import { EnterSendTextInput } from "../../src/components/EnterSendTextInput";
 import { createChatRepository } from "../../src/data/chatRepository";
 import { createPetRepository } from "../../src/data/petRepository";
@@ -42,13 +58,16 @@ function CandidateVisual({
   asset,
   url,
   size = 250,
-}: Readonly<{ asset: PetVisualAsset; url?: string | null; size?: number }>) {
+  transparent = false,
+}: Readonly<{ asset: PetVisualAsset; url?: string | null; size?: number; transparent?: boolean }>) {
+  const { styles, colors } = useStyles();
   return asset.storagePath.startsWith("local-") ? (
     <GenerativePetPreview seed={asset.storagePath} size={size} />
   ) : url ? (
     <Image
       source={{ uri: url }}
-      style={{ width: size, height: size, borderRadius: 28 }}
+      resizeMode="contain"
+      style={{ width: size, height: size, borderRadius: transparent ? 0 : 28 }}
     />
   ) : (
     <ActivityIndicator color={colors.mint} />
@@ -64,6 +83,7 @@ function SignalCard({
   onFeedback(kind: "accepted" | "forgotten"): void;
   onCorrect(): void;
 }>) {
+  const { styles, colors } = useStyles();
   return (
     <Surface
       style={[
@@ -119,6 +139,7 @@ function ReplyProgress({
   busy,
   onRetry,
 }: Readonly<{ message: PetPrivateMessage; busy: boolean; onRetry(): void }>) {
+  const { styles, colors } = useStyles();
   if (!message.replyStatus || message.replyStatus === "succeeded") return null;
   if (message.replyStatus === "failed")
     return (
@@ -162,7 +183,13 @@ function ReplyProgress({
 }
 
 export default function PetRoute() {
+  const { styles, colors } = useStyles();
+  const [backgroundOpen,setBackgroundOpen]=useState(false);
+  const stewardBackground=useChatBackgroundColors("steward");
   const { profile, isLocalDemo } = useSession();
+  const router = useRouter();
+  const params = useLocalSearchParams<{ messageId?: string; memoryId?: string; memory_id?: string }>();
+  const [sourceTarget, setSourceTarget] = useState<MemorySourceTarget | null>(null);
   const insets = useSafeAreaInsets();
   const repository = useMemo(
     () => (profile ? createPetRepository(profile) : null),
@@ -174,6 +201,7 @@ export default function PetRoute() {
   );
   const { theme } = useAppTheme();
   const [pet, setPet] = useState<PetRecord | null>(null);
+  const petDisplay = usePetDisplay(pet?.status === "confirmed" ? pet.id : null,pet?.currentAssetId);
   const [messages, setMessages] = useState<readonly PetPrivateMessage[]>([]);
   const [assets, setAssets] = useState<readonly PetVisualAsset[]>([]);
   const [signals, setSignals] = useState<readonly StyleSignal[]>([]);
@@ -197,6 +225,13 @@ export default function PetRoute() {
   const [additionalDescription, setAdditionalDescription] = useState("");
   const [expectationVersion, setExpectationVersion] = useState(0);
   const [seedSummary, setSeedSummary] = useState<string | null>(null);
+  const activeOwner = useRef(profile?.id); activeOwner.current = profile?.id;
+  const messageOwner = useRef<string | undefined>(undefined);
+  const loadSequence = useRef(0);
+  const [loadedOwner, setLoadedOwner] = useState<string | null>(null);
+  const [companion, setCompanion] = useState<PetCompanionContext | null>(null);
+  const [enteredAt, setEnteredAt] = useState(Date.now());
+  useFocusEffect(useCallback(() => { setEnteredAt(Date.now()); }, []));
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -207,11 +242,21 @@ export default function PetRoute() {
   const [petSection, setPetSection] = useState<
     "companion" | "steward" | "growth"
   >("companion");
+  useEffect(() => {
+    setSourceTarget(null);
+    const messageId = params.messageId, memoryId = params.memoryId ?? params.memory_id;
+    if (typeof messageId === "string") { setPetSection("companion"); setSourceTarget({ kind: "message", id: messageId }); }
+    else if (typeof memoryId === "string") { setPetSection("companion"); setSourceTarget({ kind: "memory", id: memoryId }); }
+  }, [profile?.id, params.messageId, params.memoryId, params.memory_id]);
+  const closeSource = () => { setSourceTarget(null); router.setParams({ messageId: undefined, memoryId: undefined, memory_id: undefined }); };
 
   const load = useCallback(async () => {
     if (!repository) return;
+    const ownerId = profile?.id;
+    const sequence = ++loadSequence.current;
     try {
       const dashboard = await repository.getDashboard();
+      if (activeOwner.current !== ownerId || sequence !== loadSequence.current) return;
       const nextPet = dashboard.pet;
       const nextExpectations = dashboard.expectations;
       setPet(nextPet);
@@ -235,6 +280,7 @@ export default function PetRoute() {
       setError(null);
       setLoading(false);
       if (!nextPet) {
+        setLoadedOwner(ownerId ?? null); setCompanion(null);
         setMessages([]); setAssets([]); setSignals([]); setExperiences([]); setEvents([]); setLoadWarnings([]);
         return;
       }
@@ -242,9 +288,15 @@ export default function PetRoute() {
       const sections = await Promise.allSettled([
         repository.listPrivateMessages(), repository.listAssets(), repository.listStyleSignals(),
         repository.listExperiences(), repository.listEvolutionEvents(), repository.listGenerationSessions(),
+        nextPet.status === "confirmed" ? repository.getCompanionContext() : Promise.resolve(null),
       ]);
+      if (activeOwner.current !== ownerId || sequence !== loadSequence.current) return;
+      setLoadedOwner(ownerId ?? null);
       const warnings: string[] = [];
-      if (sections[0].status === "fulfilled") setMessages(sections[0].value); else warnings.push("私聊记录暂时无法加载");
+      if (sections[0].status === "fulfilled") {
+        const page = sections[0].value; const sameOwner = messageOwner.current === ownerId; messageOwner.current = ownerId;
+        setMessages(current => mergePrivateHistory(sameOwner ? current : [], page, true));
+      } else warnings.push("私聊记录暂时无法加载");
       if (sections[1].status === "fulfilled") {
         setAssets(sections[1].value);
         if (nextPet.status !== "confirmed") setSelectedAssetId(sections[1].value.at(-1)?.id ?? dashboard.currentAsset?.id ?? null);
@@ -255,13 +307,14 @@ export default function PetRoute() {
       if (sections[3].status === "fulfilled") setExperiences(sections[3].value); else warnings.push("成长经历暂时无法加载");
       if (sections[4].status === "fulfilled") setEvents(sections[4].value); else warnings.push("进化记录暂时无法加载");
       if (sections[5].status === "fulfilled") setGenerationSessions(sections[5].value); else warnings.push("生成历史暂时无法加载");
+      if (sections[6].status === "fulfilled") setCompanion(sections[6].value); else warnings.push("记忆暂时无法加载，请稍后刷新");
       setLoadWarnings(warnings);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "异宠档案加载失败");
+      if (activeOwner.current === ownerId && sequence === loadSequence.current) setError(reason instanceof Error ? reason.message : "异宠档案加载失败");
     } finally {
-      setLoading(false);
+      if (sequence === loadSequence.current) setLoading(false);
     }
-  }, [repository]);
+  }, [repository, profile?.id]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -272,7 +325,20 @@ export default function PetRoute() {
         .then(setSpaceDigests)
         .catch(() => undefined);
   }, [chatRepository, profile?.id]);
-  useEffect(() => repository?.subscribe(() => void load()), [load, repository]);
+  useEffect(() => {
+    let running=false; let dirty=false; let active=true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const refresh=async()=>{
+      if(!active||running)return;
+      dirty=false; running=true;
+      try{await load();}finally{running=false;if(active&&dirty)timer=setTimeout(()=>void refresh(),200);}
+    };
+    const unsubscribe=repository?.subscribe(()=>{
+      dirty=true;
+      if(!running){clearTimeout(timer);timer=setTimeout(()=>void refresh(),200);}
+    });
+    return()=>{active=false;clearTimeout(timer);unsubscribe?.();};
+  }, [load, repository]);
   useEffect(() => {
     if (!runtime?.expiresAt) return;
     const timer = setInterval(() => setNow(Date.now()), 1_000);
@@ -286,7 +352,7 @@ export default function PetRoute() {
         ?.createSignedAssetUrl(asset.storagePath)
         .then((url) =>
           setUrls((current) => ({ ...current, [asset.storagePath]: url })),
-        );
+        ).catch(() => undefined);
     }
   }, [assets, repository, urls]);
   const sendChat = useCallback(
@@ -303,6 +369,7 @@ export default function PetRoute() {
         createdAt: new Date().toISOString(),
         requestKey,
         replyStatus: "queued",
+        conversationKind: "steward",
         replyPhaseUpdatedAt: new Date().toISOString(),
       };
       setMessages((current) =>
@@ -311,7 +378,7 @@ export default function PetRoute() {
           : [...current, optimistic],
       );
       try {
-        await repository.chat(content, requestKey);
+        await repository.chat(content, requestKey, "steward");
       } catch {
         setError(
           "异宠回答没有完成。问题已经保留，请查看对应消息下方的状态并重试。",
@@ -324,6 +391,7 @@ export default function PetRoute() {
     [busy, chat, load, repository],
   );
   if (!profile || !repository) return <Redirect href="/login" />;
+  if (loadedOwner !== profile.id) return <View style={{flex:1,justifyContent:"center",padding:24}}><ActivityIndicator /><Text style={styles.copy}>{error ?? "正在加载当前账号的异宠…"}</Text><AppButton label="重新加载" onPress={() => void load()} /></View>;
   const selected = assets.find((asset) => asset.id === selectedAssetId) ?? null;
   const act = async (operation: () => Promise<void>) => {
     setBusy(true);
@@ -394,8 +462,61 @@ export default function PetRoute() {
         <ActivityIndicator color={colors.coral} />
       </View>
     );
+  const companionAction = async (operation: () => Promise<unknown>) => {
+    setBusy(true);
+    try { await operation(); } finally { await load(); setBusy(false); }
+  };
+  const sendCompanion = async (content:string, requestId=createRequestId(), onEvent?:(event:PrivateStreamEvent)=>void, options?:PrivateChatOptions) => {
+    const ownerId=profile.id;
+    if(options?.signal?.aborted)throw new Error("已停止这次回答。");
+    setBusy(true);
+    setMessages(current=>current.some(message=>message.requestKey===requestId)?current:[...current,{
+      id:`pending:${requestId}`,role:"owner",content,requestKey:requestId,replyStatus:"queued",conversationKind:"companion",createdAt:new Date().toISOString(),imageAssetId:options?.imageAssetId??null,imageAssetVersion:options?.imageAssetVersion??null,
+    }]);
+    try{
+      const reply=await repository.chat(content,requestId,"companion",{...options,onEvent});
+      if(activeOwner.current!==ownerId)return;
+      setMessages(current=>{
+        const updated=current.map(message=>message.role==="owner"&&message.requestKey===requestId?
+          {...message,id:reply.inReplyToId??message.id,replyStatus:"succeeded" as const,replyErrorCode:null}:message);
+        return updated.some(message=>message.id===reply.id)?updated:[...updated,reply];
+      });
+    }finally{
+      if(activeOwner.current===ownerId){setBusy(false);void load();}
+    }
+  };
+  if (pet?.status === "confirmed" && petSection === "companion") return (
+    <KeyboardScreen style={{flex:1,minHeight:0,backgroundColor:theme.page,paddingTop:insets.top}}>
+      {loadWarnings.length ? <Pressable onPress={() => void load()}><Text style={styles.copy}>{loadWarnings.join("；")} · 点击重试</Text></Pressable> : null}
+      {companion ? <PetCompanionPanel key={`companion:${profile.id}`} ownerId={profile.id} petId={isLocalDemo ? undefined : pet.id} petName={pet.name} incubating={false}
+        onSource={id => setSourceTarget({ kind: "message", id })} onSearch={() => router.push("/search" as Href)}
+        navigation={<PetSectionNav value={petSection} onChange={setPetSection} />}
+        portraitPetId={pet.id} display={petDisplay}
+        originalPortrait={selected ? <CandidateVisual asset={selected} url={urls[selected.storagePath]} size={160} transparent /> : undefined}
+        portrait={selected ? size => <LivingPetPortrait state={motionState} compact><CandidateVisual asset={selected} url={petDisplay.url ?? urls[selected.storagePath]} size={size} transparent /></LivingPetPortrait> : undefined}
+        messages={messages.filter(message=>message.conversationKind!=="steward")} context={companion} enteredAt={enteredAt} busy={busy}
+        onSend={sendCompanion}
+        onStop={requestId=>repository.stopPrivateReply(requestId)}
+        renderActions={sourceMessageId=>!sourceMessageId.startsWith("pending:")?<WorkActionCard sourceMessageId={sourceMessageId}/>:null}
+        onLoadOlder={async()=>{
+          const first=messages.filter(m=>!m.id.startsWith("pending:")).at(0);if(!first)return false;
+          const older=await repository.listPrivateMessages({at:first.createdAt,id:first.id});
+          if (activeOwner.current !== profile.id) return false;
+          setMessages(current=>mergePrivateHistory(current,older));
+          return older.length===50;
+        }}
+        onUpdatePreference={input => companionAction(() => repository.updatePreference(input))}
+        onListEvidence={(key,offset) => repository.listMemoryEvidence(key,offset)}
+        onRetryExtraction={() => companionAction(() => repository.retryMemoryExtraction())}
+        onSaveMemory={input => companionAction(() => repository.savePersonalMemory(input))}
+        onRemoveMemory={id => companionAction(() => repository.removePersonalMemory(id))}
+        onNewConversation={() => companionAction(() => repository.startNewConversation())} />
+        : <View style={{padding:24}}><Text style={styles.copy}>正在加载你们的对话与记忆…</Text><AppButton label="重新加载" onPress={() => void load()} /></View>}
+      {!isLocalDemo ? <MemorySourceModal key={`memory-source:${profile.id}`} ownerId={profile.id} petId={pet.id} target={sourceTarget} onClose={closeSource} /> : null}
+    </KeyboardScreen>
+  );
   return (
-    <ScrollView
+    <KeyboardScreen style={{ flex: 1 }}><KeyboardScrollView
       style={[styles.page, { backgroundColor: theme.page }]}
       contentContainerStyle={[
         styles.content,
@@ -405,7 +526,7 @@ export default function PetRoute() {
     >
       {isLocalDemo ? <DemoBanner /> : null}
       <View>
-        <Text style={styles.eyebrow}>ONE PET / 一生一只</Text>
+        <Text style={styles.eyebrow}>异宠</Text>
         <Text style={styles.title}>{pet ? pet.name : "孵化你的异宠"}</Text>
       </View>
       {error ? (
@@ -459,9 +580,9 @@ export default function PetRoute() {
         <Surface style={styles.naming}>
           <Text style={styles.sectionTitle}>先给异宠一个名字</Text>
           <Text style={styles.copy}>
-            下一步只需要填写你对它样子、性格和相处方式的期待，不再进行五轮孵化对话。
+            再说说你期待的样子、性格和相处方式，一起认识你的异宠。
           </Text>
-          <TextInput
+          <KeyboardTextInput
             value={name}
             onChangeText={setName}
             maxLength={24}
@@ -491,7 +612,7 @@ export default function PetRoute() {
               </View>
               <View style={styles.field}>
                 <Text style={styles.fieldLabel}>外观期待 *</Text>
-                <TextInput
+                <KeyboardTextInput
                   value={appearance}
                   onChangeText={setAppearance}
                   multiline
@@ -503,7 +624,7 @@ export default function PetRoute() {
               </View>
               <View style={styles.field}>
                 <Text style={styles.fieldLabel}>性格期待 *</Text>
-                <TextInput
+                <KeyboardTextInput
                   value={personality}
                   onChangeText={setPersonality}
                   multiline
@@ -515,7 +636,7 @@ export default function PetRoute() {
               </View>
               <View style={styles.field}>
                 <Text style={styles.fieldLabel}>相处方式 *</Text>
-                <TextInput
+                <KeyboardTextInput
                   value={companionship}
                   onChangeText={setCompanionship}
                   multiline
@@ -527,7 +648,7 @@ export default function PetRoute() {
               </View>
               <View style={styles.field}>
                 <Text style={styles.fieldLabel}>排除特征</Text>
-                <TextInput
+                <KeyboardTextInput
                   value={excludedFeatures}
                   onChangeText={setExcludedFeatures}
                   multiline
@@ -539,7 +660,7 @@ export default function PetRoute() {
               </View>
               <View style={styles.field}>
                 <Text style={styles.fieldLabel}>补充描述</Text>
-                <TextInput
+                <KeyboardTextInput
                   value={additionalDescription}
                   onChangeText={setAdditionalDescription}
                   multiline
@@ -620,7 +741,7 @@ export default function PetRoute() {
                   </Pressable>
                 )}
               />
-              <TextInput
+              <KeyboardTextInput
                 value={instruction}
                 onChangeText={setInstruction}
                 multiline
@@ -660,66 +781,27 @@ export default function PetRoute() {
             </Surface>
           ) : null}
           {pet.status === "confirmed" ? (
-            <View
-              accessibilityRole="tablist"
-              style={[
-                styles.sectionTabs,
-                {
-                  backgroundColor: theme.card,
-                  borderColor: theme.line,
-                  borderRadius: theme.radius,
-                },
-              ]}
-            >
-              {(
-                [
-                  ["companion", "陪伴"],
-                  ["steward", "消息管家"],
-                  ["growth", "成长"],
-                ] as const
-              ).map(([section, label]) => (
-                <Pressable
-                  key={section}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: petSection === section }}
-                  onPress={() => setPetSection(section)}
-                  style={[
-                    styles.sectionTab,
-                    { borderRadius: Math.max(8, theme.radius - 4) },
-                    petSection === section && {
-                      backgroundColor: theme.secondary,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.sectionTabText,
-                      petSection === section && { color: theme.accent },
-                    ]}
-                  >
-                    {label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
+            <PetSectionNav value={petSection} onChange={section=>{setPetSection(section);if(section==="companion")setEnteredAt(Date.now());}}/>
           ) : null}
           {pet.status === "confirmed" &&
           selected &&
           petSection !== "steward" ? (
-            <Surface style={styles.confirmed}>
+            <Surface style={[styles.confirmed, petSection === "growth" && {backgroundColor:"transparent",borderWidth:0,shadowOpacity:0,elevation:0}]}>
               <Text style={styles.stageLabel}>
                 {petSection === "growth"
                   ? "成长档案 · 同一生命继续变化"
                   : "陪伴 · 你的长期伙伴"}
               </Text>
-              <View style={styles.visual}>
-                <LivingPetPortrait state={motionState}>
+              <DraggablePetStage ownerId={profile.id} petId={pet.id}>{size =>
+                <LivingPetPortrait state={motionState} compact>
                   <CandidateVisual
                     asset={selected}
-                    url={urls[selected.storagePath]}
+                    url={petDisplay.url ?? urls[selected.storagePath]}
+                    size={size}
+                    transparent
                   />
                 </LivingPetPortrait>
-              </View>
+              }</DraggablePetStage>
               {petSection === "companion" ? (
                 <View style={styles.petActions}>
                   {(
@@ -751,10 +833,8 @@ export default function PetRoute() {
               ) : null}
               {petSection === "growth" ? (
                 <>
-                  <Text style={styles.stageTitle}>它不会再回到初始捏宠</Text>
-                  <Text style={styles.copy}>
-                    以后所有外观变化都来自日常相处。系统会在隐藏的成长里程碑达到后自主进入下一生命阶段，不设经验条，也不需要手动开启。
-                  </Text>
+                  <PetDisplayControls display={petDisplay} />
+                  <Text style={styles.stageTitle}>我们的相处足迹</Text>
                   <View style={styles.lineage}>
                     <Text style={styles.lineageText}>
                       形态谱系 · 第{" "}
@@ -796,7 +876,7 @@ export default function PetRoute() {
                     </View>
                   )}
                   <View style={styles.experienceList}>
-                    <Text style={styles.sectionTitle}>最近相处经历</Text>
+                    <Text style={styles.sectionTitle}>形态变化的经历依据</Text>
                     {experiences.length ? (
                       experiences.slice(0, 3).map((experience) => (
                         <View key={experience.id} style={styles.experience}>
@@ -812,10 +892,11 @@ export default function PetRoute() {
                       ))
                     ) : (
                       <Text style={styles.copy}>
-                        先和它私聊，或在关系空间的宠物角照顾它；真实相处会成为下一次进化的原因。
+                        目前还没有足够的形态变化经历记录。
                       </Text>
                     )}
                   </View>
+                  {!isLocalDemo ? <MemoryReviewPanel key={`${pet.id}:${companion?.revision}`} petId={pet.id} onSource={id => setSourceTarget({ kind: "message", id })} /> : null}
                   {events[0]?.status === "succeeded" &&
                   events[0].officialAssetId === pet.currentAssetId &&
                   !events[0].continuityRepairUsed ? (
@@ -875,28 +956,31 @@ export default function PetRoute() {
                   </Text>
                 )}
               </Surface>
-              <Surface style={styles.chatCard}>
+              <ChatBackgroundSurface threadKey="steward" style={[styles.chatCard,{padding:16,borderRadius:12}]}>
                 <View style={styles.chatHead}>
-                  <Text style={styles.sectionTitle}>和 {pet.name} 私聊</Text>
+                  <Text style={styles.sectionTitle}>消息管家</Text><Pressable accessibilityRole="button" accessibilityLabel="设置消息管家背景" onPress={()=>setBackgroundOpen(true)} style={{minWidth:48,minHeight:48,alignItems:"center",justifyContent:"center"}}><Icon name="image" color={colors.text}/></Pressable>
                   <Text style={styles.private}>
-                    仅主人可见 · 按问题检索全部可读历史
+                    仅主人可见 · 按明确群名检索可读历史
                   </Text>
                 </View>
                 <View style={styles.thread}>
-                  {messages.slice(-12).map((message) => (
+                  {messages.filter(message => message.conversationKind !== "companion").slice(-12).map((message) => (
                     <View key={message.id} style={styles.privateTurn}>
                       <View
                         style={[
                           styles.privateMessage,
+                          {backgroundColor:message.role === "owner" ? stewardBackground.userBubble : stewardBackground.bubble},
                           message.role === "owner"
                             ? styles.ownerMessage
                             : styles.petMessage,
+                          {backgroundColor:message.role === "owner" ? stewardBackground.userBubble : stewardBackground.bubble},
                         ]}
                       >
                         <Text
                           style={[
                             styles.privateText,
                             message.role === "owner" && styles.ownerText,
+                            {color:message.role === "owner" ? stewardBackground.userText : stewardBackground.text},
                           ]}
                         >
                           {message.content}
@@ -930,6 +1014,7 @@ export default function PetRoute() {
                           </Text>
                         ) : null}
                       </View>
+                      {message.role === "owner" && !message.id.startsWith("pending:") ? <StewardActionCard key={`steward-action:${message.id}`} sourceMessageId={message.id}/> : null}
                       {message.role === "owner" ? (
                         <ReplyProgress
                           message={message}
@@ -945,11 +1030,13 @@ export default function PetRoute() {
                     </View>
                   ))}
                 </View>
-                <View style={styles.chatComposer}>
+      <View style={styles.chatComposer}>
                   <EnterSendTextInput
+                    accessibilityLabel="异宠私聊输入"
                     value={chat}
                     onChangeText={setChat}
                     onSend={(value) => void sendChat(value)}
+                    editable={!busy}
                     placeholder="可问已读或未读群聊，也可让它整理委托…"
                     placeholderTextColor={colors.textMuted}
                     style={styles.chatInput}
@@ -965,7 +1052,7 @@ export default function PetRoute() {
                     <Text style={styles.chatSendText}>发送</Text>
                   </Pressable>
                 </View>
-              </Surface>
+              </ChatBackgroundSurface>
             </>
           ) : null}
           {pet.status !== "confirmed" || petSection === "growth" ? (
@@ -1006,7 +1093,7 @@ export default function PetRoute() {
         animationType="fade"
         onRequestClose={() => setConfirming(false)}
       >
-        <View style={styles.overlay}>
+        <KeyboardScreen style={styles.overlay}>
           <Surface style={styles.confirmModal}>
             <Text style={styles.confirmTitle}>要让它成为正式形态吗？</Text>
             <Text style={styles.copy}>
@@ -1020,7 +1107,7 @@ export default function PetRoute() {
             />
             <AppButton label="我确认这是它" onPress={confirm} />
           </Surface>
-        </View>
+        </KeyboardScreen>
       </Modal>
       <Modal
         transparent
@@ -1028,7 +1115,7 @@ export default function PetRoute() {
         animationType="fade"
         onRequestClose={() => setCorrecting(null)}
       >
-        <View style={styles.overlay}>
+        <KeyboardScreen style={styles.overlay}>
           <Surface style={styles.confirmModal}>
             <Text style={styles.confirmTitle}>你希望它怎样理解？</Text>
             <Text style={styles.copy}>
@@ -1063,13 +1150,16 @@ export default function PetRoute() {
               }}
             />
           </Surface>
-        </View>
+        </KeyboardScreen>
       </Modal>
-    </ScrollView>
+    <ChatBackgroundEditor visible={backgroundOpen} onClose={()=>setBackgroundOpen(false)} threadKey="steward"/>
+    </KeyboardScrollView>
+    {pet && !isLocalDemo ? <MemorySourceModal key={`memory-source:${profile.id}`} ownerId={profile.id} petId={pet.id} target={sourceTarget} onClose={closeSource} /> : null}
+    </KeyboardScreen>
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors, theme) => ({
   page: { flex: 1, backgroundColor: colors.canvas },
   center: { flex: 1, backgroundColor: colors.canvas, justifyContent: "center" },
   sectionTabs: { flexDirection: "row", borderWidth: 1, padding: 5, gap: 5 },
@@ -1079,7 +1169,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  sectionTabText: { color: colors.textMuted, fontSize: 13, fontWeight: "900" },
+  sectionTabText: { color: colors.textMuted, fontSize: 13, fontWeight: "700" },
   content: {
     width: "100%",
     maxWidth: 720,
@@ -1091,12 +1181,12 @@ const styles = StyleSheet.create({
   eyebrow: {
     color: colors.mint,
     fontSize: 11,
-    fontWeight: "900",
+    fontWeight: "700",
     letterSpacing: 1.5,
   },
-  title: { color: colors.text, fontSize: 32, fontWeight: "900" },
+  title: { color: colors.text, fontSize: 22, fontWeight: "600" },
   naming: { gap: spacing.md },
-  sectionTitle: { color: colors.text, fontSize: 18, fontWeight: "900" },
+  sectionTitle: { color: colors.text, fontSize: 18, fontWeight: "700" },
   copy: { color: colors.textMuted, lineHeight: 21 },
   input: {
     minHeight: 49,
@@ -1108,7 +1198,7 @@ const styles = StyleSheet.create({
   },
   expectationCard: { gap: spacing.md },
   field: { gap: 6 },
-  fieldLabel: { color: colors.text, fontSize: 12, fontWeight: "800" },
+  fieldLabel: { color: colors.text, fontSize: 12, fontWeight: "600" },
   expectationInput: { minHeight: 66, textAlignVertical: "top" },
   seedSummary: {
     backgroundColor: colors.mintDeep,
@@ -1116,15 +1206,15 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     gap: 4,
   },
-  seedSummaryLabel: { color: colors.mint, fontSize: 11, fontWeight: "900" },
+  seedSummaryLabel: { color: colors.mint, fontSize: 11, fontWeight: "700" },
   stage: { gap: spacing.sm },
   stageLabel: {
     color: colors.mint,
     fontSize: 11,
-    fontWeight: "900",
+    fontWeight: "700",
     letterSpacing: 1,
   },
-  stageTitle: { color: colors.text, fontSize: 20, fontWeight: "900" },
+  stageTitle: { color: colors.text, fontSize: 20, fontWeight: "700" },
   progressTrack: {
     height: 8,
     borderRadius: 4,
@@ -1139,7 +1229,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: spacing.sm,
   },
-  quota: { color: colors.coralSoft, fontSize: 11, fontWeight: "800" },
+  quota: { color: theme.danger, fontSize: 11, fontWeight: "600" },
   visual: { alignItems: "center", minHeight: 260, justifyContent: "center" },
   candidates: { gap: 8 },
   candidate: {
@@ -1165,7 +1255,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     backgroundColor: colors.mintDeep,
   },
-  lineageText: { color: colors.mint, fontSize: 12, fontWeight: "800" },
+  lineageText: { color: colors.mint, fontSize: 12, fontWeight: "600" },
   ready: { gap: spacing.md },
   petActions: {
     flexDirection: "row",
@@ -1179,7 +1269,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     paddingVertical: 9,
   },
-  petActionText: { color: colors.mint, fontWeight: "900", fontSize: 12 },
+  petActionText: { color: colors.mint, fontWeight: "700", fontSize: 12 },
   growthNotice: {
     backgroundColor: colors.mintDeep,
     borderRadius: radii.md,
@@ -1231,11 +1321,11 @@ const styles = StyleSheet.create({
   },
   replyFailed: { borderColor: colors.coralSoft },
   replyProgressCopy: { flex: 1, gap: 2 },
-  replyProgressTitle: { color: colors.mint, fontSize: 11, fontWeight: "900" },
+  replyProgressTitle: { color: colors.mint, fontSize: 11, fontWeight: "700" },
   replyFailedTitle: {
-    color: colors.coralSoft,
+    color: theme.danger,
     fontSize: 11,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   replyProgressDetail: {
     color: colors.textMuted,
@@ -1248,8 +1338,8 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     backgroundColor: colors.coral,
   },
-  retryReplyText: { color: colors.white, fontSize: 11, fontWeight: "900" },
-  chatComposer: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
+  retryReplyText: { color: colors.white, fontSize: 11, fontWeight: "700" },
+  chatComposer: { flexShrink: 0, width: "100%", maxWidth: 720, alignSelf: "center", padding: 12, backgroundColor: colors.canvasRaised, flexDirection: "row", alignItems: "flex-end", gap: 8 },
   chatInput: {
     flex: 1,
     minHeight: 45,
@@ -1266,7 +1356,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 14,
   },
-  chatSendText: { color: colors.white, fontWeight: "900" },
+  chatSendText: { color: colors.white, fontWeight: "700" },
   disabled: { opacity: 0.4 },
   digestCard: { gap: 8 },
   digestRow: {
@@ -1277,7 +1367,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderRadius: radii.md,
   },
-  digestName: { color: colors.text, fontWeight: "900" },
+  digestName: { color: colors.text, fontWeight: "700" },
   digestMessage: { color: colors.textMuted, fontSize: 11, marginTop: 3 },
   digestCount: {
     backgroundColor: colors.mintDeep,
@@ -1285,38 +1375,38 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 5,
   },
-  digestCountText: { color: colors.mint, fontSize: 9, fontWeight: "900" },
+  digestCountText: { color: colors.mint, fontSize: 9, fontWeight: "700" },
   agentRequestLabel: { color: colors.lavender, fontSize: 10, marginTop: 7 },
   signalSection: { gap: spacing.md },
   signal: { gap: 8 },
   forgotten: { opacity: 0.5 },
   signalHead: { flexDirection: "row", justifyContent: "space-between" },
-  signalTitle: { color: colors.text, fontWeight: "900", flex: 1 },
-  confidence: { color: colors.mint, fontWeight: "800" },
+  signalTitle: { color: colors.text, fontWeight: "700", flex: 1 },
+  confidence: { color: colors.mint, fontWeight: "600" },
   signalBody: { color: colors.text, lineHeight: 20 },
   signalSource: { color: colors.textMuted, fontSize: 11 },
   signalImpact: { color: colors.lavender, fontSize: 12, lineHeight: 18 },
   signalActions: { flexDirection: "row", gap: spacing.lg, marginTop: 4 },
-  signalAction: { color: colors.textMuted, fontWeight: "800" },
+  signalAction: { color: colors.textMuted, fontWeight: "600" },
   signalActionActive: { color: colors.mint },
-  forget: { color: colors.coralSoft, fontWeight: "800" },
+  forget: { color: theme.danger, fontWeight: "600" },
   error: {
-    backgroundColor: "#603345",
+    backgroundColor: theme.userBubble,
     borderRadius: radii.md,
     padding: spacing.sm,
   },
-  errorText: { color: colors.coralSoft, textAlign: "center" },
-  warning: { backgroundColor: "#3D365E", borderRadius: radii.md, padding: spacing.sm },
+  errorText: { color: theme.danger, textAlign: "center" },
+  warning: { backgroundColor: theme.secondary, borderRadius: radii.md, padding: spacing.sm },
   warningText: { color: colors.lavenderSoft, textAlign: "center", fontSize: 12, lineHeight: 18 },
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(4,3,13,.78)",
+    backgroundColor: theme.overlay,
     alignItems: "center",
     justifyContent: "center",
     padding: spacing.lg,
   },
   confirmModal: { width: "100%", maxWidth: 480, gap: spacing.md },
-  confirmTitle: { color: colors.text, fontSize: 22, fontWeight: "900" },
+  confirmTitle: { color: colors.text, fontSize: 22, fontWeight: "700" },
   taskCard: { gap: spacing.md, borderWidth: 1, borderColor: colors.coralSoft },
   taskHead: {
     flexDirection: "row",
@@ -1331,4 +1421,4 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     alignItems: "center",
   },
-});
+}));

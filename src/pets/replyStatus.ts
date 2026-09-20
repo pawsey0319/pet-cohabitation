@@ -12,6 +12,7 @@ const STAGES: Readonly<Record<ActivePetReplyStatus, { title: string; detail: str
 export function petReplyStage(status: ActivePetReplyStatus) { return STAGES[status]; }
 
 export function petReplyFailureText(code?: string | null): string {
+  if (code === "text_model_provider_session_required" || code === "text_model_http_400") return "文本服务拒绝了请求，需要修复服务连接。问题已保留，恢复后可重试。";
   if (code === "text_model_network_error") return "模型源站当前无法连接。基础聊天数据没有丢失，可以稍后重试。";
   if (code === "text_model_timeout") return "模型思考超时，这条问题可以沿用原请求重试。";
   if (code?.startsWith("quota_exceeded")) return "今天的异宠回答额度已经用完。";

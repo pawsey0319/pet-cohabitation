@@ -17,19 +17,19 @@ export const colors = {
   shadow: "#090817",
 } as const;
 export const spacing = {
-  xs: 6,
-  sm: 10,
+  xs: 4,
+  sm: 8,
   md: 16,
-  lg: 22,
-  xl: 30,
+  lg: 24,
+  xl: 32,
   xxl: 40,
 } as const;
 
 export const radii = {
-  sm: 12,
-  md: 18,
-  lg: 26,
-  xl: 34,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
   pill: 999,
 } as const;
 

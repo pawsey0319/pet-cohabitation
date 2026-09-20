@@ -1,0 +1,48 @@
+import { useCallback,useEffect,useRef,useState } from "react";
+import { Modal,Text,View } from "react-native";
+import { useSession } from "../auth/SessionProvider";
+import { useAppTheme } from "../theme/ThemeProvider";
+import { AppButton,AppField } from "../ui/common";
+import { KeyboardScreen,KeyboardScrollView } from "../components/KeyboardLayout";
+import { createRequestId } from "../lib/uuid";
+import { isLocalDemoMode,requireSupabase } from "../lib/supabase";
+import { ReminderManager } from "../notifications/ReminderManager";
+import { validateReminder,type ReminderInput } from "../notifications/reminders";
+import { WorkEditor,WorkItemDetailSheet,friendlyError } from "./WorkItemsPanel";
+import { WorkItemCard } from "./WorkItemCard";
+import { invokeWork } from "./repository";
+import type { WorkInput,WorkReceipt } from "./types";
+
+type ActionPlan={id:string;source_message_id:string;status:"ready"|"suggested"|"executed"|"dismissed";version:number;plan:{domain:"work"|"reminder";action:string;scope:string;space_id:string|null;target_title?:string;input:Record<string,any>;reminder?:ReminderInput|null};result:any};
+/** Attach to the source owner message; RLS excludes forgotten sources automatically. */
+export function WorkActionCard({sourceMessageId}:{sourceMessageId:string}){
+ const {profile}=useSession();
+ return profile?<WorkActionContent key={`${profile.id}:${sourceMessageId}`} sourceMessageId={sourceMessageId}/>:null;
+}
+function WorkActionContent({sourceMessageId}:{sourceMessageId:string}){
+ const {profile}=useSession();const {theme}=useAppTheme();const [record,setRecord]=useState<ActionPlan|null>(null);const [error,setError]=useState("");const [busy,setBusy]=useState(false);const [editing,setEditing]=useState(false);const [selected,setSelected]=useState<string|null>(null);const [reminders,setReminders]=useState(false);const request=useRef<{payload:string;id:string}|null>(null);
+ const current=useRef({active:true,generation:0});
+ const load=useCallback(async()=>{if(!profile||isLocalDemoMode)return;const generation=++current.current.generation;const result=await requireSupabase().from("pet_companion_action_plans").select("*").eq("owner_id",profile.id).eq("source_message_id",sourceMessageId).maybeSingle();if(!current.current.active||generation!==current.current.generation)return;if(result.error){setError("事项操作暂时无法加载");return;}setRecord(result.data as ActionPlan|null);},[profile?.id,sourceMessageId]);
+ useEffect(()=>{current.current.active=true;setRecord(null);void load();if(!profile||isLocalDemoMode)return;const client=requireSupabase();const channel=client.channel(`companion-action:${sourceMessageId}:${createRequestId()}`).on("postgres_changes",{event:"*",schema:"public",table:"pet_companion_action_plans",filter:`source_message_id=eq.${sourceMessageId}`},()=>void load()).on("postgres_changes",{event:"INSERT",schema:"public",table:"pet_private_context_exclusions",filter:`owner_id=eq.${profile.id}`},()=>{current.current.generation++;setRecord(null);void load();}).subscribe();return ()=>{current.current.active=false;current.current.generation++;void client.removeChannel(channel);};},[load,profile?.id,sourceMessageId]);
+ const act=async(action:"confirm"|"dismiss",input?:Record<string,unknown>,providedRequestId?:string)=>{if(!record)throw new Error("建议已不可用");const payload=JSON.stringify({action,plan_id:record.id,expected_version:record.version,input});if(request.current?.payload!==payload)request.current={payload,id:providedRequestId??createRequestId()};setBusy(true);setError("");try{const result=await invokeWork<any>("companion-actions",{action,plan_id:record.id,request_id:request.current.id,expected_version:record.version,...(input?{input}:{})});await load();return result;}catch(reason){const text=reason instanceof Error?reason.message:"操作失败";setError(/source_excluded/.test(text)?"这条建议的来源已忘记，不能继续使用":/version_conflict/.test(text)?"事项已有新变化，请查看最新状态":friendlyError(text));throw reason;}finally{setBusy(false);}};
+ if(!profile||!record||record.status==="dismissed")return null;
+ const plan=record.plan;const title=plan.input.title??plan.input.content??plan.target_title??"事项操作";const itemIds:string[]=record.result?.item?[record.result.item.id]:(record.result?.items??[]).map((item:any)=>item.id);
+ return <View style={{padding:12,gap:10,borderWidth:1,borderColor:theme.line,borderRadius:theme.radius,backgroundColor:theme.card}}>
+  <Text style={{color:theme.text,fontWeight:"600"}}>{record.status==="suggested"?"待你确认的建议":record.status==="ready"?"正在处理事项":"事项回执"}</Text>
+  {record.status==="suggested"?<><Text style={{color:theme.text,lineHeight:21}}>{title}</Text>{plan.input.description?<Text style={{color:theme.muted}}>{plan.input.description}</Text>:null}{plan.input.due_at?<Text style={{color:theme.muted}}>截止：{new Date(plan.input.due_at).toLocaleString("zh-CN")}</Text>:null}{plan.reminder?<Text style={{color:theme.muted}}>同时设置提醒：{plan.reminder.start_local}（{plan.reminder.timezone}）</Text>:null}
+   <Text style={{color:theme.muted}}>{plan.scope==="group"?"确认后署名异宠代本人发布，再请相关成员回应。":"尚未创建或修改事项。"}</Text>
+   <AppButton label={plan.action==="create"||plan.action==="edit"?"编辑并确认":"确认此操作"} disabled={busy} onPress={()=>{if(["create","edit"].includes(plan.action))setEditing(true);else void act("confirm").catch(()=>undefined);}}/><AppButton label="收起建议" variant="quiet" disabled={busy} onPress={()=>void act("dismiss").catch(()=>undefined)}/>
+  </>:null}
+  {record.status==="executed"?<>{itemIds.map(id=><WorkItemCard key={id} itemId={id} onOpen={setSelected}/>)}{record.result?.series||record.result?.reminder?<><Text style={{color:theme.text}}>提醒操作已保存；可查看或取消。</Text><AppButton label="查看提醒" variant="quiet" onPress={()=>setReminders(true)}/></>:null}</>:null}
+  {error?<Text style={{color:theme.danger}}>{error}</Text>:null}
+  {editing&&plan.domain==="work"?<WorkEditor ownerId={profile.id} initial={{...plan.input,space_id:plan.space_id,title:plan.input.title??plan.target_title??"",kind:plan.input.kind??"task"} as WorkInput} onClose={()=>setEditing(false)} submitLabel={plan.scope==="group"?"本人确认，发布安排":"确认执行"} onSubmit={async(input,requestId)=>{const allowed:WorkInput=plan.action==="edit"?{title:input.title,description:input.description,due_at:input.due_at}:input;const result=await act("confirm",allowed as Record<string,unknown>,requestId);return result as WorkReceipt;}} onSaved={(item)=>{setEditing(false);if(item?.id)setSelected(item.id);}}/>:null}
+  {editing&&plan.domain==="reminder"?<ReminderActionPreview input={plan.input as ReminderInput} onClose={()=>setEditing(false)} onConfirm={async(input)=>{await act("confirm",input as unknown as Record<string,unknown>);setEditing(false);}}/>:null}
+  {selected?<WorkItemDetailSheet ownerId={profile.id} itemId={selected} onClose={()=>setSelected(null)} onChanged={()=>void load()}/>:null}
+  {reminders?<Modal visible animationType="slide" onRequestClose={()=>setReminders(false)}><KeyboardScreen style={{flex:1,backgroundColor:theme.page}}><KeyboardScrollView contentContainerStyle={{padding:24,paddingTop:48,gap:12}}><ReminderManager itemId={record.result?.item?.id}/><AppButton label="关闭" variant="quiet" onPress={()=>setReminders(false)}/></KeyboardScrollView></KeyboardScreen></Modal>:null}
+ </View>;
+}
+
+function ReminderActionPreview({input,onClose,onConfirm}:{input:ReminderInput;onClose:()=>void;onConfirm:(input:ReminderInput)=>Promise<void>}){
+ const {theme}=useAppTheme();const [draft,setDraft]=useState<ReminderInput>({...input,content:input.content??"",start_local:input.start_local??"",timezone:input.timezone??Intl.DateTimeFormat().resolvedOptions().timeZone,rule:input.rule??{frequency:"once"}});const [busy,setBusy]=useState(false);const [error,setError]=useState("");const patch=(value:Partial<ReminderInput>)=>setDraft(old=>({...old,...value}));
+ return <Modal visible animationType="slide" onRequestClose={onClose}><KeyboardScreen style={{flex:1,backgroundColor:theme.page}}><KeyboardScrollView contentContainerStyle={{padding:24,paddingTop:48,gap:14}}><Text style={{color:theme.text,fontSize:20,fontWeight:"600"}}>确认提醒</Text><AppField label="提醒内容" value={draft.content} onChangeText={content=>patch({content})}/><AppField label="当地时间 YYYY-MM-DDTHH:mm" value={draft.start_local} onChangeText={start_local=>patch({start_local})}/><AppField label="固定时区" value={draft.timezone} onChangeText={timezone=>patch({timezone})}/><Text style={{color:theme.muted}}>重复规则：{{once:"一次",daily:"每天",weekly:"每周所选日期",weekdays:"工作日（周一至周五，不含调休）",monthly:"每月指定日期（不存在时用月末）",interval:"自定义间隔"}[draft.rule.frequency]}</Text>{draft.rule.frequency==="weekly"?<AppField label="每周日期，周一为 1，周日为 7（逗号分隔）" value={(draft.rule.weekdays??[]).join(",")} onChangeText={value=>patch({rule:{...draft.rule,weekdays:value.split(/[,，]/).filter(Boolean).map(Number)}})}/>:null}{draft.rule.frequency==="monthly"?<AppField label="每月几号" value={String(draft.rule.day??"")} onChangeText={value=>patch({rule:{...draft.rule,day:Number(value)}})}/>:null}{draft.rule.frequency==="interval"?<AppField label={`间隔（${draft.rule.unit??"day"}）`} value={String(draft.rule.interval??"")} onChangeText={value=>patch({rule:{...draft.rule,interval:Number(value)}})}/>:null}<Text style={{color:theme.muted}}>如果安排在夜间免打扰时段，仍按你明确设置的提醒执行，并遵守手机系统设置。</Text>{error?<Text style={{color:theme.danger}}>{error}</Text>:null}<AppButton label={busy?"正在保存…":"确认保存提醒"} disabled={busy} onPress={()=>{const validation=validateReminder(draft);if(validation){setError(validation);return;}setBusy(true);void onConfirm(draft).catch(reason=>setError(friendlyError(reason.message))).finally(()=>setBusy(false));}}/><AppButton label="关闭" variant="quiet" onPress={onClose}/></KeyboardScrollView></KeyboardScreen></Modal>;
+}

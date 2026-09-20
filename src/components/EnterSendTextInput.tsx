@@ -1,7 +1,9 @@
-import { TextInput, type StyleProp, type TextStyle } from "react-native";
+import { KeyboardTextInput } from "./KeyboardLayout";
+import { type StyleProp, type TextStyle } from "react-native";
 
 export type EnterSendTextInputProps = Readonly<{
   accessibilityLabel?: string;
+  editable?: boolean;
   value: string;
   onChangeText(value: string): void;
   onSend(value?: string): void;
@@ -12,11 +14,12 @@ export type EnterSendTextInputProps = Readonly<{
 }>;
 
 export function EnterSendTextInput(props: EnterSendTextInputProps) {
-  return <TextInput
+  return <KeyboardTextInput
     accessibilityLabel={props.accessibilityLabel}
+    editable={props.editable}
     value={props.value}
     onChangeText={props.onChangeText}
-    onSubmitEditing={(event) => props.onSend(event.nativeEvent.text)}
+    onSubmitEditing={(event) => props.editable !== false && props.onSend(event.nativeEvent.text)}
     multiline
     submitBehavior="submit"
     returnKeyType="send"

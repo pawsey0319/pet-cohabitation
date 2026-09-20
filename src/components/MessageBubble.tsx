@@ -1,3 +1,4 @@
+import { createThemedStyles } from "../theme/themedStyles";
 import { StyleSheet, Text, View } from "react-native";
 import type { SpaceMessage } from "../domain/types";
 import { colors, radii, spacing, typography } from "../theme/tokens";
@@ -32,6 +33,7 @@ export function MessageBubble({ message, currentUserId, memberNames }: Readonly<
   currentUserId: string;
   memberNames: Readonly<Record<string, string>>;
 }>) {
+  const { styles, colors } = useStyles();
   const label = messageLabel(message, currentUserId, memberNames);
   return (
     <View
@@ -55,7 +57,7 @@ export function MessageBubble({ message, currentUserId, memberNames }: Readonly<
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors, theme) => ({
   bubble: {
     padding: spacing.md,
     backgroundColor: colors.surfaceSoft,
@@ -65,8 +67,8 @@ const styles = StyleSheet.create({
   },
   pet: { borderLeftColor: colors.mint, borderLeftWidth: 4 },
   agent: { borderLeftColor: colors.lavender, borderLeftWidth: 4 },
-  label: { color: colors.coralSoft, fontSize: typography.eyebrow, fontWeight: "800" },
+  label: { color: theme.danger, fontSize: typography.eyebrow, fontWeight: "600" },
   content: { marginTop: spacing.xs, color: colors.text, fontSize: typography.body, lineHeight: 22 },
   metadata: { marginTop: spacing.xs, color: colors.lavenderSoft, fontSize: 12, lineHeight: 18 },
   source: { marginTop: spacing.xs, color: colors.textMuted, fontSize: 11 },
-});
+}));

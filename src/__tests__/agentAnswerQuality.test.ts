@@ -62,4 +62,23 @@ describe("agent answer quality", () => {
     expect(answer).toContain("周六九点半");
     expect(answer).toContain("准备饮用水");
   });
+
+  it("keeps eight long source excerpts within the private reply limit without claiming full coverage", () => {
+    const messages = Array.from({ length: 12 }, (_, index) => ({ actor: `[群聊回忆·合成群·2026-09-14] 成员${index}`, content: `原话${index}：${"尚未确认时间，仍需讨论。".repeat(80)}` }));
+    const answer = fallbackRecallAnswer(messages);
+    expect(answer.length).toBeLessThanOrEqual(1200);
+    expect(answer.split("\n").filter(line => line.startsWith("- "))).toHaveLength(8);
+    for (let index = 4; index < 12; index++) { expect(answer).toContain(`成员${index}`); expect(answer).toContain(`原话${index}：`); }
+    expect(answer).not.toContain("原话0：");
+    expect(answer).toContain("摘录不代表完整群聊记录");
+    expect(answer).not.toContain("直接相关");
+  });
+
+  it("bounds oversized Unicode labels and bodies without splitting surrogate pairs", () => {
+    const answer = fallbackRecallAnswer(Array.from({ length: 8 }, () => ({ actor: `[群聊回忆·${"🦊".repeat(1000)}] 合成成员`, content: "🦉".repeat(1000) })));
+    expect(answer.length).toBeLessThanOrEqual(1200);
+    expect(answer).toContain("🦊"); expect(answer).toContain("🦉"); expect(answer).toContain("…");
+    expect(answer).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+    expect(answer.split("\n").filter(line => line.startsWith("- "))).toHaveLength(8);
+  });
 });

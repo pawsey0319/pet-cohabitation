@@ -1,3 +1,4 @@
+import { createThemedStyles } from "../../src/theme/themedStyles";
 import { Redirect, router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
@@ -17,6 +18,7 @@ function mapMetrics(row: Record<string, any>): AdminDemoMetrics {
 }
 
 export default function AdminStatusScreen() {
+  const { styles, colors } = useStyles();
   const { profile, isLoading } = useSession();
   const insets = useSafeAreaInsets();
   const [metrics, setMetrics] = useState<AdminDemoMetrics | null>(null);
@@ -78,6 +80,6 @@ export default function AdminStatusScreen() {
   </ScrollView>;
 }
 
-const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: colors.canvas }, center: { flex: 1, backgroundColor: colors.canvas, justifyContent: "center" }, content: { width: "100%", maxWidth: 760, alignSelf: "center", padding: spacing.lg, paddingBottom: 100, gap: spacing.md }, back: { color: colors.mint, fontWeight: "800" }, eyebrow: { color: colors.mint, fontSize: 11, fontWeight: "900", letterSpacing: 1 }, title: { color: colors.text, fontSize: 31, fontWeight: "900" }, grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }, metric: { width: "31%", minWidth: 150, flexGrow: 1 }, metricValue: { color: colors.coralSoft, fontSize: 24, fontWeight: "900" }, metricLabel: { color: colors.textMuted, marginTop: 4 }, controls: { gap: spacing.md }, sectionTitle: { color: colors.text, fontSize: 18, fontWeight: "900" }, copy: { color: colors.textMuted, lineHeight: 20 }, control: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line }, controlText: { flex: 1 }, controlTitle: { color: colors.text, fontWeight: "800" }, controlNote: { color: colors.textMuted, fontSize: 11, marginTop: 3 }, error: { backgroundColor: "#603345", borderRadius: radii.md, padding: spacing.sm }, errorText: { color: colors.coralSoft, textAlign: "center" }, errorRow: { flexDirection: "row", gap: spacing.sm }, errorCode: { flex: 1, color: colors.coralSoft, fontSize: 12 }, errorCount: { color: colors.text, fontWeight: "900" }, good: { color: colors.mint, fontWeight: "800" },
-});
+const useStyles = createThemedStyles((colors, theme) => ({
+  page: { flex: 1, backgroundColor: colors.canvas }, center: { flex: 1, backgroundColor: colors.canvas, justifyContent: "center" }, content: { width: "100%", maxWidth: 760, alignSelf: "center", padding: spacing.lg, paddingBottom: 100, gap: spacing.md }, back: { color: colors.mint, fontWeight: "600" }, eyebrow: { color: colors.mint, fontSize: 11, fontWeight: "700", letterSpacing: 1 }, title: { color: colors.text, fontSize: 31, fontWeight: "700" }, grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }, metric: { width: "31%", minWidth: 150, flexGrow: 1 }, metricValue: { color: theme.danger, fontSize: 24, fontWeight: "700" }, metricLabel: { color: colors.textMuted, marginTop: 4 }, controls: { gap: spacing.md }, sectionTitle: { color: colors.text, fontSize: 18, fontWeight: "700" }, copy: { color: colors.textMuted, lineHeight: 20 }, control: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line }, controlText: { flex: 1 }, controlTitle: { color: colors.text, fontWeight: "600" }, controlNote: { color: colors.textMuted, fontSize: 11, marginTop: 3 }, error: { backgroundColor: "#603345", borderRadius: radii.md, padding: spacing.sm }, errorText: { color: theme.danger, textAlign: "center" }, errorRow: { flexDirection: "row", gap: spacing.sm }, errorCode: { flex: 1, color: theme.danger, fontSize: 12 }, errorCount: { color: colors.text, fontWeight: "700" }, good: { color: colors.mint, fontWeight: "600" },
+}));

@@ -1,0 +1,48 @@
+import assert from "node:assert/strict";
+import {randomUUID} from "node:crypto";
+import {createClient} from "@supabase/supabase-js";
+const url=process.env.SUPABASE_URL;
+if(!url||!["127.0.0.1","localhost"].includes(new URL(url).hostname))throw new Error("Dedicated local fixture required");
+const options={auth:{persistSession:false,autoRefreshToken:false}};
+const service=createClient(url,process.env.SUPABASE_SERVICE_ROLE_KEY,options),ids=[];let space;let checks=0;
+const ok=r=>{if(r.error)throw new Error(r.error.message);return r.data;};
+const rpc=async(name,args)=>ok(await service.rpc(name,args));
+async function account(){const email=`private-delivery-${randomUUID()}@example.test`,password=`Aa1!${randomUUID()}`;const id=ok(await service.auth.admin.createUser({email,password,email_confirm:true})).user.id;ids.push(id);ok(await service.from("profiles").insert({id,email,nickname:"私聊事务验收"}));const client=createClient(url,process.env.SUPABASE_ANON_KEY,options);ok(await client.auth.signInWithPassword({email,password}));return {id,client};}
+const rejects=async(fn,pattern)=>{await assert.rejects(fn,pattern);checks++;};
+try{
+ const A=await account(),B=await account();
+ const pet=ok(await service.from("pets").insert({owner_id:A.id,name:"流式验收宠",status:"incubating"}).select("id").single()).id;
+ const asset=ok(await service.from("pet_visual_assets").insert({pet_id:pet,owner_id:A.id,storage_path:`fixture/${randomUUID()}.png`,prompt_hash:"synthetic-fixture",is_draft:true}).select("id").single());
+ ok(await service.from("pet_expectation_drafts").insert({pet_id:pet,owner_id:A.id,personality_seed_prompt:"Synthetic calm pet",visual_seed_prompt:"Synthetic creature",seed_summary:"Synthetic fixture"}));
+ await rpc("confirm_pet_asset",{target_owner:A.id,target_asset:asset.id});
+ ok(await service.from("pet_companion_states").insert({pet_id:pet,owner_id:A.id,revision:0}));
+ const claim=(request=randomUUID(),content="今天很累")=>rpc("claim_pet_private_request",{target_pet_id:pet,request_id:request,owner_content:content,request_mode:"companion"}).then(turn=>({...turn,request}));
+ const commit=(turn,extra={})=>rpc("commit_pet_private_delivery",{target_pet_id:pet,request_id:turn.request,target_token:turn.token,expected_revision:turn.revision,reply_content:"可以慢慢说。",target_model_run_id:null,context_ids:[turn.message_id],...extra});
+ const partial=(turn,sequence=1)=>rpc("append_pet_private_stream",{p_pet:pet,p_request:turn.request,p_token:turn.token,p_revision:turn.revision,p_sequence:sequence,p_content:"可以慢慢"});
+ const first=await claim();assert.equal(await partial(first),true);
+ await rejects(()=>claim(),/private_conversation_busy/);
+ await rejects(()=>claim(first.request,"换了正文"),/private_request_content_changed|private_request_conflict/);
+ assert.equal(ok(await B.client.from("pet_private_streams").select("*")).length,0);checks++;
+ ok(await A.client.rpc("stop_pet_private_reply",{p_pet:pet,p_request:first.request}));
+ assert.equal(await partial(first,2),false);await rejects(()=>commit(first),/private_request_lease_changed|private_request_stopped/);
+ const stopped=randomUUID();ok(await A.client.rpc("stop_pet_private_reply",{p_pet:pet,p_request:stopped}));await rejects(()=>claim(stopped),/private_request_stopped/);
+ const second=await claim();assert.equal(await partial(second),true);
+ const state=ok(await service.from("pet_companion_states").select("revision").eq("pet_id",pet).single());
+ ok(await service.from("pet_companion_states").update({revision:state.revision+1}).eq("pet_id",pet));
+ assert.equal(ok(await A.client.from("pet_private_streams").select("content,status").eq("request_id",second.request).single()).content,"");
+ await rejects(()=>commit(second),/companion_context_changed/);checks++;
+ ok(await service.rpc("fail_pet_private_request",{target_pet_id:pet,request_id:second.request,target_token:second.token,failure_code:"companion_context_changed"}));
+ const retry=await claim(second.request);assert.equal(retry.message_id,second.message_id);const reply=await commit(retry);assert.equal((await commit(retry)).id,reply.id);checks++;
+ const expired=await claim();ok(await service.from("pet_private_requests").update({lease_until:new Date(Date.now()-1000).toISOString()}).eq("pet_id",pet).eq("client_request_id",expired.request));await rejects(()=>commit(expired),/private_request_lease_changed/);
+ const recovered=await claim(expired.request);assert.equal(recovered.message_id,expired.message_id);await rejects(()=>commit(expired),/private_request_lease_changed/);await commit(recovered);checks++;
+ const work=await rpc("mutate_work_item",{p_actor:A.id,p_action:"create",p_request_id:randomUUID(),p_input:{kind:"task",title:"版本验收"}});const item=work.item??work;
+ const action=await claim();ok(await service.from("work_items").update({version:item.version+1}).eq("id",item.id));
+ await rejects(()=>commit(action,{work_versions:[{id:item.id,version:item.version}]}),/private_work_context_changed/);
+ await commit(action,{work_versions:[{id:item.id,version:item.version+1}]});checks++;
+ space=ok(await A.client.rpc("create_relationship_space",{space_name:"来源验收群",space_kind:"friend_circle"}));
+ const msg=ok(await A.client.rpc("send_space_message_v2",{message_client_id:randomUUID(),target_space_id:space,message_kind:"text",message_text:"周五讨论材料"})).message;
+ const recall=await claim();const sources=[{space_id:space,space_name:"来源验收群",message_id:msg.id,created_at:msg.createdAt??msg.created_at}];
+ ok(await service.from("space_members").delete().eq("space_id",space).eq("user_id",A.id));await rejects(()=>commit(recall,{reply_recall_sources:sources}),/private_recall_permission_changed/);
+ const denied=await B.client.rpc("list_pet_private_history",{p_pet:pet});assert.match(denied.error.message,/forbidden/);checks++;
+ console.log(`PASS ${checks} private delivery scenario groups: ordered claims, idempotency, stop, memory revision, expiry, work version, source permission, RLS.`);
+}finally{if(space)ok(await service.from("spaces").delete().eq("id",space));for(const id of ids.reverse())ok(await service.auth.admin.deleteUser(id));}

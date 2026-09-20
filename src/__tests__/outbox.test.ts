@@ -72,6 +72,54 @@ describe("account-scoped persistent outbox", () => {
 });
 
 describe("MessageOutbox", () => {
+  it("accepts new typing into the queue before a slow upload finishes", async () => {
+    const outbox = new MessageOutbox(new MemoryStore());
+    await outbox.enqueue(message("upload"));
+    let release!: () => void;
+    let started!: () => void;
+    const began = new Promise<void>((resolve) => { started = resolve; });
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const sending = outbox.flush(async () => { started(); await held; });
+    await began;
+    // This await would deadlock if enqueue still waited for the network drain.
+    await outbox.enqueue(message("next"));
+    expect((await outbox.list()).map((m) => m.clientId)).toEqual(["upload", "next"]);
+    release(); await sending;
+  });
+
+  it("serializes simultaneous local enqueues across queue instances", async () => {
+    const store = new MemoryStore();
+    const first = new MessageOutbox(store), second = new MessageOutbox(store);
+    await Promise.all(Array.from({length:20},(_,i) => (i%2 ? first : second).enqueue(message(`item-${i}`))));
+    expect(await first.list()).toHaveLength(20);
+    const sent: string[] = [];
+    await Promise.all([first.flush(async (m)=>{sent.push(m.clientId);}),second.flush(async (m)=>{sent.push(m.clientId);})]);
+    expect(new Set(sent).size).toBe(20); expect(sent).toHaveLength(20);
+  });
+
+  it("rejects an immutable request ID reused with new text or attachments", async () => {
+    const outbox = new MessageOutbox(new MemoryStore());
+    await outbox.enqueue(message("fixed"));
+    await expect(outbox.enqueue({...message("fixed"),text:"replacement"})).rejects.toThrow("不能修改");
+    await expect(outbox.enqueue({...message("fixed"),localMediaUri:"private.jpg"})).rejects.toThrow("不能修改");
+  });
+
+  it("does not restore a removed in-flight item after a send failure", async () => {
+    const outbox = new MessageOutbox(new MemoryStore());
+    await outbox.enqueue(message("removed"));
+    await outbox.flush(async () => { await outbox.remove("removed"); throw new Error("offline"); });
+    expect(await outbox.list()).toEqual([]);
+  });
+
+  it("persists each ACK before the next upload and continues after a failed item", async () => {
+    const store = new MemoryStore(), outbox = new MessageOutbox(store);
+    await Promise.all(["first","bad","last"].map((id)=>outbox.enqueue(message(id))));
+    await outbox.flush(async (m) => {
+      if(m.clientId === "bad") throw new Error("upload failed");
+      if(m.clientId === "last") expect((await new MessageOutbox(store).list()).map((x)=>x.clientId)).toEqual(["bad","last"]);
+    });
+    expect(await outbox.list()).toEqual([{...message("bad"),attempts:1}]);
+  });
   it("deduplicates by client id and removes only after a successful send", async () => {
     const store = new MemoryStore();
     const outbox = new MessageOutbox(store);

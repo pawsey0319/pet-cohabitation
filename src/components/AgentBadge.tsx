@@ -1,3 +1,4 @@
+import { createThemedStyles } from "../theme/themedStyles";
 import { StyleSheet, Text, View } from "react-native";
 import { colors, radii, spacing, typography } from "../theme/tokens";
 
@@ -6,6 +7,7 @@ type AgentBadgeProps = Readonly<{
 }>;
 
 export function AgentBadge({ label = "异宠 Agent" }: AgentBadgeProps) {
+  const { styles, colors } = useStyles();
   return (
     <View accessibilityLabel={label} style={styles.badge}>
       <View style={styles.signal} />
@@ -14,7 +16,7 @@ export function AgentBadge({ label = "异宠 Agent" }: AgentBadgeProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors, theme) => ({
   badge: {
     alignSelf: "flex-start",
     flexDirection: "row",
@@ -39,4 +41,4 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.5,
   },
-});
+}));

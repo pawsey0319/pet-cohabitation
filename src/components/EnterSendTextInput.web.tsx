@@ -14,7 +14,7 @@ export function EnterSendTextInput(props: EnterSendTextInputProps) {
     input.dataset.enterListener = "attached";
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       const shouldSubmit = shouldSubmitOnEnter({ key: event.key, shiftKey: event.shiftKey, isComposing: event.isComposing, keyCode: event.keyCode });
-      if (!shouldSubmit) return;
+      if (!shouldSubmit || propsRef.current.editable === false) return;
       event.preventDefault();
       input.dataset.enterSubmit = "handled";
       const currentValue = input.value;
@@ -29,6 +29,7 @@ export function EnterSendTextInput(props: EnterSendTextInputProps) {
   return <textarea
     ref={inputRef}
     aria-label={props.accessibilityLabel}
+    disabled={props.editable === false}
     value={props.value}
     onChange={handleChange}
     maxLength={props.maxLength}

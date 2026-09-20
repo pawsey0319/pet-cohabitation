@@ -1,3 +1,4 @@
+import { createThemedStyles } from "../theme/themedStyles";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors, radii, spacing, typography } from "../theme/tokens";
 
@@ -15,6 +16,7 @@ const items: readonly Readonly<{ key: AppTab; label: string; glyph: string }>[] 
 ];
 
 export function BottomNav({ activeTab, onChange }: BottomNavProps) {
+  const { styles, colors } = useStyles();
   return (
     <View accessibilityRole="tablist" style={styles.shell}>
       {items.map((item) => {
@@ -37,7 +39,7 @@ export function BottomNav({ activeTab, onChange }: BottomNavProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors, theme) => ({
   shell: {
     flexDirection: "row",
     alignItems: "center",
@@ -45,7 +47,7 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md,
     marginBottom: spacing.md,
     padding: spacing.xs,
-    backgroundColor: "rgba(42, 38, 80, 0.96)",
+    backgroundColor: theme.overlay,
     borderColor: colors.line,
     borderWidth: 1,
     borderRadius: radii.lg,
@@ -77,4 +79,4 @@ const styles = StyleSheet.create({
   activeText: {
     color: colors.textDark,
   },
-});
+}));

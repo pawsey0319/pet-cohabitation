@@ -80,8 +80,20 @@ export function isUninformativeRecall(content: string, hadRecallMessages: boolea
 export function fallbackRecallAnswer(messages: readonly Readonly<{ actor: string; content: string }>[]): string {
   if (!messages.length) return "我查过你当前仍有权限查看的群聊，这次没有找到相关消息。";
   const selected = messages.slice(-8);
-  return [
-    "我查到了这些直接相关的群聊内容：",
-    ...selected.map((message) => `- ${message.actor.replace(/^\[群聊回忆·|\]\s*/g, " ").trim()}：${message.content.slice(0, 180)}`),
-  ].join("\n");
+  const heading = "以下是本次检索记录的原话摘录：";
+  const footer = "标签或正文中的…表示已截短；摘录不代表完整群聊记录。";
+  // Both PetReplySchema and the private commit RPC allow at most 1200 chars.
+  // Count UTF-16 units conservatively, but never split a Unicode surrogate pair.
+  const clip = (value: string, limit: number) => {
+    if (value.length <= limit) return value;
+    let end = Math.max(0, limit - 1);
+    if (/[\uD800-\uDBFF]/.test(value.charAt(end - 1))) end--;
+    return value.slice(0, end) + "…";
+  };
+  const lineBudget = Math.floor((1200 - heading.length - footer.length - 2 - (selected.length - 1)) / selected.length);
+  const lines = selected.map(message => {
+    const label = clip(message.actor.replace(/^\[群聊回忆·|\]\s*/g, " ").trim(), 64);
+    return `- ${label}：${clip(message.content, Math.min(180, lineBudget - label.length - 3))}`;
+  });
+  return [heading, ...lines, footer].join("\n");
 }

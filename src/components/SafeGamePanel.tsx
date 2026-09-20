@@ -1,3 +1,4 @@
+import { createThemedStyles } from "../theme/themedStyles";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { SafeGameType } from "../domain/types";
 import { colors, radii, spacing, typography } from "../theme/tokens";
@@ -13,6 +14,7 @@ const GAMES: readonly Readonly<{ type: SafeGameType; label: string }>[] = Object
 ]);
 
 export function SafeGamePanel({ onPlay }: SafeGamePanelProps) {
+  const { styles, colors } = useStyles();
   return (
     <View style={styles.card}>
       <Text style={styles.title}>共同造游戏</Text>
@@ -32,11 +34,11 @@ export function SafeGamePanel({ onPlay }: SafeGamePanelProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors, theme) => ({
   card: { padding: spacing.lg, backgroundColor: colors.surface, borderColor: colors.line, borderWidth: 1, borderRadius: radii.lg },
-  title: { color: colors.text, fontSize: typography.title, fontWeight: "900" },
+  title: { color: colors.text, fontSize: typography.title, fontWeight: "700" },
   note: { marginTop: spacing.xs, color: colors.textMuted, lineHeight: 20 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.md },
   button: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.lavenderSoft, borderRadius: radii.sm },
-  buttonText: { color: colors.textDark, fontWeight: "900" },
-});
+  buttonText: { color: theme.onPrimary, fontWeight: "700" },
+}));

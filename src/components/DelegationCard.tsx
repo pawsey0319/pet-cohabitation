@@ -1,3 +1,4 @@
+import { createThemedStyles } from "../theme/themedStyles";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { DelegatedAction } from "../domain/types";
 import { colors, radii, spacing } from "../theme/tokens";
@@ -20,6 +21,7 @@ type DelegationCardProps = Readonly<{
 }>;
 
 export function DelegationCard({ action, onConfirm, onRevoke }: DelegationCardProps) {
+  const { styles, colors } = useStyles();
   const summary = action.summary?.trim() || "未命名代理事项";
   const status = action.status === "blocked" ? "已阻断" : action.status === "pending_owner" ? "待本人确认" : "已确认";
 
@@ -39,17 +41,17 @@ export function DelegationCard({ action, onConfirm, onRevoke }: DelegationCardPr
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors, theme) => ({
   card: { padding: spacing.md, backgroundColor: colors.surfaceSoft, borderColor: colors.line, borderWidth: 1, borderRadius: radii.md },
   header: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.sm },
-  summary: { flex: 1, color: colors.text, fontWeight: "900" },
-  status: { color: colors.mint, fontWeight: "900" },
-  blocked: { color: colors.coralSoft },
+  summary: { flex: 1, color: colors.text, fontWeight: "700" },
+  status: { color: colors.mint, fontWeight: "700" },
+  blocked: { color: theme.danger },
   source: { marginTop: spacing.xs, color: colors.textMuted, fontSize: 11 },
-  reason: { marginTop: spacing.sm, color: colors.coralSoft, lineHeight: 20 },
+  reason: { marginTop: spacing.sm, color: theme.danger, lineHeight: 20 },
   actions: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm },
   confirm: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.mint, borderRadius: radii.sm },
-  confirmText: { color: colors.textDark, fontWeight: "900" },
+  confirmText: { color: colors.textDark, fontWeight: "700" },
   revoke: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderColor: colors.line, borderWidth: 1, borderRadius: radii.sm },
-  revokeText: { color: colors.text, fontWeight: "800" },
-});
+  revokeText: { color: colors.text, fontWeight: "600" },
+}));

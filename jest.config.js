@@ -1,5 +1,5 @@
 module.exports = {
   preset: "jest-expo",
   testMatch: ["**/__tests__/**/*.test.ts?(x)"],
-  modulePathIgnorePatterns: ["<rootDir>/.worktrees/"],
+  modulePathIgnorePatterns: ["<rootDir>/.worktrees/", "<rootDir>/test-results/"],
 };

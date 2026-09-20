@@ -68,7 +68,9 @@ if (!authCheck.ok) {
 }
 
 console.log(`发布前检查通过：Android 将连接 ${parsedUrl.origin}，API Key 已通过 Auth 验证。`);
+await authCheck.arrayBuffer();
 
+if (!process.argv.includes("--check-only")) {
 const messageIndex = process.argv.indexOf("--message");
 const message = messageIndex >= 0 ? process.argv[messageIndex + 1] : "Android preview update";
 const isBuild = process.argv.includes("--build");
@@ -92,4 +94,5 @@ const published = run(
   },
 );
 
-if (published.status !== 0) process.exit(published.status ?? 1);
+if (published.status !== 0) process.exitCode = published.status ?? 1;
+}

@@ -41,7 +41,7 @@ if (Test-Path -LiteralPath $envFile) {
   if (-not $apiKey) { throw "CPA 配置中没有可用的 api-keys。" }
   $settings = @{
     TEXT_API_KEY = $apiKey
-    TEXT_MODEL = "opencode-glm-5.3"
+    TEXT_MODEL = "glm-5.3"
     IMAGE_API_KEY = $apiKey
     IMAGE_MODEL = "grok-imagine-image"
   }
@@ -92,7 +92,11 @@ if (-not $SkipLocalPublicProbe) {
   }
 }
 if (-not $publicReady -and $ProjectRef -and -not $SkipLocalPublicProbe) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue; throw "隧道已经建立，但 60 秒内公网模型探测仍失败，因此没有更新 Supabase Secrets。请检查当前网络是否能访问 trycloudflare.com。" }
-if (-not $publicReady) { Write-Warning "隧道连接已建立，但本机未完成公网探测；进程会继续运行，部署后必须从云端再次验证。" }
+if ($SkipLocalPublicProbe) {
+  Write-Host "已按启动流程跳过本机公网回环探测，接下来由 Supabase 云端验证实际连接。"
+} elseif (-not $publicReady) {
+  Write-Warning "隧道进程已启动，但本机未完成公网探测；必须从云端再次验证实际连接。"
+}
 
 @{ process_id = $process.Id; process_started_at = $process.StartTime.ToUniversalTime().ToString("o"); tunnel_url = $tunnelUrl; public_probe_passed = $publicReady; started_at = (Get-Date).ToString("o"); stdout = $stdout; stderr = $stderr } |
   ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stateDir "model-tunnel.json") -Encoding UTF8

@@ -1,3 +1,4 @@
+import { createThemedStyles } from "../theme/themedStyles";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { ActivityIndicator, Image, Modal, PanResponder, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { imageViewerReducer, initialImageViewerTransform } from "../chat/imageViewerState";
@@ -17,6 +18,7 @@ function touchDistance(touches: readonly { pageX: number; pageY: number }[]): nu
 }
 
 export function ImageViewer({ visible, url, loading = false, onClose, onRetry }: Props) {
+  const { styles, colors } = useStyles();
   const [transform, dispatch] = useReducer(imageViewerReducer, initialImageViewerTransform);
   const [failed, setFailed] = useState(false);
   const lastTap = useRef(0);
@@ -75,11 +77,11 @@ export function ImageViewer({ visible, url, loading = false, onClose, onRetry }:
   </Modal>;
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "rgba(3,3,10,.96)", alignItems: "center", justifyContent: "center" },
+const useStyles = createThemedStyles((colors, theme) => ({
+  root: { flex: 1, backgroundColor: theme.overlay, alignItems: "center", justifyContent: "center" },
   toolbar: { position: "absolute", zIndex: 2, top: 22, left: 18, right: 18, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  zoomText: { color: colors.textMuted, fontSize: 12 }, closeButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,255,255,.12)", alignItems: "center", justifyContent: "center" }, closeText: { color: colors.text, fontSize: 30, lineHeight: 32 },
+  zoomText: { color: colors.textMuted, fontSize: 12 }, closeButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.overlay, alignItems: "center", justifyContent: "center" }, closeText: { color: colors.text, fontSize: 30, lineHeight: 32 },
   stage: { width: "100%", height: "82%", alignItems: "center", justifyContent: "center", overflow: "hidden" }, image: { width: Platform.OS === "web" ? ("82vw" as never) : 360, height: Platform.OS === "web" ? ("78vh" as never) : 560 },
-  failed: { alignItems: "center", gap: 14 }, failedText: { color: colors.text }, retry: { backgroundColor: colors.mintDeep, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 18 }, retryText: { color: colors.mint, fontWeight: "900" },
+  failed: { alignItems: "center", gap: 14 }, failedText: { color: colors.text }, retry: { backgroundColor: colors.mintDeep, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 18 }, retryText: { color: colors.mint, fontWeight: "700" },
   hint: { position: "absolute", bottom: 22, color: colors.textMuted, fontSize: 11 },
-});
+}));

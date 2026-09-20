@@ -1,7 +1,8 @@
 ﻿param(
   [string]$ProjectRef = "lthcucgggoevgcboouqw",
   [string]$CpaConfigPath = "D:\CLIProxyAPI\config.yaml",
-  [switch]$NoWait
+  [switch]$NoWait,
+  [switch]$CheckOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,11 +25,24 @@ $keyOutput = $null
 $keys = $null
 if (-not $serviceKey -or -not $anonKey) { throw "当前账号无法取得项目探测权限，未更改隧道。" }
 
-Write-Host "[2/4] 重启本项目的 CPA 隧道并同步云端地址..."
-& (Join-Path $PSScriptRoot "stop-demo-model-tunnel.ps1")
-# Some local networks cannot loop back through trycloudflare.com. The next step
-# verifies the actual Supabase -> CPA route instead; TLS checks remain enabled.
-& (Join-Path $PSScriptRoot "start-demo-model-tunnel.ps1") -ProjectRef $ProjectRef -CpaConfigPath $CpaConfigPath -SkipLocalPublicProbe
+# Image segmentation is independent of the AI tunnel. Reuse the configured
+# scoped worker so the usual startup entry also restores transparent previews.
+$transparentCredential = Join-Path $env:LOCALAPPDATA "PetCompanion/$ProjectRef/transparent-worker.credential"
+if (-not $CheckOnly -and $ProjectRef -eq 'lthcucgggoevgcboouqw' -and (Test-Path -LiteralPath $transparentCredential)) {
+  try { & (Join-Path $PSScriptRoot 'start-pet-transparent-worker.ps1') }
+  catch { Write-Warning '透明形象处理服务未启动，可稍后运行 scripts/start-pet-transparent-worker.ps1；继续检查聊天模型。' }
+}
+
+if ($CheckOnly) {
+  if (-not (Test-Path -LiteralPath $stateFile)) { throw "没有找到本项目的隧道记录，请先运行启动入口。" }
+  Write-Host "[2/4] 保留当前隧道与云端配置，仅重新检查..."
+} else {
+  Write-Host "[2/4] 重启本项目的 CPA 隧道并同步云端地址..."
+  & (Join-Path $PSScriptRoot "stop-demo-model-tunnel.ps1")
+  # Some local networks cannot loop back through trycloudflare.com. The next step
+  # verifies the actual Supabase -> CPA route instead; TLS checks remain enabled.
+  & (Join-Path $PSScriptRoot "start-demo-model-tunnel.ps1") -ProjectRef $ProjectRef -CpaConfigPath $CpaConfigPath -SkipLocalPublicProbe
+}
 
 Write-Host "[3/4] 从 Supabase 云端检查文本与图片接口..."
 $baseUrl = "https://$ProjectRef.supabase.co"
@@ -41,22 +55,38 @@ try {
   $created = Invoke-RestMethod -Method Post -Uri "$baseUrl/auth/v1/admin/users" -Headers $adminHeaders -ContentType "application/json" -TimeoutSec 20 -Body (@{ email = $email; password = $password; email_confirm = $true } | ConvertTo-Json)
   $probeUserId = $created.id
   if (-not $probeUserId) { throw "无法建立临时云端探测会话。" }
+  # model_runs.owner_id references profiles, not auth.users. Admin-created Auth
+  # users skip the app's registration flow, so initialize their profile explicitly.
+  try {
+    $null = Invoke-RestMethod -Method Post -Uri "$baseUrl/rest/v1/profiles" -Headers $adminHeaders -ContentType "application/json" -TimeoutSec 20 -Body (@{ id = $probeUserId; email = $email; nickname = "Tunnel probe" } | ConvertTo-Json)
+  } catch {
+    throw "临时检测账号资料初始化失败，尚未调用 CPA；请检查云端数据库与检测脚本。"
+  }
   $session = Invoke-RestMethod -Method Post -Uri "$baseUrl/auth/v1/token?grant_type=password" -Headers @{ apikey = $anonKey } -ContentType "application/json" -TimeoutSec 20 -Body (@{ email = $email; password = $password } | ConvertTo-Json)
   $healthHeaders = @{ apikey = $anonKey; Authorization = "Bearer $($session.access_token)" }
   $health = $null
   for ($attempt = 1; $attempt -le 3; $attempt++) {
-    $health = Invoke-RestMethod -Method Post -Uri "$baseUrl/functions/v1/model-health" -Headers $healthHeaders -ContentType "application/json" -Body "{}" -TimeoutSec 25
+    $health = Invoke-RestMethod -Method Post -Uri "$baseUrl/functions/v1/model-health" -Headers $healthHeaders -ContentType "application/json" -Body "{}" -TimeoutSec 140
     if ($health.status_code -eq "online" -and $health.text_online -and $health.image_online) { break }
     if ($attempt -lt 3) { Start-Sleep -Seconds 3 }
   }
-  if ($health.status_code -ne "online" -or -not $health.text_online -or -not $health.image_online) {
-    throw "云端仍未连通 AI。请检查 CPA 和网络，稍后重试；不要只凭隧道进程判断成功。"
-  }
+  $cloudPassed = $health.status_code -eq "online" -and $health.text_online -and $health.image_online
   $verifiedState = Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json
-  $verifiedState | Add-Member -NotePropertyName "cloud_probe_passed" -NotePropertyValue $true -Force
+  $verifiedState | Add-Member -NotePropertyName "cloud_probe_passed" -NotePropertyValue $cloudPassed -Force
   $verifiedState | Add-Member -NotePropertyName "cloud_checked_at" -NotePropertyValue $health.checked_at -Force
   $verifiedState | ConvertTo-Json | Set-Content -LiteralPath $stateFile -Encoding UTF8
-  Write-Host "[4/4] AI 已恢复：云端文本接口在线，图片接口在线。" -ForegroundColor Green
+  if (-not $cloudPassed) {
+    $textDetail = "文本试调用通过"
+    if (-not $health.text_online) {
+      $textDetail = "文本检测程序未完成，请检查云端检测服务和账号资料"
+      if ([string]$health.text_error -cmatch '^text_model_[a-z0-9_]{1,80}$') {
+        $textDetail = "文本试调用失败（$($health.text_error)）"
+      }
+    }
+    $imageDetail = if ($health.image_online) { "图片模型目录可达，生成尚未验证" } else { "图片模型目录检查失败，请检查隧道、鉴权或模型配置" }
+    throw "$textDetail；$imageDetail。CPA 窗口开启不代表每项检查都会通过；当前隧道已保留。"
+  }
+  Write-Host "[4/4] 文本试调用通过；图片模型目录可达，图片生成尚未验证。" -ForegroundColor Green
   Write-Host "云端检查时间：$($health.checked_at)"
 } finally {
   if ($probeUserId) {
@@ -75,7 +105,7 @@ try {
 }
 
 Write-Host "请在手机重新进入异宠页。无需重新安装 APK 或发布 OTA。"
-if (-not $NoWait) {
+if (-not $NoWait -and -not $CheckOnly) {
   $state = Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json
   Write-Host "请保持此窗口和 CPA 运行（可最小化）。下次离线时重新运行启动入口即可。"
   Wait-Process -Id $state.process_id

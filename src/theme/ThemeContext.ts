@@ -2,6 +2,7 @@ import { createContext } from "react";
 import type { ThemePreferences } from "./preferences";
 
 export type AppTheme = Readonly<{
+  isDark: boolean;
   page: string;
   card: string;
   cardSoft: string;
@@ -14,11 +15,17 @@ export type AppTheme = Readonly<{
   line: string;
   radius: number;
   controlHeight: number;
+  onPrimary: string;
+  onDanger: string;
+  userBubble: string;
+  userText: string;
+  overlay: string;
 }>;
 
 export type ThemeContextValue = Readonly<{
   preferences: ThemePreferences;
   theme: AppTheme;
+  ready: boolean;
   dirty: boolean;
   saving: boolean;
   update(patch: Partial<ThemePreferences>): void;
@@ -28,4 +35,3 @@ export type ThemeContextValue = Readonly<{
 }>;
 
 export const ThemeContext = createContext<ThemeContextValue | null>(null);
-

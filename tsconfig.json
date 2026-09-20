@@ -2,8 +2,25 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
-    "types": ["jest", "node"]
+    "types": [
+      "jest",
+      "node"
+    ],
+    "allowImportingTsExtensions": true
   },
-  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"],
-  "exclude": ["supabase/functions"]
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts"
+  ],
+  "exclude": [
+    "supabase/functions",
+    "scripts/test-mobile-text.ts",
+    "test-results",
+    "scripts/test-companion-model.ts",
+    "scripts/benchmark-companion-latency.ts",
+    "scripts/test-private-stream.ts",
+    "scripts/test-companion-stream-live.ts"
+  ]
 }

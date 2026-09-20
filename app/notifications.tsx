@@ -1,3 +1,4 @@
+import { createThemedStyles } from "../src/theme/themedStyles";
 import { type Href, router } from "expo-router";
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -23,6 +24,7 @@ function formatTime(value: string): string {
 }
 
 export default function NotificationsScreen() {
+  const { styles, colors } = useStyles();
   const insets = useSafeAreaInsets();
   const { theme } = useAppTheme();
   const { events, loading, error, reload, markRead } = useNotificationInbox();
@@ -79,26 +81,26 @@ export default function NotificationsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors, theme) => ({
   page: { flex: 1 },
   header: { flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.sm },
   back: { width: 42, height: 42, borderRadius: 15, alignItems: "center", justifyContent: "center" },
   backText: { color: colors.text, fontSize: 34, lineHeight: 37 },
   headerCopy: { flex: 1 },
-  eyebrow: { color: colors.mint, fontSize: 11, fontWeight: "800", letterSpacing: 1.2 },
-  title: { color: colors.text, fontSize: 28, fontWeight: "900" },
+  eyebrow: { color: colors.mint, fontSize: 11, fontWeight: "600", letterSpacing: 1.2 },
+  title: { color: colors.text, fontSize: 28, fontWeight: "700" },
   list: { padding: spacing.md, gap: 10, paddingBottom: 40 },
   empty: { flexGrow: 1, justifyContent: "center" },
   loading: { marginTop: 60 },
   row: { minHeight: 82, flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderRadius: 20, padding: 13 },
   glyph: { width: 42, height: 42, borderRadius: 15, alignItems: "center", justifyContent: "center" },
-  glyphText: { color: colors.text, fontSize: 19, fontWeight: "900" },
+  glyphText: { color: colors.text, fontSize: 19, fontWeight: "700" },
   copy: { flex: 1, gap: 5 },
   topline: { flexDirection: "row", alignItems: "center", gap: 10 },
-  rowTitle: { flex: 1, color: colors.text, fontSize: 15, fontWeight: "900" },
+  rowTitle: { flex: 1, color: colors.text, fontSize: 15, fontWeight: "700" },
   time: { color: colors.textMuted, fontSize: 10 },
   body: { color: colors.textMuted, fontSize: 13, lineHeight: 19 },
   dot: { width: 8, height: 8, borderRadius: 4 },
   error: { margin: spacing.md, padding: 12, borderRadius: 14, backgroundColor: "#5B3040" },
-  errorText: { color: colors.coralSoft, textAlign: "center", fontWeight: "700" },
-});
+  errorText: { color: theme.danger, textAlign: "center", fontWeight: "700" },
+}));

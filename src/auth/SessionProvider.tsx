@@ -1,3 +1,8 @@
+import { stopSystemVoice } from "../voice/native";
+import { abortAllPrivateStreams } from "../pets/streamClient";
+import { clearPrivateSendQueue } from "../pets/privateSendQueue";
+import { clearPetPortraitPosition } from "../pets/portraitPosition";
+import { clearWorkData } from "../work/repository";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { User } from "@supabase/supabase-js";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from "react";
@@ -5,6 +10,8 @@ import { AppState, Platform, type AppStateStatus } from "react-native";
 import { isLocalDemoMode, requireSupabase, supabase } from "../lib/supabase";
 import type { AppProfile } from "../data/types";
 import { clearMediaCache } from "../chat/mediaCache";
+import { clearAccountMessageCaches } from "../chat/messageSync";
+import { clearNotificationLocalData, unregisterCurrentPushDevice } from "../notifications/lifecycle";
 
 const LOCAL_PROFILE_KEY = "pet-cohabitation-local-profile-v2";
 const LOCAL_USER_ID = "00000000-0000-4000-8000-000000000001";
@@ -67,7 +74,12 @@ export function SessionProvider({ children }: PropsWithChildren) {
   }, []);
 
   const adoptRemoteUser = useCallback((user: User | null, refresh = true) => {
+    const previous=activeUserIdRef.current;
     activeUserIdRef.current = user?.id ?? null;
+    if(previous && previous!==user?.id){
+      abortAllPrivateStreams();void stopSystemVoice();
+      void Promise.allSettled([clearPrivateSendQueue(previous),clearPetPortraitPosition(previous),clearWorkData(previous),clearAccountMessageCaches(previous),clearNotificationLocalData(previous),clearMediaCache(previous)]);
+    }
     setProfile(user ? profileFromUser(user) : null);
     if (user && refresh && scheduledProfileRefreshRef.current !== user.id) {
       // Defer the authoritative profile row so navigation is never held behind
@@ -142,8 +154,11 @@ export function SessionProvider({ children }: PropsWithChildren) {
 
   const logout = useCallback(async () => {
     const ownerId = profile?.id;
+    if(ownerId && !isLocalDemoMode) await unregisterCurrentPushDevice(ownerId);
     if (isLocalDemoMode) {
       await AsyncStorage.removeItem(LOCAL_PROFILE_KEY);
+      abortAllPrivateStreams();void stopSystemVoice();
+      if(ownerId)await Promise.all([clearPrivateSendQueue(ownerId),clearPetPortraitPosition(ownerId),clearWorkData(ownerId),clearAccountMessageCaches(ownerId),clearNotificationLocalData(ownerId)]);
       if (ownerId) await clearMediaCache(ownerId).catch(() => undefined);
       setProfile(null);
       return;

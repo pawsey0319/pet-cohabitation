@@ -57,6 +57,13 @@ it("does not retry content-filtered output", async () => {
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
+it("identifies a missing provider session without blind retries or exposing provider text", async () => {
+  const payload = { error: { type: "MissingSessionID", message: "private provider detail" } };
+  fetchMock.mockResolvedValueOnce({ ok: false, status: 400, clone: () => ({ json: async () => payload }) });
+  await expect(new TextModelAdapter().summarizeSpace(input)).rejects.toThrow("text_model_provider_session_required");
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
 it("maps compact source aliases and discards invented message ids", async () => {
   fetchMock.mockResolvedValueOnce(response(JSON.stringify({ ...wireDigest, source_message_ids: ["m1", "invented", "m1"] })));
   expect((await new TextModelAdapter().summarizeSpace(input)).source_message_ids).toEqual(["message-1"]);

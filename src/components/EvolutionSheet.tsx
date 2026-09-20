@@ -1,3 +1,4 @@
+import { createThemedStyles } from "../theme/themedStyles";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import type { EvolutionEvent, IdentityAnchors } from "../domain/types";
@@ -13,6 +14,7 @@ type EvolutionSheetProps = Readonly<{
 }>;
 
 export function EvolutionSheet({ petName, anchors, pending, canPropose, onPropose, onApply }: EvolutionSheetProps) {
+  const { styles, colors } = useStyles();
   const [expectation, setExpectation] = useState("");
   const inherited = [anchors.eyes, anchors.coreColor, anchors.voice, anchors.silhouette, anchors.signatureOrgan].join("、");
 
@@ -56,20 +58,20 @@ export function EvolutionSheet({ petName, anchors, pending, canPropose, onPropos
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors, theme) => ({
   card: { padding: spacing.lg, backgroundColor: colors.surface, borderColor: colors.line, borderWidth: 1, borderRadius: radii.lg },
-  eyebrow: { color: colors.coral, fontSize: 10, fontWeight: "800", letterSpacing: 1.2 },
-  title: { marginTop: spacing.xs, color: colors.text, fontSize: typography.title, fontWeight: "900" },
+  eyebrow: { color: colors.coral, fontSize: 10, fontWeight: "600", letterSpacing: 1.2 },
+  title: { marginTop: spacing.xs, color: colors.text, fontSize: typography.title, fontWeight: "700" },
   copy: { marginTop: spacing.sm, color: colors.textMuted, lineHeight: 21 },
   input: { marginTop: spacing.md, minHeight: 48, paddingHorizontal: spacing.md, color: colors.text, backgroundColor: colors.canvasRaised, borderColor: colors.line, borderWidth: 1, borderRadius: radii.sm },
   primary: { alignItems: "center", marginTop: spacing.sm, padding: spacing.sm, backgroundColor: colors.coral, borderRadius: radii.sm },
-  primaryText: { color: colors.textDark, fontWeight: "900" },
+  primaryText: { color: theme.onPrimary, fontWeight: "700" },
   disabled: { opacity: 0.45 },
   waiting: { marginTop: spacing.sm, color: colors.textMuted, fontSize: typography.eyebrow },
-  decision: { marginTop: spacing.md, padding: spacing.md, backgroundColor: "rgba(190,184,248,0.1)", borderRadius: radii.md, gap: spacing.xs },
-  decisionTitle: { color: colors.lavenderSoft, fontSize: typography.bodyLarge, fontWeight: "900" },
+  decision: { marginTop: spacing.md, padding: spacing.md, backgroundColor: theme.overlay, borderRadius: radii.md, gap: spacing.xs },
+  decisionTitle: { color: colors.lavenderSoft, fontSize: typography.bodyLarge, fontWeight: "700" },
   decisionText: { color: colors.text, lineHeight: 21 },
   inherited: { color: colors.mint, lineHeight: 21, fontWeight: "700" },
   accept: { alignItems: "center", marginTop: spacing.sm, padding: spacing.sm, backgroundColor: colors.lavenderSoft, borderRadius: radii.sm },
-  acceptText: { color: colors.textDark, fontWeight: "900" },
-});
+  acceptText: { color: theme.onPrimary, fontWeight: "700" },
+}));

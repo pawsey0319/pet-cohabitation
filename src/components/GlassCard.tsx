@@ -1,3 +1,4 @@
+import { createThemedStyles } from "../theme/themedStyles";
 import type { PropsWithChildren, ReactNode } from "react";
 import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import { colors, radii, shadows, spacing } from "../theme/tokens";
@@ -15,6 +16,7 @@ const accents = {
 } as const;
 
 export function GlassCard({ accent, children, header, style }: GlassCardProps) {
+  const { styles, colors } = useStyles();
   return (
     <View style={[styles.card, style]}>
       {accent ? <View style={[styles.accent, { backgroundColor: accents[accent] }]} /> : null}
@@ -24,7 +26,7 @@ export function GlassCard({ accent, children, header, style }: GlassCardProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors, theme) => ({
   card: {
     position: "relative",
     overflow: "hidden",
@@ -44,4 +46,4 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: radii.pill,
     borderBottomRightRadius: radii.pill,
   },
-});
+}));

@@ -1,6 +1,8 @@
 export type PetReplyStyle = "concise" | "balanced" | "detailed";
-
+export type AppearanceMode = "light" | "dark" | "system" | "custom";
 export type ThemePreferences = Readonly<{
+  appearance: AppearanceMode;
+  designVersion: 2;
   pageBackground: string;
   cardBackground: string;
   primaryButton: string;
@@ -12,43 +14,39 @@ export type ThemePreferences = Readonly<{
   reduceMotion: boolean;
   petReplyStyle: PetReplyStyle;
 }>;
-
 export const DEFAULT_THEME_PREFERENCES: ThemePreferences = {
-  pageBackground: "#141329",
-  cardBackground: "#211F40",
-  primaryButton: "#FF806F",
-  secondaryButton: "#34305E",
-  dangerButton: "#9D4656",
-  accent: "#79E0C1",
-  cornerStyle: "soft",
-  density: "comfortable",
-  reduceMotion: false,
-  petReplyStyle: "concise",
+  appearance: "light", designVersion: 2,
+  pageBackground: "#FAFAFA", cardBackground: "#FFFFFF",
+  primaryButton: "#A3563C", secondaryButton: "#F0EFED",
+  dangerButton: "#B3261E", accent: "#A3563C",
+  cornerStyle: "soft", density: "comfortable", reduceMotion: false, petReplyStyle: "concise",
 };
-
+export const DARK_THEME_PREFERENCES: ThemePreferences = {
+  ...DEFAULT_THEME_PREFERENCES, appearance: "dark",
+  pageBackground: "#141312", cardBackground: "#1C1B1A",
+  primaryButton: "#C17A5C", secondaryButton: "#292725",
+  dangerButton: "#F07167", accent: "#D49478",
+};
 export const THEME_PRESETS: readonly { id: string; name: string; note: string; value: ThemePreferences }[] = [
-  { id: "night-coral", name: "暮夜珊瑚", note: "克制、温暖，适合长时间聊天", value: DEFAULT_THEME_PREFERENCES },
-  { id: "mist-mint", name: "雾海薄荷", note: "低饱和青色，更安静清爽", value: { ...DEFAULT_THEME_PREFERENCES, pageBackground: "#102323", cardBackground: "#173533", primaryButton: "#53C9A7", secondaryButton: "#254B48", dangerButton: "#98525C", accent: "#B6F2DE" } },
-  { id: "paper-moon", name: "纸月灰紫", note: "柔和灰紫，信息层级更明显", value: { ...DEFAULT_THEME_PREFERENCES, pageBackground: "#22202A", cardBackground: "#302D3B", primaryButton: "#B887F4", secondaryButton: "#474153", dangerButton: "#A75362", accent: "#F4C77A" } },
+  { id:"paper-light", name:"清浅", note:"白灰底色，一点温暖", value:DEFAULT_THEME_PREFERENCES },
+  { id:"charcoal-dark", name:"暖夜", note:"柔和深色，安静相伴", value:DARK_THEME_PREFERENCES },
+  { id:"follow-system", name:"跟随系统", note:"随设备切换深浅色", value:{...DEFAULT_THEME_PREFERENCES,appearance:"system"} },
 ];
-
-export function isHexColor(value: string): boolean {
-  return /^#[0-9a-f]{6}$/i.test(value.trim());
-}
-
+export function isHexColor(value: string): boolean { return /^#[0-9a-f]{6}$/i.test(value.trim()); }
 export function normalizeThemePreferences(value: Partial<ThemePreferences> | null | undefined): ThemePreferences {
-  const color = (candidate: unknown, fallback: string) => typeof candidate === "string" && isHexColor(candidate) ? candidate.toUpperCase() : fallback;
+  const legacyColors = ["#141329","#211F40","#FF806F","#34305E","#9D4656","#79E0C1"];
+  const keys = ["pageBackground","cardBackground","primaryButton","secondaryButton","dangerButton","accent"] as const;
+  const hasColors = value && keys.some(key => typeof value[key] === "string");
+  const legacyDefault = !value?.designVersion && hasColors && keys.every((key,i) => !value?.[key] || value[key]!.toUpperCase() === legacyColors[i]);
+  const appearance: AppearanceMode = value?.appearance === "dark" || value?.appearance === "system" || value?.appearance === "custom" || value?.appearance === "light" ? value.appearance : hasColors && !legacyDefault ? "custom" : "light";
+  const defaults = appearance === "dark" ? DARK_THEME_PREFERENCES : DEFAULT_THEME_PREFERENCES;
+  const color = (key: typeof keys[number]) => !legacyDefault && typeof value?.[key] === "string" && isHexColor(value[key]!) ? value[key]!.trim().toUpperCase() : defaults[key];
   return {
-    pageBackground: color(value?.pageBackground, DEFAULT_THEME_PREFERENCES.pageBackground),
-    cardBackground: color(value?.cardBackground, DEFAULT_THEME_PREFERENCES.cardBackground),
-    primaryButton: color(value?.primaryButton, DEFAULT_THEME_PREFERENCES.primaryButton),
-    secondaryButton: color(value?.secondaryButton, DEFAULT_THEME_PREFERENCES.secondaryButton),
-    dangerButton: color(value?.dangerButton, DEFAULT_THEME_PREFERENCES.dangerButton),
-    accent: color(value?.accent, DEFAULT_THEME_PREFERENCES.accent),
-    cornerStyle: value?.cornerStyle === "compact" || value?.cornerStyle === "round" ? value.cornerStyle : "soft",
-    density: value?.density === "compact" ? "compact" : "comfortable",
-    reduceMotion: value?.reduceMotion === true,
-    petReplyStyle: value?.petReplyStyle === "balanced" || value?.petReplyStyle === "detailed" ? value.petReplyStyle : "concise",
+    appearance, designVersion:2,
+    pageBackground:color("pageBackground"),cardBackground:color("cardBackground"),primaryButton:color("primaryButton"),secondaryButton:color("secondaryButton"),dangerButton:color("dangerButton"),accent:color("accent"),
+    cornerStyle:value?.cornerStyle === "compact" || value?.cornerStyle === "round" ? value.cornerStyle : "soft",
+    density:value?.density === "compact" ? "compact" : "comfortable",
+    reduceMotion:value?.reduceMotion === true,
+    petReplyStyle:value?.petReplyStyle === "balanced" || value?.petReplyStyle === "detailed" ? value.petReplyStyle : "concise",
   };
 }
-

@@ -75,3 +75,53 @@ verify_jwt = false
 
 [functions.model-health]
 verify_jwt = true
+
+[functions.retry-pet-memory]
+verify_jwt = true
+
+[functions.generate-chat-background]
+verify_jwt = true
+
+[functions.dispatch-space-messages]
+verify_jwt = false
+
+[functions.avatar-assets]
+verify_jwt = true
+
+[functions.pet-display]
+verify_jwt = true
+
+[functions.pet-transparent-worker]
+verify_jwt = false
+
+[functions.work-items]
+verify_jwt = true
+
+[functions.group-work-suggestions]
+verify_jwt = false
+
+[functions.reminder-management]
+verify_jwt = true
+
+[functions.companion-actions]
+verify_jwt = true
+
+[functions.background-management]
+verify_jwt = true
+
+[functions.memory-evolution]
+verify_jwt = true
+
+
+[functions.vision-assets]
+verify_jwt = true
+
+[functions.semantic-search]
+verify_jwt = true
+
+[functions.image-maintenance]
+verify_jwt = false
+
+[functions.steward-actions]
+verify_jwt = true
+

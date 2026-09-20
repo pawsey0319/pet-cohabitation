@@ -2,12 +2,12 @@
   "expo": {
     "name": "异宠共生空间",
     "slug": "pet-cohabitation",
-    "version": "1.0.4",
+    "version": "1.0.7",
     "description": "轻量真实聊天与可培养生成式异宠 Demo。",
     "scheme": "pet-cohabitation",
     "orientation": "portrait",
-    "userInterfaceStyle": "dark",
-    "backgroundColor": "#16142D",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#FAFAFA",
     "runtimeVersion": {
       "policy": "appVersion"
     },
@@ -21,7 +21,8 @@
     },
     "android": {
       "package": "com.pawsey.petcohabitation",
-      "versionCode": 5,
+      "googleServicesFile": "./google-services.json",
+      "versionCode": 8,
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.POST_NOTIFICATIONS",
@@ -29,7 +30,11 @@
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
-      ]
+      ],
+      "adaptiveIcon": {
+        "backgroundColor": "#FAFAFA",
+        "foregroundImage": "./assets/brand/adaptive-foreground.png"
+      }
     },
     "web": {
       "bundler": "metro",
@@ -59,7 +64,20 @@
         }
       ],
       "expo-updates",
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FAFAFA",
+          "dark": {
+            "image": "./assets/brand/splash-dark.png",
+            "backgroundColor": "#141312"
+          },
+          "resizeMode": "contain",
+          "image": "./assets/brand/splash-light.png",
+          "imageWidth": 160
+        }
+      ]
     ],
     "extra": {
       "publicAppUrl": "https://pet-cohabitation-public.vercel.app",
@@ -68,6 +86,7 @@
         "projectId": "8cc62f33-fbad-4b84-b0c7-2f579cbc9e37"
       }
     },
-    "owner": "pawsey"
+    "owner": "pawsey",
+    "icon": "./assets/brand/icon.png"
   }
 }

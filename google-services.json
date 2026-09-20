@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "548557314654",
+    "project_id": "pet-cohabitation-pawsey",
+    "storage_bucket": "pet-cohabitation-pawsey.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:548557314654:android:080de1c1dc66d4d01832cf",
+        "android_client_info": {
+          "package_name": "com.pawsey.petcohabitation"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB4PtC5lpGIWdLmOJhqXHn56RqoNlOtPyE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

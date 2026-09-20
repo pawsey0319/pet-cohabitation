@@ -1,0 +1,80 @@
+// Run with node <this-file> <installed @electric-sql/pglite/dist/index.js>.
+// Isolated PostgreSQL fixture only; no credentials or remote database connections.
+import assert from "node:assert/strict";
+import {readFile} from "node:fs/promises";
+import {pathToFileURL} from "node:url";
+const {PGlite}=await import(pathToFileURL(process.argv[2]).href);
+const db=new PGlite();let checks=0;
+const A="00000000-0000-4000-8000-000000000001",B="00000000-0000-4000-8000-000000000002";
+const uuid=(number)=>`10000000-0000-4000-8000-${String(number).padStart(12,"0")}`;
+async function as(role,owner,sql,args=[]){await db.query("select set_config('request.jwt.claim.sub',$1,false)",[owner]);await db.exec(`set role ${role}`);try{return await db.query(sql,args);}finally{await db.exec("reset role");}}
+const own=(sql,args=[])=>as("authenticated",A,sql,args);
+const other=(sql,args=[])=>as("authenticated",B,sql,args);
+const service=(sql,args=[])=>as("service_role","",sql,args);
+const claim=async(owner,id,prompt="雨后竹林，浅灰绿色")=>(await service("select claim_chat_background_generation($1,$2,$3,'fixture-image') as result",[owner,id,prompt])).rows[0].result;
+try{
+  await db.exec(`
+    create role anon;create role authenticated;create role service_role bypassrls;
+    create schema auth;create schema storage;
+    create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
+    create function storage.foldername(text) returns text[] language sql immutable as $$ select string_to_array($1,'/') $$;
+    grant usage on schema auth,storage,public to anon,authenticated,service_role;
+    create table profiles(id uuid primary key);
+    create table demo_settings(id boolean primary key,image_generation_enabled boolean,global_daily_image_limit integer,test_ends_at timestamptz);
+    create table user_preferences(user_id uuid primary key,theme jsonb);
+    create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
+    create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text,name text);
+    alter table storage.objects enable row level security;
+    grant select,insert,delete on storage.objects to authenticated;
+    grant all on all tables in schema public,storage to service_role;
+    insert into profiles values('${A}'),('${B}');
+    insert into demo_settings values(true,true,100,null);
+    insert into user_preferences values('${A}','{"keep":"existing-theme"}');
+  `);
+  await db.exec(await readFile(new URL("../../../supabase/migrations/202609110001_chat_background_design.sql",import.meta.url),"utf8"));checks++;
+  assert.equal((await db.query("select public from storage.buckets where id='chat-backgrounds'")).rows[0].public,false);checks++;
+  await own("insert into chat_background_settings(owner_id,thread_key,preset_id) values($1,'global','mist')",[A]);
+  assert.equal((await other("select * from chat_background_settings")).rows.length,0);
+  await assert.rejects(other("insert into chat_background_settings(owner_id,thread_key,preset_id) values($1,'companion','paper')",[A]),/row-level security/);checks++;
+  await assert.rejects(own("select claim_chat_background_generation($1,$2,'竹林薄雾','fixture')",[A,uuid(1)]),/permission denied/);checks++;
+  const first=await claim(A,uuid(1));assert.equal(first.created,true);
+  assert.equal((await claim(A,uuid(1))).created,false);
+  await assert.rejects(claim(A,uuid(1),"另一段描述不能覆盖"),/background_request_conflict/);
+  await assert.rejects(claim(A,uuid(2)),/background_generation_busy/);
+  assert.equal((await own("select * from chat_background_generations")).rows.length,1);
+  assert.equal((await other("select * from chat_background_generations")).rows.length,0);checks++;
+  await service("update chat_background_generations set status='running' where owner_id=$1 and request_id=$2",[A,uuid(1)]);
+  assert.equal((await service("select begin_chat_background_upload($1,$2) as ok",[A,uuid(1)])).rows[0].ok,true);
+  const done=await service("select complete_chat_background_generation($1,$2,$3,$4) as ok",[A,uuid(1),uuid(100),`${A}/${uuid(100)}.png`]);assert.equal(done.rows[0].ok,true);
+  assert.equal((await own("select * from chat_background_assets")).rows.length,1);
+  assert.equal((await other("select * from chat_background_assets")).rows.length,0);
+  await assert.rejects(other("insert into chat_background_settings(owner_id,thread_key,asset_id) values($1,'global',$2)",[B,uuid(100)]),/foreign key/);checks++;
+  await assert.rejects(own("insert into chat_background_assets(owner_id,storage_path,source) values($1,$2,'ai')",[A,`${A}/${uuid(102)}.png`]),/row-level security/);checks++;
+  await own("insert into storage.objects(bucket_id,name) values('chat-backgrounds',$1)",[`${A}/${uuid(100)}.png`]);
+  assert.equal((await other("select * from storage.objects")).rows.length,0);
+  await assert.rejects(other("insert into storage.objects(bucket_id,name) values('chat-backgrounds',$1)",[`${A}/${uuid(200)}.png`]),/row-level security/);
+  await assert.rejects(own("insert into storage.objects(bucket_id,name) values('chat-backgrounds',$1)",[`${A}/../${B}/${uuid(200)}.png`]),/row-level security/);
+  await own("delete from storage.objects where name=$1",[`${A}/${uuid(100)}.png`]);assert.equal((await own("select * from storage.objects")).rows.length,1);checks++;
+  await claim(A,uuid(2));await service("update chat_background_generations set created_at=now()-interval '10 minutes',status='running' where request_id=$1",[uuid(2)]);
+  await claim(A,uuid(3));
+  const late=await service("select complete_chat_background_generation($1,$2,$3,$4) as ok",[A,uuid(2),uuid(201),`${A}/${uuid(201)}.png`]);assert.equal(late.rows[0].ok,false);
+  assert.equal((await own("select * from chat_background_assets where id=$1",[uuid(201)])).rows.length,0);checks++;
+  await service("update chat_background_generations set status='failed' where owner_id=$1 and status='queued'",[A]);
+  for(let i=4;i<=12;i++){await claim(A,uuid(i));await service("update chat_background_generations set status='failed' where owner_id=$1 and request_id=$2",[A,uuid(i)]);}
+  await assert.rejects(claim(A,uuid(13)),/background_daily_limit/);
+  assert.equal((await claim(A,uuid(1))).created,false);checks++;
+  assert.deepEqual((await db.query("select theme from user_preferences where user_id=$1",[A])).rows[0].theme,{keep:"existing-theme"});checks++;
+  await service("update chat_background_generations set status='running' where owner_id=$1 and request_id=$2",[A,uuid(12)]);
+  assert.equal((await service("select begin_chat_background_upload($1,$2) as ok",[A,uuid(12)])).rows[0].ok,true);
+  await service("select block_chat_background_owner($1)",[A]);
+  assert.equal((await service("select complete_chat_background_generation($1,$2,$3,$4) as ok",[A,uuid(12),uuid(300),`${A}/${uuid(300)}.png`])).rows[0].ok,false);
+  assert.equal((await service("select begin_chat_background_upload($1,$2) as ok",[A,uuid(11)])).rows[0].ok,false);
+  await assert.rejects(claim(A,uuid(301)),/background_account_deleting/);
+  await assert.rejects(own("insert into storage.objects(bucket_id,name) values('chat-backgrounds',$1)",[`${A}/${uuid(302)}.png`]),/row-level security/);checks++;
+  await own("update chat_background_settings set preset_id=null,asset_id=$2 where owner_id=$1 and thread_key='global'",[A,uuid(100)]);
+  await service("delete from profiles where id=$1",[A]);
+  assert.equal((await db.query("select * from chat_background_settings where owner_id=$1",[A])).rows.length,0);
+  assert.equal((await db.query("select * from chat_background_assets where owner_id=$1",[A])).rows.length,0);
+  assert.equal((await db.query("select * from chat_background_generations where owner_id=$1",[A])).rows.length,0);checks++;
+  console.log(`Chat background PostgreSQL checks passed: ${checks}`);
+}finally{await db.close();}

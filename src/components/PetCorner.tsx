@@ -1,3 +1,4 @@
+import { createThemedStyles } from "../theme/themedStyles";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { GrowthExperience, PetCornerStory } from "../domain/types";
 import { colors, radii, spacing, typography } from "../theme/tokens";
@@ -26,6 +27,7 @@ function friendlySummary(
 }
 
 export function PetCorner({ petName, currentUserId, memberNames, spaceName, stories, experiences, onCare, onInteract }: PetCornerProps) {
+  const { styles, colors } = useStyles();
   return (
     <View style={styles.card}>
       <Text style={styles.eyebrow}>PET CORNER / 仅带回高光</Text>
@@ -41,16 +43,16 @@ export function PetCorner({ petName, currentUserId, memberNames, spaceName, stor
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors, theme) => ({
   card: { padding: spacing.lg, backgroundColor: colors.mintDeep, borderColor: "rgba(125,226,196,0.25)", borderWidth: 1, borderRadius: radii.lg },
-  eyebrow: { color: colors.mint, fontSize: 10, fontWeight: "800", letterSpacing: 1.1 },
-  title: { marginTop: spacing.xs, color: colors.text, fontSize: typography.title, fontWeight: "900" },
-  subtitle: { marginTop: spacing.md, color: colors.mint, fontSize: typography.bodyLarge, fontWeight: "900" },
+  eyebrow: { color: colors.mint, fontSize: 10, fontWeight: "600", letterSpacing: 1.1 },
+  title: { marginTop: spacing.xs, color: colors.text, fontSize: typography.title, fontWeight: "700" },
+  subtitle: { marginTop: spacing.md, color: colors.mint, fontSize: typography.bodyLarge, fontWeight: "700" },
   story: { marginTop: spacing.sm, color: colors.text, fontSize: typography.body, lineHeight: 22 },
   empty: { marginTop: spacing.sm, color: colors.textMuted, lineHeight: 21 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.md },
   primary: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.mint, borderRadius: radii.sm },
-  primaryText: { color: colors.textDark, fontWeight: "900" },
+  primaryText: { color: theme.onPrimary, fontWeight: "700" },
   secondary: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderColor: colors.mint, borderWidth: 1, borderRadius: radii.sm },
-  secondaryText: { color: colors.mint, fontWeight: "800" },
-});
+  secondaryText: { color: colors.mint, fontWeight: "600" },
+}));

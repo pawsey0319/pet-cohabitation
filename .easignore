@@ -8,6 +8,8 @@ coverage/
 .env
 .env.local
 .env.*.local
+.env*
+artifacts/
 supabase/functions/.env.production
 playwright-report/
 test-results/

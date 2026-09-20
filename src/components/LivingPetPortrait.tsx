@@ -1,3 +1,4 @@
+import { createThemedStyles } from "../theme/themedStyles";
 import { type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AccessibilityInfo, Animated, Easing, StyleSheet, Text, View } from "react-native";
 import type { PetMotionState } from "../data/types";
@@ -26,6 +27,7 @@ const ICONS: Readonly<Partial<Record<PetMotionState, string>>> = {
 };
 
 export function LivingPetPortrait({ state, children, compact = false, reduceMotion: reduceMotionOverride = false }: Readonly<{ state: PetMotionState; children: ReactNode; compact?: boolean; reduceMotion?: boolean }>) {
+  const { styles, colors } = useStyles();
   const themeContext = useContext(ThemeContext);
   const progress = useRef(new Animated.Value(0)).current;
   const [systemReduceMotion, setSystemReduceMotion] = useState(false);
@@ -78,12 +80,12 @@ export function LivingPetPortrait({ state, children, compact = false, reduceMoti
   </View>;
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors, theme) => ({
   wrap: { alignItems: "center", justifyContent: "center", position: "relative" },
-  effect: { position: "absolute", right: 8, top: 8, color: colors.coralSoft, fontSize: 24, fontWeight: "900" },
+  effect: { position: "absolute", right: 8, top: 8, color: theme.danger, fontSize: 24, fontWeight: "700" },
   effectCompact: { right: 2, top: 2, fontSize: 13 },
   status: { marginTop: 8, flexDirection: "row", gap: 7, alignItems: "center", backgroundColor: colors.surface, paddingHorizontal: 11, paddingVertical: 6, borderRadius: radii.pill },
   dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.mint },
   dotSleeping: { backgroundColor: colors.lavender },
-  statusText: { color: colors.textMuted, fontSize: 11, fontWeight: "800" },
-});
+  statusText: { color: colors.textMuted, fontSize: 11, fontWeight: "600" },
+}));

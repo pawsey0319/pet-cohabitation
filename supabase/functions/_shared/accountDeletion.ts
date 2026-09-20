@@ -1,28 +1,30 @@
+import {deleteVisionData} from "./visionData.ts";
+import { readAccountPages, removeStoragePrefix } from "./dataPagination.ts";
+import { stopAndDeleteReminderData } from "../reminder-management/data.ts";
+import { deletePrivateWorkData } from "../work-items/accountData.ts";
+import { deleteAvatarData } from "./avatarData.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
+import { deleteChatBackgroundData } from "./chatBackgroundData.ts";
 
-export async function redactAndDeleteAccount(client: SupabaseClient, userId: string): Promise<string> {
-  const [messageRows, portraitRows] = await Promise.all([
-    client.from("messages").select("id,media_path").eq("sender_id", userId),
-    client.from("pet_visual_assets").select("storage_path").eq("owner_id", userId),
+export async function redactAndDeleteAccount(client: SupabaseClient, userId: string): Promise<{ redactedAt: string; storageCleanup: "complete" | "pending" }> {
+  const fenced = await client.rpc("begin_account_data_deletion", { p_owner: userId }); if (fenced.error) throw fenced.error;
+  await deleteAvatarData(client,userId);
+  await deleteVisionData(client,userId);
+  await stopAndDeleteReminderData(client,userId);
+  await deletePrivateWorkData(client,userId);
+  await deleteChatBackgroundData(client, userId);
+  const [messageRows, memberships] = await Promise.all([
+    readAccountPages(client,"messages",userId,{ownerColumn:"sender_id",select:"id,media_path,space_id"}),
+    readAccountPages(client,"space_members",userId,{ownerColumn:"user_id",key:"space_id"}),
   ]);
-  if (messageRows.error) throw messageRows.error;
-  if (portraitRows.error) throw portraitRows.error;
+  const spaces = new Set([...messageRows.map(row => row.space_id), ...memberships.map(row => row.space_id)]);
+  for (const space of spaces) await removeStoragePrefix(client,"chat-media",`${space}/${userId}`);
+  await removeStoragePrefix(client,"pet-portraits",userId);
 
-  const mediaPaths = (messageRows.data ?? []).map((row) => row.media_path).filter((value): value is string => Boolean(value));
-  const portraitPaths = (portraitRows.data ?? []).map((row) => row.storage_path).filter((value): value is string => Boolean(value));
-  if (mediaPaths.length) {
-    const removed = await client.storage.from("chat-media").remove(mediaPaths);
-    if (removed.error) throw removed.error;
-  }
-  if (portraitPaths.length) {
-    const removed = await client.storage.from("pet-portraits").remove(portraitPaths);
-    if (removed.error) throw removed.error;
-  }
-
-  const messageIds = (messageRows.data ?? []).map((row) => row.id);
+  const messageIds = messageRows.map((row) => row.id);
   const redactedAt = new Date().toISOString();
-  if (messageIds.length) {
-    const previews = await client.from("messages").update({ reply_preview: "[已删除消息]" }).in("reply_to_message_id", messageIds);
+  for (let offset=0;offset<messageIds.length;offset+=100) {
+    const previews = await client.from("messages").update({ reply_preview: "[已删除消息]" }).in("reply_to_message_id", messageIds.slice(offset,offset+100));
     if (previews.error) throw previews.error;
   }
   const redacted = await client.from("messages").update({
@@ -35,21 +37,7 @@ export async function redactAndDeleteAccount(client: SupabaseClient, userId: str
   }).eq("sender_id", userId);
   if (redacted.error) throw redacted.error;
 
-  const ownedSpaces = await client.from("spaces").select("id").eq("created_by", userId);
-  if (ownedSpaces.error) throw ownedSpaces.error;
-  for (const space of ownedSpaces.data ?? []) {
-    const successor = await client.from("space_members").select("user_id").eq("space_id", space.id).neq("user_id", userId).order("joined_at").limit(1).maybeSingle();
-    if (successor.error) throw successor.error;
-    if (successor.data) {
-      const transferred = await client.from("spaces").update({ created_by: successor.data.user_id, updated_at: new Date().toISOString() }).eq("id", space.id).eq("created_by", userId);
-      if (transferred.error) throw transferred.error;
-      const promoted = await client.from("space_members").update({ role: "owner" }).eq("space_id", space.id).eq("user_id", successor.data.user_id);
-      if (promoted.error) throw promoted.error;
-    } else {
-      const removed = await client.from("spaces").delete().eq("id", space.id).eq("created_by", userId);
-      if (removed.error) throw removed.error;
-    }
-  }
+  const transferred = await client.rpc("transfer_account_spaces", { p_owner: userId }); if (transferred.error) throw transferred.error;
   const signupInvites = await client.from("signup_invites").delete().or(`created_by.eq.${userId},claimed_by.eq.${userId}`);
   if (signupInvites.error) throw signupInvites.error;
   const spaceInvites = await client.from("space_invites").delete().or(`created_by.eq.${userId},claimed_by.eq.${userId}`);
@@ -57,5 +45,22 @@ export async function redactAndDeleteAccount(client: SupabaseClient, userId: str
 
   const deleted = await client.auth.admin.deleteUser(userId);
   if (deleted.error) throw deleted.error;
-  return redactedAt;
+  // The profile lock in the Storage insert fence means all pre-deletion upload
+  // metadata has committed now; catch any upload that finished during cleanup.
+  let storageCleanup: "complete" | "pending" = "complete";
+  try {
+    // Preserve confirmed shared materials while removing late private uploads.
+    for (;;) {
+      const page = await client.rpc("deleted_account_storage", { p_owner: userId }); if (page.error) throw page.error;
+      if (!(page.data ?? []).length) break;
+      for (const object of page.data) {
+        const removed = await client.storage.from(object.bucket).remove([object.path]); if (removed.error) throw removed.error;
+      }
+    }
+  } catch {
+    storageCleanup = "pending";
+    // The periodic service also discovers files whose account no longer exists.
+    await client.rpc("enqueue_media_maintenance");
+  }
+  return { redactedAt, storageCleanup };
 }

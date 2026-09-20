@@ -6,5 +6,5 @@ import { colors } from "../src/theme/tokens";
 export default function IndexRoute() {
   const { profile, isLoading } = useSession();
   if (isLoading) return <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><ActivityIndicator color={colors.coral} /></View>;
-  return <Redirect href={profile ? "/chats" : "/login"} />;
+  return <Redirect href={profile ? "/pet" : "/login"} />;
 }

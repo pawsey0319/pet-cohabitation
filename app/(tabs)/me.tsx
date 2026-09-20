@@ -1,3 +1,15 @@
+import { NotificationSettings } from "../../src/notifications/NotificationSettings";
+import { AvatarEditor } from "../../src/avatars/AvatarEditor";
+import { AvatarImage } from "../../src/avatars/AvatarImage";
+import { ChatBackgroundEditor } from "../../src/backgrounds/ChatBackgroundEditor";
+import { useChatBackground } from "../../src/backgrounds/ChatBackgroundProvider";
+import { SettingsRow } from "../../src/ui/SettingsRow";
+import { Icon } from "../../src/ui/Icon";
+import { readableInk } from "../../src/theme/palette";
+import { createThemedStyles } from "../../src/theme/themedStyles";
+import { localDataKeys } from "../../src/data/localData";
+import { savePrivateDraft } from "../../src/pets/privateDraft";
+import { KeyboardScreen, KeyboardScrollView, KeyboardTextInput } from "../../src/components/KeyboardLayout";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
@@ -76,6 +88,7 @@ function Choice<T extends string>({
   note?: string;
   onPress(value: T): void;
 }>) {
+  const { styles, colors } = useStyles();
   const { theme } = useAppTheme();
   const active = value === current;
   return (
@@ -108,6 +121,7 @@ function ColorControl({
   value: string;
   onValidChange(value: string): void;
 }>) {
+  const { styles, colors } = useStyles();
   const { theme } = useAppTheme();
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
@@ -123,7 +137,7 @@ function ColorControl({
           <Text style={styles.colorNote}>{field.note}</Text>
         </View>
       </View>
-      <TextInput
+      <KeyboardTextInput
         accessibilityLabel={field.label}
         autoCapitalize="characters"
         value={draft}
@@ -149,9 +163,12 @@ function ColorControl({
 }
 
 export default function MeScreen() {
+  const { styles, colors } = useStyles();
   const { profile, logout, isLocalDemo } = useSession();
+  const { clearLocalData:clearBackgroundData }=useChatBackground();
   const { preferences, theme, dirty, saving, update, replace, save, reset } =
     useAppTheme();
+  const notificationState=useNotificationPreferences();
   const {
     preferences: notificationPreferences,
     dirty: notificationsDirty,
@@ -159,7 +176,7 @@ export default function MeScreen() {
     update: updateNotifications,
     save: saveNotifications,
     reset: resetNotifications,
-  } = useNotificationPreferences();
+  } = notificationState;
   const {
     health: aiHealth,
     checking: checkingAI,
@@ -170,7 +187,9 @@ export default function MeScreen() {
   const [dataBusy, setDataBusy] = useState(false);
   const [dataMessage, setDataMessage] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [accountOpen, setAccountOpen] = useState(false);
+  const [pane,setPane]=useState<"home"|"appearance"|"notifications"|"reply"|"account"|"service">("home");
+  const [backgroundOpen,setBackgroundOpen]=useState(false);
+  const [avatarOpen,setAvatarOpen]=useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [password, setPassword] = useState("");
@@ -187,7 +206,7 @@ export default function MeScreen() {
     setSaveMessage(null);
     try {
       await Promise.all([save(), saveNotifications()]);
-      setSaveMessage("已保存到你的账号");
+      setSaveMessage(isLocalDemo ? "已保存在此设备" : "已保存到你的账号");
     } catch (reason) {
       setSaveMessage(reason instanceof Error ? reason.message : "保存失败");
     }
@@ -197,9 +216,7 @@ export default function MeScreen() {
     setDataMessage(null);
     try {
       if (isLocalDemo) {
-        const keys = (await AsyncStorage.getAllKeys()).filter((key) =>
-          key.startsWith("pet-cohabitation"),
-        );
+        const keys = await localDataKeys(profile!.id);
         const rows = await AsyncStorage.multiGet(keys);
         await exportJsonFile({
           exported_at: new Date().toISOString(),
@@ -228,9 +245,7 @@ export default function MeScreen() {
     setDataMessage(null);
     try {
       if (isLocalDemo) {
-        const keys = (await AsyncStorage.getAllKeys()).filter((key) =>
-          key.startsWith("pet-cohabitation"),
-        );
+        const keys = await localDataKeys(profile!.id);
         await AsyncStorage.multiRemove(keys);
       } else {
         const { error } = await requireSupabase().functions.invoke(
@@ -239,7 +254,10 @@ export default function MeScreen() {
         );
         if (error) throw error;
       }
+      await clearBackgroundData();
+      if (profile) await savePrivateDraft(profile.id, null);
       await logout().catch(() => undefined);
+      if(profile)await AsyncStorage.multiRemove([`pet-cohabitation-theme-v1:${profile.id}`,`pet-cohabitation-notifications-v1:${profile.id}`]);
       setDeleting(false);
       router.replace("/login");
     } catch (reason) {
@@ -250,7 +268,7 @@ export default function MeScreen() {
   };
 
   return (
-    <ScrollView
+    <KeyboardScreen style={{ flex: 1 }}><KeyboardScrollView
       style={[styles.page, { backgroundColor: theme.page }]}
       contentContainerStyle={[
         styles.content,
@@ -260,38 +278,30 @@ export default function MeScreen() {
     >
       {isLocalDemo ? <DemoBanner /> : null}
       <View style={styles.topline}>
-        <View>
-          <Text style={[styles.eyebrow, { color: theme.accent }]}>
-            个人控制中心
-          </Text>
-          <Text style={styles.title}>把这里调成你的样子</Text>
-        </View>
-        <View
-          style={[
-            styles.avatar,
-            { backgroundColor: theme.primary, borderRadius: theme.radius },
-          ]}
-        >
-          <Text style={styles.avatarText}>{profile?.nickname.slice(0, 1)}</Text>
-        </View>
+        {pane !== "home" ? <Pressable accessibilityRole="button" accessibilityLabel="返回设置" onPress={()=>setPane("home")} style={{minWidth:48,minHeight:48,justifyContent:"center"}}><Icon name="back" color={theme.text}/></Pressable> : null}
+        <Text style={[styles.title,{fontSize:20}]}>{({home:"我的",appearance:"外观与显示",notifications:"消息通知",reply:"回应偏好",account:"账号与隐私",service:"AI 服务状态"})[pane]}</Text>
       </View>
-      <Text style={styles.lead}>
-        主题会立即作用到消息、异宠和“我的”；回答偏好会在保存后影响异宠下一次整理群聊的方式。
-      </Text>
+      {pane === "home" ? <>
+        <View style={{flexDirection:"row",alignItems:"center",gap:16,paddingVertical:20}}><Pressable accessibilityRole="button" accessibilityLabel="编辑个人头像" onPress={()=>setAvatarOpen(true)}><AvatarImage reference={profile?.avatarUrl} name={profile?.nickname??"我"} size={54}/></Pressable><View style={{flex:1,gap:6}}><Text style={{fontSize:21,fontWeight:"600",color:theme.text}}>{profile?.nickname}</Text><Text style={{fontSize:13,color:theme.muted}}>{profile?.email ?? "本地体验"}</Text></View></View>
+        <View style={{borderRadius:12,overflow:"hidden"}}>
+          <SettingsRow title="个人头像" note="相册裁切、AI 设计与恢复默认" icon="user" onPress={()=>setAvatarOpen(true)}/>
+          <SettingsRow title="外观与显示" note="浅色、深色与跟随系统" icon="sun" onPress={()=>setPane("appearance")}/>
+          <SettingsRow title="聊天背景" note="推荐背景、上传图片、AI 设计" icon="image" onPress={()=>setBackgroundOpen(true)}/>
+          <SettingsRow title="回应偏好" icon="pet" onPress={()=>setPane("reply")}/>
+          <SettingsRow title="消息通知" icon="messages" onPress={()=>setPane("notifications")}/>
+          <SettingsRow title="账号与隐私" icon="shield" onPress={()=>setPane("account")}/>
+          <SettingsRow title="AI 服务状态" icon="settings" onPress={()=>setPane("service")}/>
+        </View>
+      </> : null}
 
-      <Surface style={styles.healthCard}>
+      {pane === "service" ? (<Surface style={styles.healthCard}>
         <View style={styles.healthCopy}>
           <Text style={styles.sectionKicker}>连接状态</Text>
           <Text style={styles.healthTitle}>
-            {aiHealth.statusCode === "online" || aiHealth.statusCode === "mock"
-              ? "AI 可以使用"
-              : aiHealth.statusCode === "partial"
-                ? "部分 AI 可用"
-                : "AI 暂时离线"}
+            {checkingAI ? "正在检查服务" : aiHealth.statusCode === "mock" ? "演示模式" : aiHealth.statusCode === "unknown" ? "本次检查未完成" : aiHealth.textCheck === "generation" ? "文本试调用成功" : aiHealth.textCheck === "failed" ? "文本服务暂不可用" : "已检查接口连接"}
           </Text>
           <Text style={styles.controlNote}>
-            文本 {aiHealth.textOnline ? "在线" : "离线"} · 图片{" "}
-            {aiHealth.imageOnline ? "在线" : "离线"}
+            {aiHealth.statusCode === "unknown" ? "请重新检查，未沿用旧状态。" : aiHealth.statusCode === "mock" ? "当前为演示回复。" :               `文本：${aiHealth.textCheck === "generation" ? "试调用通过" : aiHealth.textCheck === "failed" ? "试调用失败" : "仅检查连接"} · 图片：${aiHealth.imageOnline ? "模型目录可达，生成未验证" : "连接未通过"}`}
             {aiHealth.checkedAt
               ? ` · ${new Date(aiHealth.checkedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} 检查`
               : ""}
@@ -310,12 +320,12 @@ export default function MeScreen() {
             {checkingAI ? "检查中" : "重新检查"}
           </Text>
         </Pressable>
-      </Surface>
+      </Surface>) : null}
 
-      <Surface style={styles.section}>
+      {pane === "appearance" ? (<Surface style={styles.section}>
         <View style={styles.sectionHead}>
           <View>
-            <Text style={styles.sectionKicker}>01 · 主题</Text>
+            <Text style={styles.sectionKicker}>外观</Text>
             <Text style={styles.sectionTitle}>选择一个氛围</Text>
           </View>
           <Text style={styles.sectionAside}>实时预览</Text>
@@ -323,8 +333,7 @@ export default function MeScreen() {
         <View style={styles.presetGrid}>
           {THEME_PRESETS.map((preset) => {
             const active =
-              preferences.pageBackground === preset.value.pageBackground &&
-              preferences.primaryButton === preset.value.primaryButton;
+              preferences.appearance === preset.value.appearance;
             return (
               <Pressable
                 accessibilityRole="button"
@@ -366,8 +375,8 @@ export default function MeScreen() {
                     ]}
                   />
                 </View>
-                <Text style={styles.presetName}>{preset.name}</Text>
-                <Text style={styles.presetNote}>{preset.note}</Text>
+                <Text style={[styles.presetName,{color:readableInk(preset.value.pageBackground)}]}>{preset.name}</Text>
+                <Text style={[styles.presetNote,{color:readableInk(preset.value.pageBackground),opacity:.65}]}>{preset.note}</Text>
               </Pressable>
             );
           })}
@@ -418,7 +427,7 @@ export default function MeScreen() {
                   },
                 ]}
               >
-                <Text style={styles.previewButtonText}>稍后</Text>
+                <Text style={[styles.previewButtonText,{color:theme.text}]}>稍后</Text>
               </View>
             </View>
           </View>
@@ -441,18 +450,18 @@ export default function MeScreen() {
                 field={field}
                 value={preferences[field.key]}
                 onValidChange={(value) =>
-                  update({ [field.key]: value } as Partial<ThemePreferences>)
+                  update({ [field.key]: value, appearance:"custom" } as Partial<ThemePreferences>)
                 }
               />
             ))}
           </View>
         ) : null}
-      </Surface>
+      </Surface>) : null}
 
-      <Surface style={styles.section}>
+      {pane === "appearance" ? (<Surface style={styles.section}>
         <View style={styles.sectionHead}>
           <View>
-            <Text style={styles.sectionKicker}>02 · 交互</Text>
+            <Text style={styles.sectionKicker}>显示</Text>
             <Text style={styles.sectionTitle}>界面手感</Text>
           </View>
         </View>
@@ -504,12 +513,12 @@ export default function MeScreen() {
             thumbColor="#FFFFFF"
           />
         </View>
-      </Surface>
+      </Surface>) : null}
 
-      <Surface style={styles.section}>
+      {pane === "notifications" ? (<Surface style={styles.section}><NotificationSettings state={notificationState}/>
         <View style={styles.sectionHead}>
           <View>
-            <Text style={styles.sectionKicker}>03 · 通知</Text>
+            <Text style={styles.sectionKicker}>通知</Text>
             <Text style={styles.sectionTitle}>只接收你关心的提醒</Text>
           </View>
         </View>
@@ -554,12 +563,12 @@ export default function MeScreen() {
             thumbColor="#FFFFFF"
           />
         </View>
-      </Surface>
+      </Surface>) : null}
 
-      <Surface style={styles.section}>
+      {pane === "reply" ? (<Surface style={styles.section}>
         <View style={styles.sectionHead}>
           <View>
-            <Text style={styles.sectionKicker}>04 · 异宠</Text>
+            <Text style={styles.sectionKicker}>消息管家</Text>
             <Text style={styles.sectionTitle}>群聊回顾偏好</Text>
           </View>
         </View>
@@ -578,8 +587,9 @@ export default function MeScreen() {
             />
           ))}
         </View>
-      </Surface>
+      </Surface>) : null}
 
+      {(pane !== "notifications" && (dirty || notificationsDirty || pane === "appearance" || pane === "reply")) ? <>
       <View
         style={[
           styles.saveBar,
@@ -607,7 +617,6 @@ export default function MeScreen() {
             accessibilityRole="button"
             onPress={() => {
               reset();
-              resetNotifications();
             }}
             style={[
               styles.smallButton,
@@ -635,34 +644,15 @@ export default function MeScreen() {
                 styles.disabled,
             ]}
           >
-            <Text style={styles.smallButtonText}>
+            <Text style={[styles.smallButtonText,{color:theme.onPrimary}]}>
               {saving || notificationsSaving ? "保存中" : "保存"}
             </Text>
           </Pressable>
         </View>
-      </View>
 
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => setAccountOpen((value) => !value)}
-        style={[
-          styles.accountToggle,
-          {
-            backgroundColor: theme.card,
-            borderColor: theme.line,
-            borderRadius: theme.radius,
-          },
-        ]}
-      >
-        <View>
-          <Text style={styles.accountName}>{profile?.nickname}</Text>
-          <Text style={styles.accountEmail}>{profile?.email} · 账号与数据</Text>
-        </View>
-        <Text style={[styles.disclosureIcon, { color: theme.accent }]}>
-          {accountOpen ? "−" : "+"}
-        </Text>
-      </Pressable>
-      {accountOpen ? (
+      </View></> : null}
+
+      {pane === "account" ? (
         <Surface style={styles.section}>
           <Text style={styles.sectionTitle}>账号与数据</Text>
           <Text style={styles.controlNote}>
@@ -697,7 +687,7 @@ export default function MeScreen() {
         </Surface>
       ) : null}
 
-      {profile?.isAdmin ? (
+      {profile?.isAdmin && pane === "account" ? (
         <View style={styles.adminRow}>
           <Pressable
             onPress={() => router.push("/admin/status")}
@@ -727,16 +717,18 @@ export default function MeScreen() {
         onPress={() => void signOut()}
       />
       <Text style={styles.version}>
-        异宠共生空间 · Android / Web 共用控制中心 v1
+        异宠 · 1.0.5
       </Text>
 
+      <AvatarEditor visible={avatarOpen} onClose={()=>setAvatarOpen(false)}/>
+      <ChatBackgroundEditor visible={backgroundOpen} onClose={()=>setBackgroundOpen(false)}/>
       <Modal
         transparent
         visible={deleting}
         animationType="fade"
         onRequestClose={() => setDeleting(false)}
       >
-        <View style={styles.overlay}>
+        <KeyboardScreen style={styles.overlay}>
           <Surface style={styles.deleteCard}>
             <Text style={styles.deleteTitle}>确认注销账号</Text>
             <Text style={styles.controlNote}>
@@ -774,13 +766,13 @@ export default function MeScreen() {
               onPress={() => void deleteAccount()}
             />
           </Surface>
-        </View>
+        </KeyboardScreen>
       </Modal>
-    </ScrollView>
+    </KeyboardScrollView></KeyboardScreen>
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors, theme) => ({
   page: { flex: 1 },
   content: {
     width: "100%",
@@ -798,7 +790,7 @@ const styles = StyleSheet.create({
   },
   eyebrow: {
     fontSize: 12,
-    fontWeight: "900",
+    fontWeight: "700",
     letterSpacing: 1.5,
     marginBottom: 7,
   },
@@ -806,7 +798,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 32,
     lineHeight: 39,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   lead: { color: colors.textMuted, maxWidth: 640, lineHeight: 22 },
   healthCard: {
@@ -816,7 +808,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   healthCopy: { flex: 1, gap: 4 },
-  healthTitle: { color: colors.text, fontWeight: "900", fontSize: 18 },
+  healthTitle: { color: colors.text, fontWeight: "700", fontSize: 18 },
   healthButton: {
     borderWidth: 1,
     minHeight: 40,
@@ -824,14 +816,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  healthButtonText: { fontSize: 12, fontWeight: "900" },
+  healthButtonText: { fontSize: 12, fontWeight: "700" },
   avatar: {
+    borderRadius: 12,
     width: 54,
     height: 54,
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarText: { color: colors.white, fontSize: 20, fontWeight: "900" },
+  avatarText: { color: colors.white, fontSize: 20, fontWeight: "700" },
   section: { gap: spacing.md },
   sectionHead: {
     flexDirection: "row",
@@ -842,23 +835,23 @@ const styles = StyleSheet.create({
   sectionKicker: {
     color: colors.textMuted,
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "600",
     letterSpacing: 1.2,
     marginBottom: 5,
   },
-  sectionTitle: { color: colors.text, fontSize: 20, fontWeight: "900" },
+  sectionTitle: { color: colors.text, fontSize: 20, fontWeight: "700" },
   sectionAside: { color: colors.textMuted, fontSize: 12 },
   presetGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   preset: {
     flexGrow: 1,
-    flexBasis: 190,
+    flexBasis: 140,
     minHeight: 120,
     borderWidth: 1,
     padding: 14,
   },
   swatches: { flexDirection: "row", gap: 6, marginBottom: 16 },
   swatch: { width: 22, height: 8, borderRadius: 4 },
-  presetName: { color: colors.text, fontSize: 16, fontWeight: "900" },
+  presetName: { color: colors.text, fontSize: 16, fontWeight: "700" },
   presetNote: {
     color: colors.textMuted,
     fontSize: 12,
@@ -872,7 +865,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  previewTitle: { color: colors.text, fontWeight: "900", fontSize: 16 },
+  previewTitle: { color: colors.text, fontWeight: "700", fontSize: 16 },
   previewCopy: { color: colors.textMuted, marginTop: 4, fontSize: 12 },
   previewDot: { width: 10, height: 10, borderRadius: 5 },
   previewButtons: { flexDirection: "row", gap: 8 },
@@ -882,14 +875,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  previewButtonText: { color: colors.white, fontWeight: "800", fontSize: 12 },
+  previewButtonText: { color: colors.white, fontWeight: "600", fontSize: 12 },
   disclosure: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     minHeight: 42,
   },
-  disclosureText: { color: colors.text, fontWeight: "800" },
+  disclosureText: { color: colors.text, fontWeight: "600" },
   disclosureIcon: { fontSize: 24, fontWeight: "700" },
   colorGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   colorControl: { flexGrow: 1, flexBasis: 225, gap: 9 },
@@ -901,17 +894,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,.2)",
   },
-  colorLabel: { color: colors.text, fontWeight: "800", fontSize: 13 },
+  colorLabel: { color: colors.text, fontWeight: "600", fontSize: 13 },
   colorNote: { color: colors.textMuted, fontSize: 11 },
   hexInput: {
     minHeight: 42,
     borderWidth: 1,
-    backgroundColor: "rgba(0,0,0,.13)",
+    backgroundColor: theme.overlay,
     color: colors.text,
     paddingHorizontal: 12,
     fontFamily: Platform.OS === "web" ? "monospace" : undefined,
   },
-  controlLabel: { color: colors.text, fontWeight: "800", fontSize: 14 },
+  controlLabel: { color: colors.text, fontWeight: "600", fontSize: 14 },
   controlNote: { color: colors.textMuted, lineHeight: 20 },
   choiceRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   choice: {
@@ -921,7 +914,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
     paddingVertical: 11,
   },
-  choiceLabel: { color: colors.text, fontWeight: "900", fontSize: 13 },
+  choiceLabel: { color: colors.text, fontWeight: "700", fontSize: 13 },
   choiceNote: {
     color: colors.textMuted,
     fontSize: 11,
@@ -947,7 +940,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   saveCopy: { flex: 1, minWidth: 190 },
-  saveTitle: { color: colors.text, fontWeight: "900" },
+  saveTitle: { color: colors.text, fontWeight: "700" },
   saveNote: { color: colors.textMuted, fontSize: 11, marginTop: 3 },
   saveActions: { flexDirection: "row", gap: 8 },
   smallButton: {
@@ -958,7 +951,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  smallButtonText: { color: colors.white, fontWeight: "900", fontSize: 12 },
+  smallButtonText: { color: theme.text, fontWeight: "600", fontSize: 12 },
   disabled: { opacity: 0.42 },
   accountToggle: {
     borderWidth: 1,
@@ -968,7 +961,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  accountName: { color: colors.text, fontWeight: "900", fontSize: 16 },
+  accountName: { color: colors.text, fontWeight: "700", fontSize: 16 },
   accountEmail: { color: colors.textMuted, fontSize: 12, marginTop: 3 },
   dataMessage: { textAlign: "center", fontSize: 12 },
   adminRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
@@ -981,20 +974,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  adminText: { color: colors.text, fontWeight: "800" },
+  adminText: { color: colors.text, fontWeight: "600" },
   version: { color: colors.textMuted, textAlign: "center", fontSize: 11 },
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(4,3,13,.8)",
+    backgroundColor: theme.overlay,
     alignItems: "center",
     justifyContent: "center",
     padding: spacing.lg,
   },
   deleteCard: { width: "100%", maxWidth: 480, gap: spacing.md },
-  deleteTitle: { color: colors.text, fontSize: 22, fontWeight: "900" },
+  deleteTitle: { color: colors.text, fontSize: 22, fontWeight: "700" },
   password: {
     minHeight: 50,
     color: colors.text,
     paddingHorizontal: spacing.md,
   },
-});
+}));

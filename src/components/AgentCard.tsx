@@ -1,3 +1,4 @@
+import { createThemedStyles } from "../theme/themedStyles";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors, radii, spacing, typography } from "../theme/tokens";
@@ -8,6 +9,7 @@ type AgentCardProps = Readonly<{
 }>;
 
 export function AgentCard({ pendingCount, onSummarize }: AgentCardProps) {
+  const { styles, colors } = useStyles();
   const [expanded, setExpanded] = useState(true);
 
   return (
@@ -48,19 +50,19 @@ export function AgentCard({ pendingCount, onSummarize }: AgentCardProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors, theme) => ({
   card: { padding: spacing.lg, backgroundColor: colors.surface, borderColor: colors.line, borderWidth: 1, borderRadius: radii.lg },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  eyebrow: { color: colors.lavender, fontSize: 10, fontWeight: "800", letterSpacing: 1.2 },
-  title: { marginTop: 3, color: colors.text, fontSize: typography.title, fontWeight: "900" },
+  eyebrow: { color: colors.lavender, fontSize: 10, fontWeight: "600", letterSpacing: 1.2 },
+  title: { marginTop: 3, color: colors.text, fontSize: typography.title, fontWeight: "700" },
   chevron: { color: colors.lavenderSoft, fontSize: 28 },
   body: { marginTop: spacing.md, gap: spacing.sm },
   statusRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  confirmed: { minWidth: 72, color: colors.mint, fontWeight: "800" },
-  suggested: { minWidth: 72, color: colors.lavenderSoft, fontWeight: "800" },
-  pending: { minWidth: 72, color: colors.coralSoft, fontWeight: "800" },
+  confirmed: { minWidth: 72, color: colors.mint, fontWeight: "600" },
+  suggested: { minWidth: 72, color: colors.lavenderSoft, fontWeight: "600" },
+  pending: { minWidth: 72, color: theme.danger, fontWeight: "600" },
   copy: { flex: 1, color: colors.textMuted, fontSize: typography.eyebrow },
-  guardrail: { padding: spacing.sm, color: colors.coralSoft, backgroundColor: "rgba(255,128,111,0.08)", borderRadius: radii.sm, fontWeight: "800" },
+  guardrail: { padding: spacing.sm, color: theme.danger, backgroundColor: theme.overlay, borderRadius: radii.sm, fontWeight: "600" },
   button: { alignItems: "center", padding: spacing.sm, backgroundColor: colors.lavenderSoft, borderRadius: radii.sm },
-  buttonText: { color: colors.textDark, fontWeight: "900" },
-});
+  buttonText: { color: colors.textDark, fontWeight: "700" },
+}));
