@@ -125,3 +125,12 @@ verify_jwt = false
 [functions.steward-actions]
 verify_jwt = true
 
+
+[functions.pet-personality]
+verify_jwt = true
+
+[functions.space-relationship-consent]
+verify_jwt = true
+
+[functions.pet-capabilities]
+verify_jwt = false

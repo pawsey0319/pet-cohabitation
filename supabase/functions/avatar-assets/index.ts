@@ -7,9 +7,12 @@ import { runInBackground } from "../_shared/background.ts";
 import { ImageModelAdapter, imageExtension } from "../_shared/modelAdapters.ts";
 import { validateBackgroundImage } from "../_shared/chatBackgroundPrompt.ts";
 const Target = z.object({ kind: z.enum(["profile", "space"]), id: z.string().uuid() });
+const Reference = z.object({ reference: z.string().max(100).regex(/^(?:avatar|pet-avatar):\/\/[0-9a-f-]{36}$/i), space_id: z.string().uuid().nullable().optional() });
 const Input = z.discriminatedUnion("action", [
   z.object({ action: z.literal("state"), target: Target }),
   z.object({ action: z.literal("read"), asset_id: z.string().uuid() }),
+  z.object({ action: z.literal("read_batch"), references: z.array(Reference).min(1).max(50) }),
+  z.object({ action: z.literal("space_state"), space_id: z.string().uuid() }),
   z.object({ action: z.literal("register"), request_id: z.string().uuid() }),
   z.object({ action: z.literal("apply"), target: Target, request_id: z.string().uuid(), expected_version: z.number().int().nonnegative(), asset_id: z.string().uuid().nullable() }),
   z.object({ action: z.literal("generate"), request_id: z.string().uuid(), prompt: z.string().trim().min(4).max(600) }),
@@ -39,9 +42,37 @@ Deno.serve(async request => {
   if (request.method === "OPTIONS") return optionsResponse(request);
   try {
     requirePost(request); const user = await authenticatedUser(request);
-    const raw = await request.text(); if (raw.length > 8192) throw new Error("avatar_input_invalid");
+    const raw = await request.text(); if (raw.length > 16384) throw new Error("avatar_input_invalid");
     const parsed = Input.safeParse(JSON.parse(raw)); if (!parsed.success) throw new Error("avatar_input_invalid");
     const input = parsed.data; const client = serviceClient();
+    if (input.action === "space_state") {
+      const state = await client.rpc("read_space_avatar_state", { p_viewer: user.id, p_space: input.space_id });
+      if (state.error) throw state.error; return json(request, state.data);
+    }
+    if (input.action === "read_batch") {
+      type Resolved = { reference: string; space_id: string | null; bucket?: string; path?: string; version?: string; published?: boolean; error?: string };
+      const resolve = async (): Promise<Resolved[]> => {
+        const result = await client.rpc("resolve_avatar_references", { p_viewer: user.id, p_references: input.references });
+        if (result.error) throw result.error; return result.data;
+      };
+      const values = await resolve();
+      const signed = await Promise.all(values.map(async value => {
+        if (value.error || !value.bucket || !value.path) return null;
+        const result = await client.storage.from(value.bucket).createSignedUrl(value.path, 120);
+        return result.error ? null : result.data.signedUrl;
+      }));
+      // Signing is an async boundary. Re-check deletion, membership and the exact
+      // published source/approval; an old image cannot be returned as current.
+      const latest = await resolve();
+      const entries = values.map((value, index) => {
+        const next = latest[index]; const base = { reference: value.reference, space_id: value.space_id };
+        if (!next || next.error) return { ...base, error: next?.error ?? "avatar_forbidden" };
+        if (value.version !== next.version || value.path !== next.path || value.published !== next.published) return { ...base, error: "avatar_version_changed" };
+        if (next.path && !signed[index]) return { ...base, error: "avatar_unavailable" };
+        return { ...base, url: signed[index], version: next.version, published: next.published, expires_at: Date.now() + 110_000 };
+      });
+      return json(request, { entries });
+    }
     if (input.action === "read") {
       const allowed = await client.rpc("can_read_avatar", { p_asset_id: input.asset_id, p_viewer: user.id }); if (allowed.error) throw allowed.error;
       if (!allowed.data) return json(request, { error: "avatar_forbidden" }, 403);

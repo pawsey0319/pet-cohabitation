@@ -1,3 +1,4 @@
+import { processPetLearningJobs } from "../_shared/personalityLearning.ts";
 import { errorResponse, json } from "../_shared/responses.ts";
 import { requirePost, serviceClient } from "../_shared/supabase.ts";
 import { runSpaceRouteJob } from "../_shared/spaceMessageRouter.ts";
@@ -19,6 +20,7 @@ Deno.serve(async (request) => {
       .order("created_at").limit(4);
     if(result.error) throw result.error;
     await Promise.allSettled((result.data ?? []).map((job) => runSpaceRouteJob(job.id,job.requested_by,{message_id:job.source_message_id,cue_pet_ids:job.input?.cue_pet_ids ?? []})));
-    return json(request,{processed:result.data?.length ?? 0});
+    const learningProcessed=await processPetLearningJobs(client,{limit:4});
+    return json(request,{processed:result.data?.length ?? 0,learning_processed:learningProcessed});
   } catch(reason) { return errorResponse(request,reason); }
 });

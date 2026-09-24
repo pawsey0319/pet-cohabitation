@@ -36,8 +36,67 @@ describe("account-scoped persistent outbox", () => {
     const other = { ...message("other-private-draft"), senderId: "user-2" };
     values.set(OUTBOX_KEY, JSON.stringify([message("own"), other]));
     expect(await new AccountOutboxStore(storage, "user-1").load()).toEqual([message("own")]);
+    expect(JSON.parse(values.get(OUTBOX_KEY)!)).toEqual([other]);
     expect(await new AccountOutboxStore(storage, "user-2").load()).toEqual([other]);
-    expect(JSON.parse(values.get(OUTBOX_KEY)!)).toHaveLength(2);
+    expect(JSON.parse(values.get(OUTBOX_KEY)!)).toEqual([]);
+  });
+
+  it("cleans leftovers for already migrated accounts without importing sent messages again", async () => {
+    const { values, storage } = setup(); const other = { ...message("other"), senderId: "user-2" };
+    values.set(OUTBOX_KEY, JSON.stringify([message("already-sent"), other]));
+    values.set(`${OUTBOX_KEY}:user-1`, "[]");
+    expect(await new AccountOutboxStore(storage, "user-1").load()).toEqual([]);
+    expect(JSON.parse(values.get(OUTBOX_KEY)!)).toEqual([other]);
+  });
+
+  it("account cleanup removes its old plaintext without first loading the queue", async () => {
+    const { values, storage } = setup(); const other = { ...message("other"), senderId: "user-2" };
+    values.set(OUTBOX_KEY, JSON.stringify([message("private-old-body"), other]));
+    await new AccountOutboxStore(storage, "user-1").save([]);
+    expect(JSON.parse(values.get(OUTBOX_KEY)!)).toEqual([other]);
+    expect(await new AccountOutboxStore(storage, "user-1").load()).toEqual([]);
+  });
+
+  it("serializes concurrent migrations across accounts without reviving or deleting either queue", async () => {
+    const { values, storage } = setup(); const other = { ...message("other"), senderId: "user-2" };
+    const untouched = { ...message("third-account"), senderId: "user-3" };
+    values.set(OUTBOX_KEY, JSON.stringify([message("own"), other, untouched]));
+    const results = await Promise.all([new AccountOutboxStore(storage, "user-1").load(), new AccountOutboxStore(storage, "user-2").load()]);
+    expect(results).toEqual([[message("own")], [other]]);
+    expect(JSON.parse(values.get(OUTBOX_KEY)!)).toEqual([untouched]);
+    expect(JSON.parse(values.get(`${OUTBOX_KEY}:user-1`)!)).toEqual([message("own")]);
+    expect(JSON.parse(values.get(`${OUTBOX_KEY}:user-2`)!)).toEqual([other]);
+  });
+
+  it("leaves recovery data intact if the first scoped write fails", async () => {
+    const { values, storage } = setup(); values.set(OUTBOX_KEY, JSON.stringify([message("recoverable")]));
+    const write = storage.setItem; storage.setItem = jest.fn().mockRejectedValueOnce(new Error("disk full")).mockImplementation(write);
+    await expect(new AccountOutboxStore(storage, "user-1").load()).rejects.toThrow("disk full");
+    expect(JSON.parse(values.get(OUTBOX_KEY)!)).toEqual([message("recoverable")]);
+    expect(await new AccountOutboxStore(storage, "user-1").load()).toEqual([message("recoverable")]);
+    expect(JSON.parse(values.get(OUTBOX_KEY)!)).toEqual([]);
+  });
+
+  it("retries interrupted cleanup without reviving a cleared message", async () => {
+    const { values, storage } = setup(); const other = { ...message("keep"), senderId: "user-2" };
+    values.set(OUTBOX_KEY, JSON.stringify([message("must-stay-cleared"), other]));
+    const write = storage.setItem; let fail = true;
+    storage.setItem = async (key, value) => { if (key === OUTBOX_KEY && fail) { fail = false; throw new Error("cleanup interrupted"); } await write(key, value); };
+    await expect(new AccountOutboxStore(storage, "user-1").save([])).rejects.toThrow("cleanup interrupted");
+    expect(await new AccountOutboxStore(storage, "user-1").load()).toEqual([]); expect(JSON.parse(values.get(OUTBOX_KEY)!)).toEqual([other]);
+  });
+
+  it("shares the origin Web Lock before touching the legacy key when available", async () => {
+    const { values, storage } = setup(); values.set(OUTBOX_KEY, JSON.stringify([message("locked")]));
+    const previous = Object.getOwnPropertyDescriptor(navigator, "locks"); let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const request = jest.fn(async (_name: string, operation: () => Promise<unknown>) => { await held; return operation(); });
+    Object.defineProperty(navigator, "locks", { configurable: true, value: { request } });
+    try {
+      const loading = new AccountOutboxStore(storage, "user-1").load();
+      await Promise.resolve(); await Promise.resolve(); expect(request).toHaveBeenCalledWith(OUTBOX_KEY, expect.any(Function));
+      expect(values.has(`${OUTBOX_KEY}:user-1`)).toBe(false); release(); expect(await loading).toEqual([message("locked")]);
+    } finally { release(); if (previous) Object.defineProperty(navigator, "locks", previous); else Reflect.deleteProperty(navigator, "locks"); }
   });
 
   it("does not resurrect a migrated message after it has been sent", async () => {
@@ -72,6 +131,48 @@ describe("account-scoped persistent outbox", () => {
 });
 
 describe("MessageOutbox", () => {
+  it("a stopped account drain cannot fail messages after the same account signs in again", async () => {
+    const store = new MemoryStore(), oldQueue = new MessageOutbox(store);
+    await oldQueue.enqueue(message("old-request"));
+    let release!: () => void, started!: () => void, oldEnabled = true;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const began = new Promise<void>(resolve => { started = resolve; });
+    const oldSends: string[] = [], newSends: string[] = [];
+    const oldDrain = oldQueue.flush(async row => {
+      if (!oldEnabled) throw new Error("delivery_suspended");
+      oldSends.push(row.clientId); started(); await held;
+    });
+    await began; oldEnabled = false; await oldQueue.clear();
+    const newQueue = new MessageOutbox(store);
+    await newQueue.enqueue(message("new-request"));
+    const newDrain = newQueue.flush(async row => { newSends.push(row.clientId); });
+    release(); await Promise.all([oldDrain, newDrain]);
+    expect(newSends).toEqual(["new-request"]);
+    expect(oldSends).toEqual(["old-request"]);
+    expect(await newQueue.list()).toEqual([]);
+  });
+
+  it("logout fences old pending local writes as well as late acknowledgements", async () => {
+    const store = new MemoryStore(), oldQueue = new MessageOutbox(store);
+    await oldQueue.clear();
+    const newQueue = new MessageOutbox(store);
+    await newQueue.enqueue(message("current-session"));
+    await expect(oldQueue.enqueue(message("late-old-session"))).rejects.toThrow("账号");
+    await oldQueue.clear();
+    expect(await newQueue.list()).toEqual([message("current-session")]);
+  });
+
+  it("a slow upload blocks its own conversation but not another group's text", async () => {
+    const queue=new MessageOutbox(new MemoryStore());
+    await queue.enqueue({...message("image"),kind:"image",localMediaUri:"file://image"});
+    await queue.enqueue(message("same-group"));
+    await queue.enqueue({...message("other-group"),spaceId:"space-2"});
+    let release!:()=>void;const held=new Promise<void>(resolve=>{release=resolve;});
+    let received!:()=>void;const otherReceived=new Promise<void>(resolve=>{received=resolve;});const sent:string[]=[];
+    const work=queue.flush(async value=>{sent.push(value.clientId);if(value.clientId==="image")await held;if(value.clientId==="other-group")received();});
+    await otherReceived;expect(sent).toEqual(["image","other-group"]);
+    release();await work;expect(sent).toEqual(["image","other-group","same-group"]);
+  });
   it("accepts new typing into the queue before a slow upload finishes", async () => {
     const outbox = new MessageOutbox(new MemoryStore());
     await outbox.enqueue(message("upload"));

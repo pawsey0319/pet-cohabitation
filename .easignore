@@ -17,3 +17,5 @@ supabase/.temp/
 supabase/.branches/
 .vercel/
 .git/
+desktop/
+docs/design/

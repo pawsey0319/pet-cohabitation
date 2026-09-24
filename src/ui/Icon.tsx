@@ -1,4 +1,5 @@
 import Svg, { Path, Circle } from "react-native-svg";
+import { Platform } from "react-native";
 
 const paths = {
   messages: "M20 11.5a8 8 0 0 1-8 8H5l-3 2v-10a9 9 0 0 1 18 0Z M7 10h8 M7 14h5",
@@ -20,5 +21,8 @@ const paths = {
 } as const;
 export type IconName = keyof typeof paths | "more";
 export function Icon({ name, size = 22, color = "#111111" }: { name:IconName; size?:number; color?:string }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.65} strokeLinecap="round" strokeLinejoin="round" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">{name === "more" ? [5,12,19].map(cx => <Circle key={cx} cx={cx} cy={12} r={1.2} fill={color} />) : <Path d={paths[name]} />}</Svg>;
+  const accessibility = Platform.OS === "web"
+    ? { "aria-hidden": true as const }
+    : { accessibilityElementsHidden: true, importantForAccessibility: "no-hide-descendants" as const };
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.65} strokeLinecap="round" strokeLinejoin="round" {...accessibility}>{name === "more" ? [5,12,19].map(cx => <Circle key={cx} cx={cx} cy={12} r={1.2} fill={color} />) : <Path d={paths[name]} />}</Svg>;
 }

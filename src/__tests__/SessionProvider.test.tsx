@@ -15,9 +15,24 @@ const mockMaybeSingle = jest.fn();
 const mockUnsubscribe = jest.fn();
 const mockStartAutoRefresh = jest.fn();
 const mockStopAutoRefresh = jest.fn();
+const mockDesktopRunning = jest.fn();
+const mockStopDesktop = jest.fn();
+const mockUnregisterPush = jest.fn();
+const mockStopDelivery = jest.fn();
+const mockClearDelivery = jest.fn();
 let mockAuthListener: ((event: string, session: { user: typeof mockUser } | null) => void) | null = null;
 
 jest.mock("@react-native-async-storage/async-storage", () => require("@react-native-async-storage/async-storage/jest/async-storage-mock"));
+jest.mock("../desktopPet/native", () => ({
+  desktopPetKeepsSessionActive: () => mockDesktopRunning(),
+  stopDesktopPetForAccount: (...args: unknown[]) => mockStopDesktop(...args),
+  getDesktopPetModule: () => null,
+}));
+jest.mock("../chat/deliveryRuntime", () => ({ stopChatDelivery: (...args: unknown[]) => mockStopDelivery(...args), clearChatDelivery: (...args: unknown[]) => mockClearDelivery(...args) }));
+jest.mock("../notifications/lifecycle", () => ({
+  unregisterCurrentPushDevice: (...args: unknown[]) => mockUnregisterPush(...args),
+  clearNotificationLocalData: jest.fn().mockResolvedValue(undefined),
+}));
 jest.mock("../lib/supabase", () => {
   const auth = {
     getSession: (...args: unknown[]) => mockGetSession(...args),
@@ -45,6 +60,7 @@ function Probe() {
   return <View>
     <Text>{session.isLoading ? "loading" : `ready:${session.profile?.nickname ?? "signed-out"}:${session.profile?.isAdmin ? "admin" : "member"}`}</Text>
     <Pressable accessibilityRole="button" onPress={() => void session.login(mockUser.email, "password")}><Text>登录测试</Text></Pressable>
+    <Pressable accessibilityRole="button" onPress={() => void session.logout().catch(() => undefined)}><Text>退出测试</Text></Pressable>
   </View>;
 }
 
@@ -54,6 +70,70 @@ beforeEach(() => {
   mockSignIn.mockReset(); mockSignOut.mockReset().mockResolvedValue({ error: null }); mockSetSession.mockReset();
   mockMaybeSingle.mockReset(); mockUnsubscribe.mockClear();
   mockStartAutoRefresh.mockClear(); mockStopAutoRefresh.mockClear();
+  mockDesktopRunning.mockReset().mockResolvedValue(false);
+  mockStopDesktop.mockReset().mockResolvedValue(undefined);
+  mockUnregisterPush.mockReset().mockResolvedValue(undefined);
+  mockStopDelivery.mockClear(); mockClearDelivery.mockReset().mockResolvedValue(undefined);
+});
+
+it("keeps auth active for the desktop pet and ignores a late background check after foregrounding", async () => {
+  let handle!: (state: string) => void;
+  const listener = jest.spyOn(AppState, "addEventListener").mockImplementation(((_type: string, callback: typeof handle) => {
+    handle = callback; return { remove: jest.fn() };
+  }) as typeof AppState.addEventListener);
+  const view = await render(<SessionProvider><Probe /></SessionProvider>);
+  mockDesktopRunning.mockResolvedValue(true);
+  await act(async () => handle("background"));
+  expect(mockStopAutoRefresh).not.toHaveBeenCalled();
+  let finish!: (running: boolean) => void;
+  mockDesktopRunning.mockReturnValue(new Promise<boolean>(resolve => { finish = resolve; }));
+  await act(async () => handle("background"));
+  await act(async () => handle("active"));
+  await act(async () => finish(false));
+  expect(mockStopAutoRefresh).not.toHaveBeenCalled();
+  await act(async () => view.unmount());
+  listener.mockRestore();
+});
+
+it("waits for the old desktop window to close even if the next account emits several auth events", async () => {
+  mockGetSession.mockResolvedValue({ data: { session: { user: mockUser } }, error: null });
+  mockMaybeSingle.mockResolvedValue({ data: null, error: null });
+  let finish!: () => void;
+  mockStopDesktop.mockReturnValue(new Promise<void>(resolve => { finish = resolve; }));
+  await render(<SessionProvider><Probe /></SessionProvider>);
+  await waitFor(() => expect(screen.getByText("ready:会话昵称:member")).toBeTruthy());
+  const next = { ...mockUser, id: "00000000-0000-4000-8000-000000000056", user_metadata: { nickname: "新账号" } };
+  await act(async () => { mockAuthListener!("SIGNED_IN", { user: next }); mockAuthListener!("TOKEN_REFRESHED", { user: next }); });
+  expect(screen.queryByText("ready:新账号:member")).toBeNull();
+  expect(mockStopDesktop).toHaveBeenCalledWith(mockUser.id);
+  await act(async () => finish());
+  await waitFor(() => expect(screen.getByText("ready:新账号:member")).toBeTruthy());
+});
+
+it("does not restore a stale boot session after a newer auth event", async () => {
+  let finishBoot!: (value: unknown) => void;
+  mockGetSession.mockReturnValue(new Promise(resolve => { finishBoot = resolve; }));
+  mockMaybeSingle.mockResolvedValue({ data: null, error: null });
+  await render(<SessionProvider><Probe /></SessionProvider>);
+  const next = { ...mockUser, id: "00000000-0000-4000-8000-000000000057", user_metadata: { nickname: "最新账号" } };
+  await act(async () => { mockAuthListener!("SIGNED_IN", { user: next }); });
+  await act(async () => finishBoot({ data: { session: { user: mockUser } } }));
+  await waitFor(() => expect(screen.getByText("ready:最新账号:member")).toBeTruthy());
+  expect(mockStopDesktop).not.toHaveBeenCalled();
+});
+
+it("does not strand the signed-in sender when push unbinding prevents logout", async () => {
+  mockGetSession.mockResolvedValue({ data: { session: { user: mockUser } }, error: null });
+  mockMaybeSingle.mockResolvedValue({ data: null, error: null });
+  mockUnregisterPush.mockRejectedValue(new Error("offline"));
+  await render(<SessionProvider><Probe /></SessionProvider>);
+  await waitFor(() => expect(screen.getByText("ready:会话昵称:member")).toBeTruthy());
+  await fireEvent.press(screen.getByRole("button", { name: "退出测试" }));
+  await waitFor(() => expect(mockUnregisterPush).toHaveBeenCalled());
+  expect(mockSignOut).not.toHaveBeenCalled();
+  expect(mockStopDelivery).not.toHaveBeenCalled();
+  expect(mockClearDelivery).not.toHaveBeenCalled();
+  expect(screen.getByText("ready:会话昵称:member")).toBeTruthy();
 });
 
 it("refreshes the native auth session only while the app is active", async () => {

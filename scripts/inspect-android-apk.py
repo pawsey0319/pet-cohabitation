@@ -231,6 +231,26 @@ def resource_reference_evidence(resources, package: str, reference, apk_files: s
     return result
 
 
+def desktop_manifest_configuration(manifest) -> dict:
+    services = {node.get(ANDROID + "name"): node for node in manifest.findall("application/service")}
+    overlay = services.get("expo.modules.petdesktop.PetDesktopService")
+    headless = services.get("expo.modules.petdesktop.PetDesktopTaskService")
+    raw_type = overlay.get(ANDROID + "foregroundServiceType", "") if overlay is not None else ""
+    try:
+        special_only = int(raw_type, 0) == 0x40000000
+    except ValueError:
+        special_only = raw_type == "specialUse"
+    subtype = overlay.find("property[@" + ANDROID + "name='android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE']") if overlay is not None else None
+    return {
+        "overlay_service_declared": overlay is not None,
+        "overlay_service_not_exported": overlay is not None and overlay.get(ANDROID + "exported") in ("false", "0", "0x0"),
+        "overlay_special_use_only": special_only,
+        "overlay_special_use_description": subtype is not None and bool(subtype.get(ANDROID + "value")),
+        "headless_task_not_exported": headless is not None and headless.get(ANDROID + "exported") in ("false", "0", "0x0"),
+        "overlay_survives_task_close": overlay is not None and overlay.get(ANDROID + "stopWithTask") in ("false", "0", "0x0"),
+    }
+
+
 def inspect(path: Path, args) -> dict:
     tools = Path(args.tools_dir).resolve()
     if not (tools / "pyaxmlparser").is_dir():
@@ -302,6 +322,10 @@ def inspect(path: Path, args) -> dict:
     }
     checks = [{"name": name, "passed": actual[name] == value, "expected": value, "actual": actual[name]} for name, value in expected.items()]
     required = ["POST_NOTIFICATIONS", "RECORD_AUDIO", "MODIFY_AUDIO_SETTINGS", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_MEDIA_PLAYBACK"]
+    if args.require_desktop_pet:
+        required.extend(["SYSTEM_ALERT_WINDOW", "FOREGROUND_SERVICE_SPECIAL_USE", "WAKE_LOCK"])
+        actual["desktop_manifest"] = desktop_manifest_configuration(manifest)
+        checks.extend({"name": name, "passed": value, "expected": True, "actual": value} for name, value in actual["desktop_manifest"].items())
     actual["required_permissions"] = {name: f"android.permission.{name}" in permissions for name in required}
     checks.extend({"name": f"permission_{name}", "passed": present, "expected": True, "actual": present} for name, present in actual["required_permissions"].items())
     checks.append({"name": "apk_signing_block_present", "passed": any(signing_schemes.values()), "expected": True, "actual": any(signing_schemes.values())})
@@ -368,6 +392,7 @@ def main() -> int:
     parser.add_argument("--not-candidate", action="store_true", help="Parser validation against an older APK; can never accept a candidate.")
     parser.add_argument("--build-id", help="Optional caller-supplied EAS candidate label, not proof of provenance.")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--require-desktop-pet", action="store_true", help="Require Android overlay/headless service declarations; still not a device acceptance.")
     parser.add_argument("--tools-dir", default=str(ROOT / "test-results" / "apk-inspection-tools"))
     parser.add_argument("--expected-package", default="com.pawsey.petcohabitation")
     parser.add_argument("--expected-version-name", default="1.0.5")

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "platform": "android",
+  "channel": "preview",
+  "applicationId": "com.pawsey.petcohabitation",
+  "latest": {
+    "version": "1.0.9",
+    "versionCode": 11,
+    "runtimeVersion": "1.0.9",
+    "url": "https://expo.dev/artifacts/eas/Cq3UQrcXE6ADKUHRVNmB2yZj1nx0p7WMGhhRUHObreM.apk",
+    "sha256": "ba8d6dbe1f1501f2cb7a435c27a6e5d1b53b356262df4d5dda93424bb04650df",
+    "bytes": 121818258,
+    "notes": [
+      "手机验收候选：桌宠未发送草稿在关闭、切后台和重新启动后恢复。",
+      "修复待发送队列已满时桌宠启动与停止回复被阻断的问题。",
+      "请覆盖安装并反馈草稿、跨 App 触摸与锁屏通知结果。"
+    ],
+    "publishedAt": "2026-09-21T09:48:25.112Z"
+  }
+}

@@ -1,0 +1,186 @@
+{
+  "success": true,
+  "timestamp": "2026-09-22T09:30:43.995Z",
+  "project": "lthcucgggoevgcboouqw",
+  "domain": "https://pet-cohabitation-public.vercel.app",
+  "bundle": "index-5cc4b20b8b68ecbaf4c5bc6c921763c6.js",
+  "stage": "completed",
+  "failure": null,
+  "checks": [
+    "fixed_public_domain_serves_announced_bundle",
+    "light_ready_companion_input_contrast",
+    "default_companion_and_canonical_module_tabs",
+    "01-companion-390-light_no_horizontal_overflow",
+    "two_second_network_delay_was_exercised",
+    "warm_workspace_switches_do_not_wait_for_two_second_requests",
+    "workspace_draft_preserved_across_20_rounds",
+    "01b-workspace-after-delayed-switches_no_horizontal_overflow",
+    "real_owner_can_grant_and_revoke_from_deployed_capability_ui",
+    "01c-capability-grant-revoked_no_horizontal_overflow",
+    "02-items-canonical_no_horizontal_overflow",
+    "03-me-credentials-masked_no_horizontal_overflow",
+    "memory_growth_items_and_account_have_separate_entries",
+    "update_settings_opens_and_web_does_not_claim_native_install",
+    "03b-app-update-entry_no_horizontal_overflow",
+    "published_member_avatar_bytes_match_both_synthetic_accounts",
+    "04-group-read-avatars_no_horizontal_overflow",
+    "server_ack_clears_pending_once_without_duplicate_or_draft_loss",
+    "05-send-ack-current-draft_no_horizontal_overflow",
+    "leaving_read_group_has_no_old_badge",
+    "new_message_preserves_real_unread_badge",
+    "06-new-arrival-unread_no_horizontal_overflow",
+    "group_reentry_restores_correct_avatars_before_refresh",
+    "new_message_read_then_exit_clears_its_badge",
+    "dark_ready_companion_input_contrast",
+    "07-companion-390-dark_no_horizontal_overflow",
+    "update_panel_honors_manual_app_dark_theme",
+    "07b-app-update-dark_no_horizontal_overflow",
+    "logout_removes_old_owner_avatar_read_and_message_cache",
+    "08-logged-out-credentials-masked_no_horizontal_overflow",
+    "next_account_does_not_show_previous_owner_pet_or_profile",
+    "09-next-account-isolated-credentials-masked_no_horizontal_overflow",
+    "no_browser_runtime_errors",
+    "ui_attempts_no_generative_actions",
+    "no_model_run_created",
+    "no_unauthorized_learning_job_created",
+    "account_page_automatic_health_probe_identified_and_prevented"
+  ],
+  "metrics": [
+    {
+      "name": "light_companion_colors",
+      "foreground": "rgb(17, 17, 17)",
+      "background": "rgb(240, 239, 237)",
+      "background_luminance": 0.86372693591905,
+      "contrast": 16.432344224716196
+    },
+    {
+      "name": "warm_workspace_20_rounds_with_2s_network_delay",
+      "switches": 80,
+      "p95_ms": 37,
+      "delayed_requests": 28,
+      "note": "Real cloud data, browser automation timing; native 200 ms target still requires phone measurement."
+    },
+    {
+      "name": "local_echo_ms",
+      "value": 48,
+      "note": "Outbound receipt RPC intentionally held until local echo; Playwright interaction overhead included."
+    },
+    {
+      "name": "ack_after_gate_release_ms",
+      "value": 224
+    },
+    {
+      "name": "cached_avatar_reentry_ms",
+      "value": 256,
+      "note": "Avatar HTTP revalidation intentionally held; unchanged published image bytes are visible from process cache."
+    },
+    {
+      "name": "dark_companion_colors",
+      "foreground": "rgb(240, 238, 235)",
+      "background": "rgb(41, 39, 37)",
+      "background_luminance": 0.02056026409846097,
+      "contrast": 12.850362162902158
+    }
+  ],
+  "pageErrors": [],
+  "blockedModels": [],
+  "preventedHealthChecks": [
+    {
+      "function": "model-health",
+      "stage": "login_module_boundaries",
+      "expected_run_kind_from_source": "text_health_check",
+      "server_invoked": false
+    },
+    {
+      "function": "model-health",
+      "stage": "login_module_boundaries",
+      "expected_run_kind_from_source": "text_health_check",
+      "server_invoked": false
+    },
+    {
+      "function": "model-health",
+      "stage": "dark_theme_and_logout",
+      "expected_run_kind_from_source": "text_health_check",
+      "server_invoked": false
+    }
+  ],
+  "modelAudits": [
+    {
+      "stage": "before_browser",
+      "model_run_count": 0,
+      "run_kinds": {},
+      "run_statuses": {},
+      "learning_job_count": 0,
+      "learning_jobs": {}
+    },
+    {
+      "stage": "after_account_page_mount",
+      "model_run_count": 0,
+      "run_kinds": {},
+      "run_statuses": {},
+      "learning_job_count": 0,
+      "learning_jobs": {}
+    },
+    {
+      "stage": "after_ordinary_group_messages",
+      "model_run_count": 0,
+      "run_kinds": {},
+      "run_statuses": {},
+      "learning_job_count": 0,
+      "learning_jobs": {}
+    },
+    {
+      "stage": "after_all_ui_checks",
+      "model_run_count": 0,
+      "run_kinds": {},
+      "run_statuses": {},
+      "learning_job_count": 0,
+      "learning_jobs": {}
+    }
+  ],
+  "cleanup": [
+    {
+      "name": "synthetic_model_run_logs",
+      "success": true
+    },
+    {
+      "name": "synthetic_group_model_run_logs",
+      "success": true
+    },
+    {
+      "name": "synthetic_space",
+      "success": true
+    },
+    {
+      "name": "synthetic_asset_file",
+      "success": true
+    },
+    {
+      "name": "synthetic_asset_file",
+      "success": true
+    },
+    {
+      "name": "synthetic_asset_file",
+      "success": true
+    },
+    {
+      "name": "synthetic_account",
+      "success": true
+    },
+    {
+      "name": "synthetic_account",
+      "success": true
+    },
+    {
+      "name": "synthetic_profiles_absent",
+      "success": true
+    }
+  ],
+  "limits": [
+    "Two newly created synthetic accounts and one group only",
+    "No existing account data or external recipient",
+    "Account page automatic model-health generation was intercepted; its UNKNOWN state is expected and AI availability was not evaluated",
+    "No model generation, device push or native overlay test",
+    "Cache timings are synthetic browser observations, not native device P50/P95"
+  ]
+}

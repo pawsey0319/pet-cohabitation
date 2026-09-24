@@ -1,0 +1,2292 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>异宠 · 陪伴原型</title>
+  <style>
+    :root {
+      --bg: #fafafa;
+      --surface: #ffffff;
+      --surface-warm: var(--surface);
+      --fg: #111111;
+      --fg-2: var(--fg);
+      --muted: #6b6b6b;
+      --meta: var(--muted);
+      --border: #e5e5e5;
+      --border-soft: var(--border);
+      --accent: #2f6feb;
+      --accent-on: #ffffff;
+      --accent-hover: color-mix(in oklab, var(--accent), black 8%);
+      --accent-active: color-mix(in oklab, var(--accent), black 14%);
+      --success: #17a34a;
+      --warn: #eab308;
+      --danger: #dc2626;
+      --font-display: "Inter", -apple-system, system-ui, sans-serif;
+      --font-body: "Inter", -apple-system, system-ui, sans-serif;
+      --font-mono: ui-monospace, "JetBrains Mono", monospace;
+      --text-xs: 12px;
+      --text-sm: 14px;
+      --text-base: 16px;
+      --text-lg: 20px;
+      --text-xl: 24px;
+      --text-2xl: 32px;
+      --text-3xl: 48px;
+      --text-4xl: 64px;
+      --leading-body: 1.5;
+      --leading-tight: 1.2;
+      --tracking-display: -0.01em;
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-5: 20px;
+      --space-6: 24px;
+      --space-8: 32px;
+      --space-12: 48px;
+      --space-20: 80px;
+      --section-y-desktop: 80px;
+      --section-y-tablet: 48px;
+      --section-y-phone: 32px;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-pill: 9999px;
+      --elev-flat: none;
+      --elev-ring: 0 0 0 1px var(--border);
+      --elev-raised: 0 2px 8px color-mix(in oklab, var(--fg), transparent 92%);
+      --focus-ring: 0 0 0 3px color-mix(in oklab, var(--accent), transparent 70%);
+      --motion-fast: 150ms;
+      --motion-base: 200ms;
+      --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+      --container-max: 1200px;
+      --container-gutter-desktop: 24px;
+      --container-gutter-tablet: 16px;
+      --container-gutter-phone: 12px;
+    }
+    :root {
+      --accent: #a3563c;
+      --accent-hover: color-mix(in oklab, var(--accent), black 8%);
+      --accent-active: color-mix(in oklab, var(--accent), black 14%);
+      --font-display: "Inter", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+      --font-body: "Inter", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+      --leading-body: 1.7;
+      --leading-tight: 1.35;
+      --studio-bg: #ececec;
+      --studio-fg: #111111;
+      --device-shell: #2a2a2a;
+      --bubble-user-bg: color-mix(in oklab, var(--accent) 14%, var(--surface));
+      --bubble-user-fg: var(--fg);
+      --bubble-pet-bg: var(--surface);
+      --bubble-pet-fg: var(--fg);
+      --chat-bg: var(--bg);
+      --chat-dim: 0;
+      --device-w: 390px;
+      --device-h: 844px;
+      --vv-kb: 0px;
+      --pet-sage: color-mix(in oklab, var(--muted) 55%, var(--success));
+    }
+    :root[data-theme="dark"] {
+      --bg: #141312;
+      --surface: #1c1b1a;
+      --surface-warm: var(--surface);
+      --fg: #f0eeeb;
+      --fg-2: var(--fg);
+      --muted: #a3a09a;
+      --meta: var(--muted);
+      --border: color-mix(in oklab, #ffffff 10%, transparent);
+      --border-soft: var(--border);
+      --accent: #c17a5c;
+      --accent-on: #171310;
+      --accent-hover: color-mix(in oklab, var(--accent), white 8%);
+      --accent-active: color-mix(in oklab, var(--accent), white 14%);
+      --success: #3dbe6a;
+      --warn: #d4a017;
+      --danger: #f07167;
+      --elev-raised: 0 2px 8px color-mix(in oklab, #000000, transparent 55%);
+      --studio-bg: #121211;
+      --studio-fg: #f0eeeb;
+      --device-shell: #0c0c0b;
+      --bubble-user-bg: color-mix(in oklab, var(--accent) 28%, var(--surface));
+      --bubble-pet-bg: color-mix(in oklab, var(--surface) 80%, #000000);
+      --chat-bg: var(--bg);
+    }
+    :root[data-type="large"] {
+      --text-base: 18px;
+      --text-sm: 15px;
+      --text-xs: 13px;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--studio-bg);
+      color: var(--studio-fg);
+      font-family: var(--font-body);
+      font-size: var(--text-base);
+      line-height: var(--leading-body);
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input, textarea, select { font: inherit; color: inherit; }
+    button { background: none; border: 0; cursor: pointer; }
+    img { max-width: 100%; display: block; }
+    a { color: var(--fg); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    :focus-visible { outline: none; box-shadow: var(--focus-ring); }
+    .skip { position: absolute; left: -999px; top: 0; }
+    .skip:focus { left: 8px; top: 8px; z-index: 20; background: var(--surface); padding: 8px 12px; }
+    .studio {
+      display: grid;
+      grid-template-columns: minmax(232px, 272px) 1fr;
+      min-height: 100vh;
+    }
+    .tools {
+      border-right: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--fg);
+      padding: 20px 16px 32px;
+      overflow: auto;
+    }
+    .tools h1 {
+      font-family: var(--font-display);
+      font-size: var(--text-lg);
+      font-weight: 600;
+      line-height: var(--leading-tight);
+      margin: 0 0 4px;
+    }
+    .tools .lead { color: var(--muted); font-size: var(--text-sm); margin: 0 0 20px; }
+    .tools h2 {
+      font-size: var(--text-xs);
+      font-weight: 550;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 18px 0 8px;
+    }
+    .tools p.note { font-size: var(--text-xs); color: var(--muted); margin: 8px 0 0; }
+    .tool-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip, .btn {
+      min-height: 36px;
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--fg);
+      font-size: var(--text-sm);
+      letter-spacing: 0.02em;
+    }
+    .chip.is-on, .btn-primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--accent-on);
+    }
+    .chip:hover, .btn:hover { background: color-mix(in oklab, var(--fg) 6%, var(--surface)); color: var(--fg); }
+    .chip.is-on:hover, .btn-primary:hover { background: var(--accent-hover); color: var(--accent-on); }
+    .btn-primary:active { background: var(--accent-active); color: var(--accent-on); }
+    .btn:disabled, .send:disabled { opacity: 0.45; cursor: not-allowed; }
+    .stage {
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      gap: 20px;
+      padding: 24px 16px 40px;
+      flex-wrap: wrap;
+    }
+    .device {
+      width: var(--device-w);
+      height: var(--device-h);
+      max-height: calc(100vh - 32px);
+      background: var(--device-shell);
+      border-radius: 28px;
+      padding: 10px;
+      box-shadow: var(--elev-raised);
+      flex: 0 0 auto;
+    }
+    .screen {
+      container-type: inline-size;
+      height: calc(100% - var(--vv-kb));
+      background: var(--bg);
+      color: var(--fg);
+      border-radius: 20px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+    .statusbar {
+      flex: 0 0 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      font-size: 12px;
+      font-weight: 550;
+      letter-spacing: 0.02em;
+    }
+    .app { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
+    .view { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
+    .topbar {
+      flex: 0 0 52px;
+      display: grid;
+      grid-template-columns: 48px 1fr 48px;
+      align-items: center;
+      padding: 0 8px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .topbar.wide { grid-template-columns: 48px 1fr auto; }
+    .top-title {
+      margin: 0;
+      text-align: center;
+      font-family: var(--font-display);
+      font-size: 17px;
+      font-weight: 600;
+      line-height: var(--leading-tight);
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .icon-btn {
+      width: 48px; height: 48px;
+      display: grid; place-items: center;
+      color: var(--fg);
+      border-radius: var(--radius-sm);
+    }
+    .icon-btn:hover { background: color-mix(in oklab, var(--fg) 6%, transparent); }
+    .icon-btn svg, .tabbar svg, .row-ico svg { display: block; }
+    .subnav {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+      gap: 4px;
+      padding: 8px 12px 0;
+      background: var(--surface);
+    }
+    .subnav button {
+      height: 48px;
+      border-radius: var(--radius-sm);
+      color: var(--muted);
+      font-size: var(--text-sm);
+      font-weight: 550;
+      letter-spacing: 0.02em;
+    }
+    .subnav button.is-on { color: var(--fg); background: color-mix(in oklab, var(--fg) 6%, var(--surface)); }
+    .chat-scroll {
+      flex: 1; min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      display: flex;
+      flex-direction: column;
+      background: var(--chat-bg);
+      background-size: cover;
+      background-position: var(--chat-pos, center);
+      position: relative;
+    }
+    .chat-dim {
+      pointer-events: none;
+      position: absolute; inset: 0;
+      background: color-mix(in oklab, #000000 var(--chat-dim), transparent);
+      z-index: 0;
+    }
+    .pet-stage, .continue, .thread, .composer, .banner { position: relative; z-index: 1; }
+    .pet-stage {
+      display: flex; flex-direction: column; align-items: center;
+      padding: 12px 16px 4px;
+    }
+    .pet-stage.is-compact { padding: 6px 16px 2px; }
+    .pet-stage > .pet {
+      width: 88px; height: 88px; flex: none;
+      color: color-mix(in oklab, var(--accent) 55%, var(--fg));
+      transform-origin: center bottom;
+    }
+    .pet-stage.is-compact .pet { width: 58px; height: 58px; }
+    .pet svg { width: 100%; height: 100%; display: block; }
+    .pet.is-breathe { animation: breathe 3.6s var(--ease-standard) infinite, sway 4.8s var(--ease-standard) infinite; }
+    .pet-status { font-size: var(--text-xs); color: var(--muted); min-height: 18px; }
+    @keyframes breathe {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.03); }
+    }
+    @keyframes sway {
+      0%, 100% { transform: rotate(-1.1deg) translateY(0); }
+      50% { transform: rotate(1.1deg) translateY(-2px); }
+    }
+    .continue {
+      margin: 8px 16px;
+      padding: 12px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+    }
+    .continue .kicker { font-size: var(--text-xs); color: var(--muted); letter-spacing: 0.02em; }
+    .continue blockquote { margin: 6px 0 10px; padding: 0; font-size: var(--text-sm); }
+    .continue-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .linkish {
+      color: var(--fg);
+      font-size: var(--text-sm);
+      font-weight: 550;
+      letter-spacing: 0.02em;
+      min-height: 48px;
+      padding: 0 6px;
+    }
+    .linkish:hover { text-decoration: underline; }
+    .thread { padding: 8px 16px 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; flex-shrink: 0; }
+    .day-break {
+      align-self: center;
+      font-size: var(--text-xs);
+      color: var(--muted);
+      letter-spacing: 0.04em;
+      padding: 4px 0;
+    }
+    .msg-line { display: flex; flex-direction: column; max-width: 86%; gap: 2px; }
+    .msg-line.user { align-self: flex-end; align-items: flex-end; }
+    .msg-line.pet, .msg-line.other { align-self: flex-start; align-items: flex-start; }
+    .msg-line .row { display: flex; gap: 8px; align-items: flex-end; max-width: 100%; }
+    .bubble {
+      max-width: 100%;
+      padding: 10px 12px;
+      border-radius: var(--radius-md);
+      font-size: var(--text-base);
+      line-height: 1.7;
+      overflow-wrap: anywhere;
+      min-width: 0;
+      flex-shrink: 1;
+    }
+    .bubble.user { background: var(--bubble-user-bg); color: var(--bubble-user-fg); }
+    .bubble.pet, .bubble.other {
+      background: var(--bubble-pet-bg);
+      color: var(--bubble-pet-fg);
+      border: 1px solid var(--border);
+    }
+    .bubble .who { display: block; font-size: var(--text-xs); font-weight: 550; margin-bottom: 2px; }
+    .bubble .meta, .send-state {
+      display: block;
+      margin-top: 4px;
+      font-size: var(--text-xs);
+      font-family: var(--font-mono);
+      color: var(--muted);
+      letter-spacing: 0.02em;
+    }
+    .send-state.is-fail { color: var(--danger); }
+    .ava {
+      width: 28px; height: 28px; flex: none;
+      border-radius: var(--radius-sm);
+      background: color-mix(in oklab, var(--accent) 16%, var(--bg));
+      color: var(--accent);
+      display: grid; place-items: center;
+      overflow: hidden;
+    }
+    .ava.pet-ava { background: transparent; color: color-mix(in oklab, var(--accent) 55%, var(--fg)); }
+    .ava svg { width: 28px; height: 28px; }
+    .composer {
+      position: relative;
+      margin-top: 4px;
+      padding: 8px 10px 10px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: 48px 1fr 48px;
+      gap: 8px;
+      align-items: end;
+      flex-shrink: 0;
+    }
+    .composer.solo { grid-template-columns: 1fr 48px; }
+    .composer label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    .composer textarea {
+      width: 100%;
+      min-height: 44px; max-height: 120px;
+      resize: none;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      background: var(--surface);
+      color: var(--fg);
+    }
+    .composer textarea:focus-visible { border-color: var(--accent); }
+    .send {
+      width: 48px; height: 48px;
+      border-radius: var(--radius-sm);
+      background: var(--accent);
+      color: var(--accent-on);
+      display: grid; place-items: center;
+    }
+    .send:hover { background: var(--accent-hover); color: var(--accent-on); }
+    .failbar {
+      grid-column: 1 / -1;
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+      font-size: var(--text-sm);
+      color: var(--danger);
+    }
+    .list { flex: 1; overflow-y: auto; min-height: 0; }
+    .search { padding: 8px 16px 4px; background: var(--surface); }
+    .search input, .field input, .field textarea, .field select {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      background: var(--bg);
+      color: var(--fg);
+      min-height: 44px;
+    }
+    .msg-row, .setting-row, .task-row, .mem-card {
+      display: grid;
+      gap: 2px 12px;
+      padding: 12px 16px;
+      min-height: 64px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      text-align: left;
+      width: 100%;
+    }
+    .msg-row { grid-template-columns: 44px 1fr auto; align-items: center; }
+    .setting-row { grid-template-columns: 1fr auto; align-items: center; min-height: 52px; }
+    .avatar {
+      width: 44px; height: 44px;
+      border-radius: var(--radius-sm);
+      background: color-mix(in oklab, var(--accent) 16%, var(--bg));
+      color: var(--accent);
+      display: grid; place-items: center;
+    }
+    .msg-row .name { font-weight: 550; font-size: var(--text-sm); }
+    .msg-row .preview, .setting-row .preview {
+      font-size: var(--text-sm); color: var(--muted);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;
+    }
+    .msg-row .when { font-size: var(--text-xs); color: var(--muted); letter-spacing: 0.02em; }
+    .unread {
+      min-width: 18px; height: 18px; padding: 0 5px;
+      border-radius: var(--radius-pill);
+      background: var(--accent); color: var(--accent-on);
+      font-size: 11px; letter-spacing: 0.02em;
+      display: inline-grid; place-items: center; margin-top: 4px;
+    }
+    .mem-card { grid-template-columns: 1fr; gap: 6px; }
+    .mem-card .layer, .pill {
+      font-size: var(--text-xs);
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+    .mem-card h3 { margin: 0; font-size: var(--text-base); font-weight: 600; }
+    .quote { font-size: var(--text-sm); color: var(--muted); }
+    .mem-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+    .pill {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 2px 6px;
+      width: fit-content;
+    }
+    .banner {
+      margin: 8px 16px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      font-size: var(--text-sm);
+      display: flex; justify-content: space-between; gap: 8px; align-items: center;
+    }
+    .banner.warn { color: var(--danger); }
+    .form { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: var(--text-sm); font-weight: 550; letter-spacing: 0.02em; }
+    .field .help, .count, .hint { font-size: var(--text-xs); color: var(--muted); letter-spacing: 0.02em; }
+    .err { color: var(--danger); font-size: var(--text-sm); }
+    .page-body { flex: 1; overflow-y: auto; padding: 16px; min-height: 0; }
+    .stack { display: flex; flex-direction: column; gap: 12px; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 16px;
+    }
+    .bg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .bg-tile {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      text-align: left;
+      background: var(--surface);
+      min-height: 108px; min-width: 0;
+      display: flex; flex-direction: column;
+    }
+    .bg-tile .swatch { height: 72px; width: 100%; }
+    .bg-tile span { padding: 8px 10px; font-size: var(--text-sm); }
+    .bg-tile.is-on { box-shadow: var(--elev-ring); }
+    .demo-tag {
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .preview-chat {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      min-height: 200px;
+      padding: 12px;
+      display: flex; flex-direction: column; gap: 8px;
+      background: var(--chat-bg);
+      position: relative;
+    }
+    .filters {
+      display: flex; gap: 8px; overflow-x: auto;
+      padding: 8px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .filters button {
+      flex: none;
+      height: 36px;
+      padding: 0 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--fg);
+      font-size: var(--text-sm);
+      letter-spacing: 0.02em;
+    }
+    .filters button.is-on { background: color-mix(in oklab, var(--fg) 8%, var(--surface)); font-weight: 550; }
+    .bar-track {
+      height: 8px;
+      background: color-mix(in oklab, var(--fg) 8%, var(--surface));
+      border-radius: var(--radius-pill);
+      overflow: hidden;
+      margin: 8px 0;
+    }
+    .bar { height: 100%; width: calc(var(--v) / var(--max) * 100%); background: var(--fg); }
+    .trait-track {
+      height: 10px;
+      border-radius: var(--radius-pill);
+      background: linear-gradient(90deg, color-mix(in oklab, var(--accent) 45%, var(--bg)), var(--pet-sage));
+      position: relative;
+      margin: 10px 0 6px;
+    }
+    .trait-mark {
+      position: absolute; top: -3px;
+      width: 4px; height: 16px;
+      background: var(--fg);
+      border-radius: 2px;
+      left: calc(var(--v) / var(--max) * 100%);
+      transform: translateX(-50%);
+    }
+    .skel {
+      height: 64px;
+      margin: 8px 16px;
+      border-radius: var(--radius-sm);
+      background: color-mix(in oklab, var(--fg) 6%, var(--surface));
+    }
+    .tabbar {
+      flex: 0 0 56px;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .tabbar button {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 2px;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      min-height: 48px;
+    }
+    .tabbar button.is-on { color: var(--fg); font-weight: 550; }
+    .scrim {
+      position: absolute; inset: 0;
+      background: color-mix(in oklab, #000000 40%, transparent);
+      display: flex; align-items: flex-end;
+      z-index: 8;
+    }
+    .scrim.center { align-items: center; }
+    .scrim[hidden] { display: none !important; }
+    .sheet {
+      width: 100%;
+      background: var(--surface);
+      border-radius: 16px 16px 0 0;
+      padding: 8px 8px 16px;
+      max-height: 85%;
+      overflow: auto;
+    }
+    .sheet button, .dialog-actions button {
+      width: 100%;
+      min-height: 48px;
+      text-align: left;
+      padding: 0 16px;
+      border-radius: var(--radius-sm);
+      font-weight: 550;
+      letter-spacing: 0.02em;
+    }
+    .sheet button:hover, .dialog-actions button:hover {
+      background: color-mix(in oklab, var(--fg) 6%, var(--surface));
+    }
+    .dialog {
+      margin: auto;
+      width: calc(100% - 40px);
+      background: var(--surface);
+      border-radius: var(--radius-md);
+      padding: 20px;
+      box-shadow: var(--elev-raised);
+      max-height: 85%;
+      overflow: auto;
+    }
+    .dialog h2 { margin: 0 0 8px; font-size: var(--text-lg); line-height: var(--leading-tight); }
+    .dialog p { margin: 0 0 16px; color: var(--muted); font-size: var(--text-sm); }
+    .hatch-pet { width: 96px; height: 96px; margin: 8px auto; color: var(--accent); }
+    .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    .switch {
+      width: 44px; height: 26px;
+      border-radius: var(--radius-pill);
+      border: 1px solid var(--border);
+      background: var(--bg);
+      position: relative;
+    }
+    .switch.on { background: var(--fg); border-color: var(--fg); }
+    .switch i {
+      position: absolute; top: 3px; left: 3px;
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: var(--surface);
+    }
+    .switch.on i { left: 21px; }
+    .desk-layer {
+      width: min(420px, 100%);
+      height: var(--device-h);
+      max-height: calc(100vh - 32px);
+      position: relative;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      background: color-mix(in oklab, var(--fg) 10%, var(--bg));
+      color: var(--fg);
+      flex: 0 0 auto;
+    }
+    .desk-layer[hidden] { display: none !important; }
+    .desk-wallpaper {
+      position: absolute; inset: 0;
+      background:
+        linear-gradient(180deg, color-mix(in oklab, var(--fg) 8%, var(--bg)), color-mix(in oklab, var(--fg) 14%, var(--bg)));
+    }
+    .desk-layer.is-win .desk-wallpaper {
+      background:
+        radial-gradient(80% 50% at 80% 0%, color-mix(in oklab, var(--accent) 12%, transparent), transparent 50%),
+        color-mix(in oklab, var(--fg) 12%, var(--bg));
+    }
+    .desk-chrome {
+      position: absolute; left: 12px; right: 12px; top: 10px;
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; flex-wrap: wrap;
+      z-index: 2;
+    }
+    .desk-chrome .demo-tag {
+      pointer-events: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+    }
+    .float-pet {
+      position: absolute;
+      width: 72px; height: 72px;
+      background: transparent;
+      border: 0;
+      padding: 0;
+      cursor: grab;
+      touch-action: none;
+      z-index: 3;
+      color: color-mix(in oklab, var(--accent) 60%, var(--fg));
+    }
+    .float-pet.is-sm { width: 56px; height: 56px; }
+    .float-pet.is-lg { width: 96px; height: 96px; }
+    .float-pet:active { cursor: grabbing; }
+    .float-pet svg { width: 100%; height: 100%; pointer-events: none; }
+    .desk-chat {
+      position: absolute;
+      width: 240px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--elev-raised);
+      padding: 10px;
+      z-index: 4;
+    }
+    .desk-chat textarea { min-height: 40px; }
+    .desk-dock {
+      position: absolute; left: 0; right: 0; bottom: 0;
+      height: 36px;
+      background: color-mix(in oklab, var(--fg) 18%, var(--surface));
+    }
+    .restore-chip {
+      position: absolute; right: 12px; bottom: 44px;
+      min-height: 40px;
+      padding: 0 12px;
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      box-shadow: var(--elev-raised);
+      z-index: 4;
+    }
+    .lock-veil {
+      position: absolute; inset: 0;
+      background: color-mix(in oklab, var(--fg) 72%, #000000);
+      color: var(--surface);
+      display: grid; place-items: center;
+      z-index: 6;
+      text-align: center;
+      padding: 24px;
+    }
+    [hidden] { display: none !important; }
+    @media (max-width: 820px) {
+      .studio { grid-template-columns: 1fr; }
+      .tools { order: 2; border-right: 0; border-top: 1px solid var(--border); }
+    }
+    @container (max-width: 360px) {
+      .bubble { max-width: 100%; }
+      .pet { width: 72px; height: 72px; }
+      .subnav button { font-size: 12px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .pet.is-breathe, .float-pet.is-breathe { animation: none; }
+      * { animation: none !important; transition: none !important; }
+    }
+    :root[data-motion="reduce"] .pet.is-breathe,
+    :root[data-motion="reduce"] .float-pet.is-breathe { animation: none; }
+    :root[data-motion="reduce"] * { animation: none !important; transition: none !important; }
+    @media (max-width: 540px) {
+      .studio { display: block; min-height: 100dvh; }
+      .stage { display: block; padding: 0; }
+      .device { width: 100%; height: 100dvh; max-height: none; padding: 0; border-radius: 0; box-shadow: none; }
+      .screen { border-radius: 0; }
+      .tools, .desk-layer { display: none; }
+      body.show-desk .device { display: none; }
+      body.show-desk .desk-layer {
+        display: block; width: 100%; height: 100dvh; max-height: none; border-radius: 0;
+      }
+      body.show-desk .stage { display: block; padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#device-app">跳到应用</a>
+  <div class="studio" data-od-id="studio">
+    <aside class="tools" data-od-id="prototype-tools" aria-label="原型演示工具">
+      <h1>异宠原型</h1>
+      <p class="lead">演示工具，不是产品界面。合成数据，无真实账号或后台。</p>
+      <h2>画布</h2>
+      <div class="tool-row" id="width-tools"></div>
+      <h2>对话</h2>
+      <div class="tool-row">
+        <button type="button" class="chip" data-demo="fail" data-od-id="demo-fail">发送失败</button>
+        <button type="button" class="chip" data-demo="sending" data-od-id="demo-sending">保持发送中</button>
+        <button type="button" class="chip" data-demo="empty" data-od-id="demo-empty">首次进入</button>
+        <button type="button" class="chip" data-demo="long" data-od-id="demo-long">长对话</button>
+      </div>
+      <h2>系统状态</h2>
+      <div class="tool-row">
+        <button type="button" class="chip" data-demo="offline" data-od-id="demo-offline">离线</button>
+        <button type="button" class="chip" data-demo="loading" data-od-id="demo-loading">加载</button>
+        <button type="button" class="chip" data-demo="error" data-od-id="demo-error">事项错误</button>
+        <button type="button" class="chip" data-demo="extractFail" data-od-id="demo-extract">提取失败</button>
+        <button type="button" class="chip" data-demo="loggedOut" data-od-id="demo-logout">未登录</button>
+        <button type="button" class="chip" data-demo="largeType" data-od-id="demo-type">大号字体</button>
+      </div>
+      <h2>异宠 / 桌宠</h2>
+      <div class="tool-row">
+        <button type="button" class="chip" data-action="open-hatch" data-od-id="demo-hatch">未确认异宠</button>
+        <button type="button" class="chip" data-demo="deskDemo" data-od-id="demo-desk">桌宠演示层</button>
+        <button type="button" class="chip" data-demo="lock" data-od-id="demo-lock">锁屏</button>
+        <button type="button" class="chip" data-action="account-shift" data-od-id="demo-account">账号变化</button>
+      </div>
+      <h2>重置</h2>
+      <button type="button" class="btn" data-action="reset" data-od-id="demo-reset">重置演示数据</button>
+      <p class="note">桌宠层标明「演示 · 非原生实现」。AI 背景为内置纹理。选图只在浏览器本地预览。</p>
+    </aside>
+    <div class="stage">
+      <div class="device" id="device" data-od-id="phone-frame">
+        <div class="screen" id="screen">
+          <div class="statusbar" aria-hidden="true">
+            <span id="clock">09:41</span>
+            <span class="statusbar-sys">LTE · 81%</span>
+          </div>
+          <div class="app" id="device-app" data-od-id="app-shell">
+            <section class="view" id="view-root" data-od-id="view-root"></section>
+            <nav class="tabbar" data-od-id="tabbar" aria-label="主导航">
+              <button type="button" data-action="tab" data-tab="messages" data-od-id="tab-messages">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/></svg>
+                消息
+              </button>
+              <button type="button" class="is-on" data-action="tab" data-tab="pet" data-od-id="tab-pet" aria-current="page">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="6"/><path d="M8 9 9.5 5.5 12 9"/><path d="M16 9 14.5 5.5 12 9"/></svg>
+                异宠
+              </button>
+              <button type="button" data-action="tab" data-tab="matters" data-od-id="tab-matters">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 6h13M7 12h13M7 18h13"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>
+                事项
+              </button>
+              <button type="button" data-action="tab" data-tab="me" data-od-id="tab-me">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 19c1.6-3 4-4.5 7-4.5s5.4 1.5 7 4.5"/></svg>
+                我的
+              </button>
+            </nav>
+            <div class="scrim" id="sheet-scrim" hidden>
+              <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" id="sheet"></div>
+            </div>
+            <div class="scrim center" id="dialog-scrim" hidden>
+              <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dialog-title" id="dialog"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <aside class="desk-layer" id="desk-layer" hidden data-od-id="deskpet-demo" aria-label="桌宠演示">
+        <div class="desk-wallpaper" id="desk-wallpaper">
+          <div class="desk-chrome">
+            <span class="demo-tag">演示 · 非原生实现</span>
+            <span class="demo-tag" id="desk-plat-tag">Android 跨应用浮层概念</span>
+            <button type="button" class="chip" data-action="hide-desk" style="pointer-events:auto;min-height:40px">关闭演示层</button>
+          </div>
+          <button type="button" class="float-pet is-breathe" id="float-pet" aria-label="桌宠，可拖拽，点击打开小窗" hidden></button>
+          <div class="desk-chat" id="desk-chat" hidden></div>
+          <button type="button" class="restore-chip" id="desk-restore" hidden data-action="desk-restore">恢复桌宠</button>
+          <div class="desk-dock" aria-hidden="true"></div>
+          <div class="lock-veil" id="desk-lock" hidden>
+            <div>
+              <p>锁屏</p>
+              <p class="hint" style="color:inherit;opacity:.8">桌宠已隐藏。这是演示，不是系统锁屏。</p>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+  <div class="sr" id="live" aria-live="polite"></div>
+  <script>
+  (function () {
+    const $ = (s, r) => (r || document).querySelector(s);
+    const $$ = (s, r) => Array.prototype.slice.call((r || document).querySelectorAll(s));
+    const ICO = {
+      back: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg>',
+      more: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="12" r="1.1"/><circle cx="12" cy="12" r="1.1"/><circle cx="18" cy="12" r="1.1"/></svg>',
+      send: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>',
+      plus: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+      pic: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="1.5"/><circle cx="9" cy="11" r="1.4"/><path d="m8 16 3-3 3 2 4-4 2 2"/></svg>'
+    };
+
+    function petSvg(variant) {
+      const ear = variant === 'b' ? 'color-mix(in oklab, var(--accent) 40%, var(--muted))' : variant === 'c' ? 'var(--pet-sage)' : 'currentColor';
+      return '<svg viewBox="0 0 80 80" role="img" aria-label="异宠形象占位"><ellipse cx="40" cy="50" rx="20" ry="18" fill="currentColor" opacity=".92"/><path d="M24 36 28 18 38 34" fill="' + ear + '"/><path d="M56 36 52 18 42 34" fill="' + ear + '"/><ellipse cx="40" cy="44" rx="15" ry="13" fill="var(--surface)" opacity=".35"/><path d="M33 44q3.2 3.2 6 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M41 44q3.2 3.2 6 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="40" cy="49.5" r="1.3" fill="currentColor"/><path d="M28 58q12 8 24 0" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".45"/></svg>';
+    }
+
+    const BACKGROUNDS = {
+      paper: { name: '素纸（默认）', css: 'var(--bg)', demo: false },
+      mist: { name: '暖雾', css: 'radial-gradient(120% 80% at 20% 0%, color-mix(in oklab, var(--accent) 16%, var(--bg)), var(--bg) 58%)', demo: false },
+      weave: { name: '青灰织物', css: 'repeating-linear-gradient(90deg, color-mix(in oklab, var(--fg) 4%, var(--bg)) 0 2px, var(--bg) 2px 7px)', demo: false },
+      night: { name: '夜读', css: 'linear-gradient(180deg, color-mix(in oklab, var(--fg) 88%, var(--bg)), var(--bg))', demo: false, darkish: true },
+      bamboo: { name: '淡竹影', css: 'repeating-linear-gradient(95deg, color-mix(in oklab, var(--pet-sage) 22%, var(--bg)) 0 10px, var(--bg) 10px 22px)', demo: true },
+      sand: { name: '细沙纹', css: 'radial-gradient(circle at 30% 20%, color-mix(in oklab, var(--accent) 10%, var(--bg)) 0 2px, transparent 2px) 0 0 / 12px 12px, var(--bg)', demo: true },
+      dusk: { name: '暮色窗', css: 'linear-gradient(180deg, color-mix(in oklab, var(--accent) 18%, var(--bg)), var(--bg) 70%)', demo: true }
+    };
+
+    const SHORT = [
+      { id: 'c3', role: 'user', text: '目录写完了，还差两段说明，总觉得结构在跳。', time: '09:14' },
+      { id: 'c4', role: 'pet', text: '可以先说清材料要解决什么，再保留两句必要的背景。这样目录会更好接起来。', time: '09:14' }
+    ];
+    const LONG = SHORT.concat([
+      { id: 'c5', role: 'user', text: '先列四条：目的、范围、方法、交付。', time: '09:16' },
+      { id: 'c6', role: 'pet', text: '四条够用。方法下面如果再写过程细节，结构又会散。', time: '09:16' },
+      { id: 'c7', role: 'user', text: '过程细节我放到附录。', time: '09:17' },
+      { id: 'c8', role: 'pet', text: '这样正文就能短。你要是愿意，下一条我只回目录骨架，不扩写。', time: '09:17' },
+      { id: 'c9', role: 'user', text: '骨架即可。另外说明里有两句重复的背景。', time: '09:18' },
+      { id: 'c10', role: 'pet', text: '重复的那两句可以删一句，留下和目的直接相关的。', time: '09:18' },
+      { id: 'c11', role: 'user', text: '好，我先改目录，改完再贴过来。', time: '09:19' },
+      { id: 'c12', role: 'pet', text: '我在这儿。贴过来后我们只看结构，不先改措辞。', time: '09:19' },
+      { id: 'c13', role: 'user', text: '这一段我想这样写：先用三句话说明目的，再列范围里有什么、没有什么；方法只保留可核对的步骤；交付写清明天要交的是目录还是正文。附录单独放过程，不进正文。', time: '09:21' },
+      { id: 'c14', role: 'pet', text: '可以。我按你这四块听，不先改措辞。', time: '09:21' }
+    ]);
+
+    function seedMemories() {
+      return [
+        { id: 'm1', layer: 'current', title: '最近更偏爱茶', quote: '我现在更喜欢茶', date: '2026-09-08', important: true, status: 'active', note: '你明确表达的当前偏好，没有据此判断对咖啡的态度。' },
+        { id: 'm2', layer: 'past', title: '以前喜欢早上喝咖啡', quote: '我很喜欢早上的一杯美式', date: '2026-03-02', important: false, status: 'active', note: '保留过去的偏好，不当作你现在的选择。' },
+        { id: 'm3', layer: 'change', title: '最近从咖啡转向茶', quote: '以前喜欢咖啡，现在更喜欢茶', date: '2026-09-08', important: false, status: 'active', note: '保留变化依据，不自动判断为不再喜欢咖啡。' }
+      ];
+    }
+    function seedMatters() {
+      return [
+        { id: 't1', kind: 'group', title: '补第三节数据来源', from: '项目同步群', status: 'doing', detail: '群里提到目录第三节还差数据来源。', progress: 1, total: 3, stages: ['收集出处', '核对口径', '写进目录'], confirm: null, when: null },
+        { id: 't2', kind: 'goal', title: '本周目录定稿', from: '个人目标', status: 'doing', detail: '目的、范围、方法、交付四段写完即定稿。', progress: 2, total: 4, stages: ['目的', '范围', '方法', '交付'], confirm: null, when: null },
+        { id: 't3', kind: 'remind', title: '明天交目录', from: '提醒', status: 'idle', detail: '明天 09:00 前提交目录，不是正文。', progress: 0, total: 1, stages: ['提交'], confirm: null, when: '明天 09:00' },
+        { id: 't4', kind: 'confirm', title: '确认数据口径', from: '周宁 · 项目同步群', status: 'pending', detail: '周宁请你确认第三节统计口径是否用上月口径。', progress: 0, total: 1, stages: ['待确认'], confirm: 'pending', when: null },
+        { id: 't5', kind: 'personal', title: '整理阅读笔记', from: '个人', status: 'doing', detail: '只整理和目录方法有关的三条。', progress: 1, total: 2, stages: ['挑条目', '写入附录'], confirm: null, when: null },
+        { id: 't6', kind: 'group', title: '汇总本周已确认事项', from: '项目同步群', status: 'failed', detail: '上次整理中断，可在本页重试。', progress: 0, total: 1, stages: ['汇总'], confirm: null, when: null }
+      ];
+    }
+
+    const TAB_ROOTS = { messages: 'messages', pet: 'companion', matters: 'matters', me: 'me' };
+    const TAB_ROUTES = ['companion', 'memory', 'growth', 'deskpet', 'messages', 'matters', 'me'];
+
+    const state = {
+      route: 'companion',
+      tab: 'pet',
+      petSub: 'companion',
+      appearance: 'light',
+      reduceMotion: false,
+      width: 390,
+      demo: { fail: false, sending: false, empty: false, long: false, extractFail: false, largeType: false, loggedOut: false, offline: false, loading: false, error: false, deskDemo: false, lock: false },
+      companion: { messages: SHORT.slice(), status: 'idle', draft: '', failedDraft: '', continueOpen: true, inputFocus: false },
+      group: {
+        name: '项目同步群',
+        topic: '本周目录同步，不闲聊。',
+        messages: [
+          { id: 'g0', role: 'sys', text: '林晏 邀请了 周宁', time: '昨天' },
+          { id: 'g1', role: 'other', name: '周宁', text: '目录第三节还差数据来源。', time: '18:02' },
+          { id: 'g2', role: 'user', name: '林晏', text: '我今晚补。', time: '18:04', sendState: 'sent' }
+        ],
+        status: 'idle', draft: '', failedDraft: '', waitingPet: false
+      },
+      memories: seedMemories(),
+      editingMemory: null,
+      sourceMemory: null,
+      matters: seedMatters(),
+      matterFilter: 'all',
+      activeMatter: null,
+      style: { short: true, structure: true, noNudge: true },
+      personality: {
+        paused: false,
+        offset: 62,
+        note: '底色是安静、不催促。最近更愿意先给结构。',
+        changes: [
+          { at: '2026-08-20', text: '确认形象时的底色：安静、陶土、不吵', basis: '你填写的期待' },
+          { at: '2026-09-08 09:18', text: '更愿意先给骨架，不扩写', basis: '你说「骨架即可」' }
+        ],
+        habits: [
+          { id: 'h1', name: '回复偏短', status: 'active', at: '2026-09-01', basis: '连续短句交流' },
+          { id: 'h2', name: '先结构后句子', status: 'active', at: '2026-09-08', basis: '你说骨架即可' }
+        ]
+      },
+      relation: {
+        owner: { name: '林晏', account: 'demo@yichong.local', state: 'confirmed' },
+        group: '项目同步群',
+        members: [
+          { id: 'u0', name: '林晏', role: '主人', state: 'confirmed', note: '与当前登录账号绑定，不随群昵称猜测。', quote: '', at: '账号' },
+          { id: 'u1', name: '周宁', role: '成员', state: 'retell', note: '常提到第三节数据来源。', quote: '目录第三节还差数据来源。', at: '昨天 18:02' },
+          { id: 'u2', name: '陈可', role: '成员', state: 'guess', note: '发言较少，尚未向你确认。', quote: '', at: '—' }
+        ],
+        auth: { useGroup: true, u1: true, u2: false }
+      },
+      deskpet: {
+        enabled: false, permission: 'none', running: false, hidden: false, size: 'md',
+        platform: 'android', x: 28, y: 42, chatOpen: false, draft: '',
+        messages: [], status: 'off', accountAlert: ''
+      },
+      bg: { global: 'paper', photos: {}, overrides: { companion: null, group: null }, scope: 'global', photoUrl: '', photoPosX: 50, photoPosY: 50, photoZoom: 1, photoDim: 0.28, photoRatio: 1, aiPrompt: '', aiStatus: 'idle', aiPick: 'bamboo' },
+      profile: { name: '林晏', account: 'demo@yichong.local' },
+      notify: { chat: true, matter: true },
+      pet: { confirmed: true, variant: 'a', name: '小陶' },
+      hatch: { step: 'expect', text: '', pick: 'a' },
+      auth: 'in',
+      search: '',
+      invite: { zhou: true, chen: false },
+      login: { id: '', pw: '', err: '', busy: false },
+      register: { id: '', pw: '', pw2: '', err: '', busy: false },
+      manageTab: 'profile'
+    };
+
+    const replyTimers = {};
+    const initialDemoState = structuredClone(state);
+
+    function resolvedTheme() {
+      if (state.appearance === 'system') {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+      return state.appearance;
+    }
+    function applyChrome() {
+      const root = document.documentElement;
+      root.setAttribute('data-theme', resolvedTheme());
+      root.setAttribute('data-type', state.demo.largeType ? 'large' : 'regular');
+      root.setAttribute('data-motion', state.reduceMotion ? 'reduce' : 'ok');
+      root.style.setProperty('--device-w', state.width + 'px');
+      $$('[data-demo]').forEach(function (b) {
+        b.classList.toggle('is-on', !!state.demo[b.getAttribute('data-demo')]);
+      });
+      const showDesk = state.demo.deskDemo || (state.deskpet.running && state.route === 'deskpet');
+      $('#desk-layer').hidden = !showDesk;
+      document.body.classList.toggle('show-desk', showDesk && window.innerWidth <= 540);
+      $('#desk-layer').classList.toggle('is-win', state.deskpet.platform === 'windows');
+      $('#desk-plat-tag').textContent = state.deskpet.platform === 'windows' ? 'Windows 透明窗口概念' : 'Android 跨应用浮层概念';
+      paintDesk();
+    }
+    function announce(t) { $('#live').textContent = t; }
+    function escapeHtml(s) {
+      return String(s || '').replace(/[&<>"']/g, function (c) {
+        return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+      });
+    }
+    function nowTime() {
+      const d = new Date();
+      return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    }
+    function iconBtn(action, extra, svg, label) {
+      return '<button type="button" class="icon-btn" data-action="' + action + '" ' + (extra || '') + ' aria-label="' + label + '">' + svg + '</button>';
+    }
+    function topbar(title, back, right) {
+      return '<header class="topbar" data-od-id="topbar"><div>' + (back || '') + '</div><h1 class="top-title">' + escapeHtml(title) + '</h1><div>' + (right || '') + '</div></header>';
+    }
+    function subnav() {
+      return '<div class="subnav" role="tablist" aria-label="异宠分区">' +
+        [['companion', '陪伴'], ['memory', '记忆'], ['growth', '成长'], ['deskpet', '桌宠']].map(function (p) {
+          return '<button type="button" role="tab" data-action="pet-sub" data-to="' + p[0] + '" class="' + (state.petSub === p[0] ? 'is-on' : '') + '"' + (state.petSub === p[0] ? ' aria-current="page"' : '') + '>' + p[1] + '</button>';
+        }).join('') + '</div>';
+    }
+    function offlineBar() {
+      if (!state.demo.offline) return '';
+      return '<div class="banner warn" data-od-id="offline-banner">现在离线，已发出的内容会停在失败，可稍后重试。</div>';
+    }
+    function switchEl(on) {
+      return '<span class="switch' + (on ? ' on' : '') + '" aria-hidden="true"><i></i></span>';
+    }
+
+    function threadBg(thread) { return state.bg.overrides[thread] || state.bg.global; }
+    function paintBackground(el, id, photo) {
+      if (!el) return;
+      const spec = BACKGROUNDS[id] || BACKGROUNDS.paper;
+      const darkish = !!(spec && spec.darkish) || !!(photo && photo.dim > 0.35);
+      const dim = photo ? photo.dim : (spec.darkish ? 0.15 : 0);
+      el.style.background = 'var(--bg)';
+      if (photo && photo.url) {
+        el.style.backgroundImage = 'url(' + photo.url + ')';
+        el.style.backgroundPosition = photo.x + '% ' + photo.y + '%';
+        el.style.backgroundSize = (100 * photo.zoom) + '% auto';
+        el.style.backgroundRepeat = 'no-repeat';
+      } else if (id !== 'paper') {
+        el.style.background = spec.css;
+        el.style.backgroundSize = 'cover';
+      }
+      const dimEl = el.querySelector('.chat-dim');
+      if (dimEl) dimEl.style.background = 'rgba(0,0,0,' + dim + ')';
+      if (darkish) {
+        el.style.setProperty('--bubble-user-bg', 'color-mix(in oklab, var(--accent) 35%, var(--fg))');
+        el.style.setProperty('--bubble-user-fg', 'var(--surface)');
+        el.style.setProperty('--bubble-pet-bg', 'color-mix(in oklab, var(--fg) 82%, var(--bg))');
+        el.style.setProperty('--bubble-pet-fg', 'var(--surface)');
+      } else {
+        ['--bubble-user-bg', '--bubble-user-fg', '--bubble-pet-bg', '--bubble-pet-fg'].forEach(function (k) { el.style.removeProperty(k); });
+      }
+    }
+    function applyChatPaint(el, thread) {
+      const id = threadBg(thread);
+      paintBackground(el, id, state.bg.photos[id]);
+    }
+
+    function sendLabel(s) {
+      return s === 'saving' ? '保存中' : s === 'sending' ? '发送中' : s === 'failed' ? '失败，可重试' : s === 'sent' ? '已发送' : '';
+    }
+    function invokesPet(text) {
+      return /@小陶|小陶[，,：:]/.test(text);
+    }
+
+    function bubbles(list, opts) {
+      opts = opts || {};
+      return '<div class="thread">' + list.map(function (m) {
+        if (m.role === 'break' || m.role === 'sys') return '<div class="day-break">' + escapeHtml(m.text) + '</div>';
+        if (m.role === 'wait') {
+          return '<div class="msg-line pet"><div class="row"><span class="ava pet-ava">' + petSvg(state.pet.variant) + '</span><div class="bubble pet">正在写…<span class="meta">' + escapeHtml(state.pet.name) + '</span></div></div></div>';
+        }
+        const petSide = m.role === 'pet';
+        const ava = petSide
+          ? '<span class="ava pet-ava" aria-hidden="true">' + petSvg(state.pet.variant) + '</span>'
+          : (m.role === 'other' ? '<span class="ava" aria-hidden="true">' + escapeHtml((m.name || '?').slice(0, 1)) + '</span>' : '');
+        const who = (opts.withName && m.name && m.role !== 'user') ? '<strong class="who">' + escapeHtml(m.name) + '</strong>' : '';
+        const st = m.sendState ? '<span class="send-state' + (m.sendState === 'failed' ? ' is-fail' : '') + '">' + sendLabel(m.sendState) + (m.sendState === 'failed' ? ' <button type="button" class="linkish" data-action="retry-msg" data-id="' + m.id + '" style="min-height:32px">重试</button>' : '') + '</span>' : '<span class="meta">' + escapeHtml(m.time || '') + '</span>';
+        return '<div class="msg-line ' + m.role + '"><div class="row">' + ava + '<div class="bubble ' + m.role + '">' + who + escapeHtml(m.text) + st + '</div></div></div>';
+      }).join('') + '</div>';
+    }
+
+    function composer(prefix, placeholder, extra) {
+      const box = state[prefix] || {};
+      const busy = box.status === 'responding' || box.waitingPet;
+      const offline = state.demo.offline;
+      const group = prefix === 'group';
+      return '<form class="composer' + (group ? '' : ' solo') + '" data-od-id="' + prefix + '-composer" data-composer="' + prefix + '">' +
+        (group ? '<button type="button" class="icon-btn" data-action="msg-pic" aria-label="图片，仅本地演示">' + ICO.pic + '</button>' : '') +
+        '<label for="' + prefix + '-input">消息</label>' +
+        '<textarea id="' + prefix + '-input" rows="1" maxlength="2000" placeholder="' + escapeHtml(placeholder) + '"' + ((busy && prefix !== 'group') || offline ? ' readonly' : '') + '>' + escapeHtml(box.draft || '') + '</textarea>' +
+        '<button class="send" data-od-id="' + prefix + '-send" type="submit" ' + (offline || (busy && prefix !== 'group') ? 'disabled' : '') + ' aria-label="发送">' + ICO.send + '</button>' +
+        (box.status === 'failed' ? '<div class="failbar">没发出去，仍可改草稿。<button type="button" class="linkish" data-action="retry" data-thread="' + prefix + '">重试</button></div>' : '') +
+        (prefix === 'companion' && box.status === 'responding' ? '<div class="failbar" style="color:var(--muted)">正在回复…</div>' : '') +
+        (extra || '') +
+        '</form>';
+    }
+
+    function renderCompanion() {
+      const c = state.companion;
+      const msgs = c.messages;
+      const compact = c.inputFocus || c.status === 'responding' || msgs.length > 5;
+      const petClass = 'pet' + (state.reduceMotion ? '' : ' is-breathe');
+      let st = '在';
+      if (c.status === 'responding') st = '正在写';
+      else if (c.status === 'failed') st = '刚才没发出去';
+      else if (c.inputFocus) st = '在听';
+      const cont = (!state.demo.empty && c.continueOpen) ? (
+        '<aside class="continue" data-od-id="continue-card">' +
+        '<div class="kicker">近期接续 · 9月8日 · 合成示例</div>' +
+        '<blockquote>「目录写完了，还差两段说明，总觉得结构在跳。」</blockquote>' +
+        '<div class="continue-actions">' +
+        '<button type="button" class="linkish" data-action="continue-go">继续</button>' +
+        '<button type="button" class="linkish" data-action="continue-hide">收起</button>' +
+        '<button type="button" class="linkish" data-action="new-topic">新话题</button>' +
+        '<button type="button" class="linkish" data-action="go" data-to="memory-source" data-mem="recent">查看依据</button>' +
+        '</div></aside>'
+      ) : (!state.demo.empty ? '<div class="continue" style="padding:8px 14px"><button type="button" class="linkish" data-action="continue-show">展开近期接续</button></div>' : '');
+      $('#view-root').innerHTML =
+        topbar(state.pet.name, iconBtn('go', 'data-to="memory" data-od-id="btn-memory"', '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M5 8h14M5 12h10M5 16h14"/></svg>', '记忆'), iconBtn('sheet-companion', 'data-od-id="btn-more"', ICO.more, '更多')) +
+        subnav() +
+        '<div class="chat-scroll" id="companion-scroll" data-od-id="companion-thread">' +
+        '<div class="chat-dim"></div>' +
+        offlineBar() +
+        '<div class="pet-stage' + (compact ? ' is-compact' : '') + '" data-od-id="pet-stage">' +
+        '<div class="' + petClass + '">' + petSvg(state.pet.variant) + '</div>' +
+        '<div class="pet-status">' + st + '</div></div>' +
+        cont +
+        (msgs.length ? bubbles(msgs) : '<div class="thread"><p class="hint">想从哪件小事开始，直接写就行。群里的事也可以直接问我；要看进度去事项。</p></div>') +
+        composer('companion', '写给' + state.pet.name) +
+        '</div>';
+      applyChatPaint($('#companion-scroll'), 'companion');
+      bindComposer('companion');
+    }
+
+    function layerLabel(l) { return l === 'current' ? '当前理解' : l === 'past' ? '过去偏好' : '变化依据'; }
+    function statusLabel(s) { return s === 'no_longer' ? '不再喜欢' : s === 'never_was' ? '我从没喜欢过' : ''; }
+
+    function renderMemory() {
+      const list = state.memories.filter(function (m) { return m.status !== 'forgotten'; });
+      $('#view-root').innerHTML =
+        topbar('记忆', '', iconBtn('go', 'data-to="memory-form" data-od-id="btn-mem-add"', ICO.plus, '新增')) +
+        subnav() +
+        (state.demo.extractFail ? '<div class="banner" data-od-id="extract-fail">刚才没能更新理解。<button type="button" class="linkish" data-action="retry-extract">重试</button></div>' : '') +
+        '<div class="list"><p class="hint" style="padding:12px 16px 0">记住重要的小事，也能随时纠正。不会向你展示分数。</p>' +
+        (list.length ? list.map(function (m) {
+          return '<article class="mem-card" data-od-id="memory-' + m.id + '">' +
+            '<div class="layer">' + layerLabel(m.layer) + (m.important ? ' · 重要' : '') + (statusLabel(m.status) ? ' · ' + statusLabel(m.status) : '') + '</div>' +
+            '<h3>' + escapeHtml(m.title) + '</h3>' +
+            '<p class="quote">「' + escapeHtml(m.quote) + '」 · ' + escapeHtml(m.date) + '</p>' +
+            '<p class="hint">' + escapeHtml(m.note) + '</p>' +
+            '<div class="mem-actions">' +
+            '<button type="button" class="linkish" data-action="go" data-to="memory-source" data-mem="' + m.id + '">来源</button>' +
+            '<button type="button" class="linkish" data-action="go" data-to="memory-form" data-mem="' + m.id + '">编辑</button>' +
+            '<button type="button" class="linkish" data-action="mem-important" data-mem="' + m.id + '">' + (m.important ? '取消重要' : '标记重要') + '</button>' +
+            '<button type="button" class="linkish" data-action="mem-correct" data-mem="' + m.id + '">纠正</button>' +
+            '<button type="button" class="linkish" data-action="mem-forget" data-mem="' + m.id + '">忘记</button>' +
+            '</div></article>';
+        }).join('') : '<p class="hint" style="padding:16px">还没有可展示的理解。</p>') + '</div>';
+    }
+
+    function renderMemoryForm() {
+      const m = state.editingMemory ? state.memories.filter(function (x) { return x.id === state.editingMemory; })[0] : null;
+      const title = m ? m.title : '';
+      const quote = m ? m.quote : '';
+      const layer = m ? m.layer : 'current';
+      const n = (title + quote).length;
+      $('#view-root').innerHTML =
+        topbar(m ? '编辑记忆' : '新增记忆', iconBtn('back', '', ICO.back, '返回'), '') +
+        '<form class="form" data-form="memory">' +
+        '<p class="hint">最多 20 条，每条合计 400 字。当前 ' + state.memories.filter(function (x) { return x.manual && x.status !== 'forgotten'; }).length + ' 条手工记忆，自动依据单独保存。</p>' +
+        '<div class="field"><label for="mem-layer">分类</label><select id="mem-layer">' +
+        ['current', 'past', 'change'].map(function (l) { return '<option value="' + l + '"' + (layer === l ? ' selected' : '') + '>' + layerLabel(l) + '</option>'; }).join('') +
+        '</select></div>' +
+        '<div class="field"><label for="mem-title">我现在这样理解</label><input id="mem-title" maxlength="400" value="' + escapeHtml(title) + '" required></div>' +
+        '<div class="field"><label for="mem-quote">原话（可选）</label><textarea id="mem-quote" maxlength="400" rows="3">' + escapeHtml(quote) + '</textarea><div class="count" id="mem-count">' + n + ' / 400</div></div>' +
+        '<p class="err" id="mem-err" hidden></p>' +
+        '<button type="submit" class="btn btn-primary" data-od-id="mem-save">保存</button></form>';
+    }
+
+    function renderSource() {
+      const m = state.sourceMemory === 'recent'
+        ? { layer: 'change', date: '2026-09-08', title: '材料结构的讨论', quote: '目录写完了，还差两段说明，总觉得结构在跳。' }
+        : state.memories.filter(function (x) { return x.id === state.sourceMemory && x.status !== 'forgotten'; })[0];
+      if (!m) { go('memory'); return; }
+      $('#view-root').innerHTML =
+        topbar('来源', iconBtn('back', '', ICO.back, '返回'), '') +
+        '<div class="page-body"><div class="card"><p class="layer">' + layerLabel(m.layer) + ' · ' + escapeHtml(m.date) + '</p><h2 style="font-size:var(--text-lg);margin:8px 0">' + escapeHtml(m.title) + '</h2><blockquote>「' + escapeHtml(m.quote) + '」</blockquote><p class="hint" style="margin-top:12px">来源：陪伴对话 · 示例数据</p></div>' +
+        '<button type="button" class="btn" style="margin-top:12px" data-action="go" data-to="companion">继续当前话题</button></div>';
+    }
+
+    function renderGrowth() {
+      const p = state.personality;
+      $('#view-root').innerHTML =
+        topbar('成长', '', '') +
+        subnav() +
+        '<div class="page-body stack" data-od-id="view-growth">' +
+        '<div class="card" style="text-align:center"><div class="hatch-pet">' + petSvg(state.pet.variant) + '</div><p>' + escapeHtml(state.pet.name) + ' · 已确认形象</p><p class="hint">不设恋爱等级、签到或共同养宠。</p></div>' +
+        '<div class="card" data-od-id="personality-card">' +
+        '<p class="kicker hint">性格底色</p>' +
+        '<div class="trait-track" style="--max:100" aria-hidden="true"><span class="trait-mark" style="--v:' + p.offset + '"></span></div>' +
+        '<p class="hint">安静不催促 → 必要时更主动给结构</p>' +
+        '<p>' + escapeHtml(p.note) + (p.paused ? ' · 已暂停学习' : '') + '</p>' +
+        p.changes.map(function (c) {
+          return '<p class="hint" style="margin-top:8px">' + escapeHtml(c.at) + ' · ' + escapeHtml(c.text) + '<br>依据：' + escapeHtml(c.basis) + '</p>';
+        }).join('') +
+        '<div class="continue-actions" style="margin-top:12px">' +
+        '<button type="button" class="btn" data-action="pause-learn">' + (p.paused ? '恢复学习' : '暂停学习') + '</button>' +
+        '<button type="button" class="btn" data-action="dialog" data-kind="reset-persona">恢复初始</button>' +
+        '</div></div>' +
+        '<div class="card"><p class="hint" style="margin:0 0 8px">习惯</p>' +
+        p.habits.map(function (h) {
+          return '<div class="setting-row" style="padding:8px 0;border:0;min-height:auto"><span><strong>' + escapeHtml(h.name) + '</strong><span class="preview">' + (h.status === 'corrected' ? '已纠正' : '进行中') + ' · ' + escapeHtml(h.at) + ' · ' + escapeHtml(h.basis) + '</span></span>' +
+            (h.status === 'active' ? '<button type="button" class="linkish" data-action="correct-habit" data-id="' + h.id + '">纠正</button>' : '<span class="hint">已停用</span>') + '</div>';
+        }).join('') + '</div>' +
+        '<button type="button" class="setting-row" data-action="go" data-to="style" data-od-id="row-style"><span>相处风格</span><span class="hint">回复长短与是否催促</span></button>' +
+        '<button type="button" class="setting-row" data-action="go" data-to="relation" data-od-id="row-relation"><span>群关系理解</span><span class="hint">仅' + escapeHtml(state.pet.name) + '</span></button>' +
+        '<button type="button" class="btn" data-action="open-hatch">查看未确认流程（演示）</button>' +
+        '</div>';
+    }
+
+    function renderStyle() {
+      const s = state.style;
+      $('#view-root').innerHTML =
+        topbar('相处风格', iconBtn('back', '', ICO.back, '返回'), '') +
+        '<div class="list" data-od-id="view-style"><p class="hint" style="padding:12px 16px 0">这些设置只影响' + escapeHtml(state.pet.name) + '怎么陪你说话，不在「我的」里。</p>' +
+        '<button type="button" class="setting-row" data-action="toggle-style" data-key="short"><span>回复偏短</span>' + switchEl(s.short) + '</button>' +
+        '<button type="button" class="setting-row" data-action="toggle-style" data-key="structure"><span>先给结构再给句子</span>' + switchEl(s.structure) + '</button>' +
+        '<button type="button" class="setting-row" data-action="toggle-style" data-key="noNudge"><span>不催促下一条</span>' + switchEl(s.noNudge) + '</button>' +
+        '</div>';
+    }
+
+    function relLabel(s) { return s === 'confirmed' ? '确定' : s === 'retell' ? '转述' : '猜测'; }
+
+    function renderRelation() {
+      const r = state.relation;
+      $('#view-root').innerHTML =
+        topbar('群关系', iconBtn('back', '', ICO.back, '返回'), '') +
+        '<div class="page-body stack" data-od-id="view-relation">' +
+        '<div class="card"><p class="hint">仅' + escapeHtml(state.pet.name) + '对「' + escapeHtml(r.group) + '」的理解，不与其他宠物共用。</p>' +
+        '<p>主人身份：' + escapeHtml(r.owner.name) + ' · ' + escapeHtml(r.owner.account) + ' · ' + relLabel(r.owner.state) + '</p>' +
+        '<p class="hint">主人随账号绑定，不靠群昵称猜测。</p></div>' +
+        r.members.map(function (m) {
+          return '<article class="card"><p class="pill">' + relLabel(m.state) + ' · ' + escapeHtml(m.role) + '</p><h3 style="margin:8px 0 4px;font-size:var(--text-base)">' + escapeHtml(m.name) + '</h3><p class="hint">' + escapeHtml(m.note) + (m.quote ? ' 「' + escapeHtml(m.quote) + '」 · ' + escapeHtml(m.at) : '') + '</p>' +
+            (m.id !== 'u0' ? '<button type="button" class="setting-row" style="padding:8px 0;border:0" data-action="toggle-auth" data-id="' + m.id + '"><span>允许引用其发言来理解关系</span>' + switchEl(!!state.relation.auth[m.id]) + '</button>' : '') +
+            '</article>';
+        }).join('') +
+        '<button type="button" class="setting-row" data-action="toggle-auth" data-id="useGroup"><span>允许使用本群消息做关系理解</span>' + switchEl(r.auth.useGroup) + '</button>' +
+        '</div>';
+    }
+
+    function renderDeskpet() {
+      const d = state.deskpet;
+      const perm = d.permission === 'granted' ? '已允许（演示）' : d.permission === 'denied' ? '已拒绝' : d.permission === 'asking' ? '申请中' : '未申请';
+      $('#view-root').innerHTML =
+        topbar('桌宠', '', '') +
+        subnav() +
+        '<div class="page-body stack" data-od-id="view-deskpet">' +
+        '<p class="demo-tag">演示 · 真正的跨应用/透明窗口由工程后续完成</p>' +
+        '<div class="card"><p>初次默认关闭。不会自启，也不会催你打开。</p>' +
+        '<p class="hint" style="margin-top:8px">当前：' + (d.running ? (d.hidden ? '已隐藏' : '在桌面层') : '未开启') + (d.accountAlert ? ' · ' + escapeHtml(d.accountAlert) : '') + '</p></div>' +
+        '<button type="button" class="setting-row" data-action="desk-perm"><span>显示在其他应用上层 / 透明窗口</span><span class="hint">' + perm + '</span></button>' +
+        '<button type="button" class="setting-row" data-action="desk-toggle"><span>' + (d.running ? '停止桌宠' : '开启桌宠') + '</span><span class="hint">' + (d.permission !== 'granted' ? '需先给权限' : '不会开机自启') + '</span></button>' +
+        '<div class="card"><p class="hint" style="margin:0 0 8px">大小</p><div class="continue-actions">' +
+        [['sm', '小'], ['md', '中'], ['lg', '大']].map(function (s) {
+          return '<button type="button" class="chip' + (d.size === s[0] ? ' is-on' : '') + '" data-action="desk-size" data-id="' + s[0] + '">' + s[1] + '</button>';
+        }).join('') + '</div></div>' +
+        '<div class="card"><p class="hint" style="margin:0 0 8px">演示平台</p><div class="continue-actions">' +
+        '<button type="button" class="chip' + (d.platform === 'android' ? ' is-on' : '') + '" data-action="desk-plat" data-id="android">Android 浮层</button>' +
+        '<button type="button" class="chip' + (d.platform === 'windows' ? ' is-on' : '') + '" data-action="desk-plat" data-id="windows">Windows 透明窗</button>' +
+        '</div></div>' +
+        (d.running ? '<div class="continue-actions"><button type="button" class="btn" data-action="desk-hide">' + (d.hidden ? '恢复' : '隐藏') + '</button><button type="button" class="btn" data-action="show-desk">打开演示层</button></div>' : '') +
+        '<p class="hint">锁屏时隐藏；离线保持安静；账号变化会停止。不要用满屏白框承载宠物。</p>' +
+        '</div>';
+    }
+
+    function renderMessages() {
+      if (state.demo.loading) {
+        $('#view-root').innerHTML = topbar('消息', '<span></span>', iconBtn('new-group', '', ICO.plus, '新建群聊')) + '<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
+        return;
+      }
+      const lastC = state.companion.messages.filter(function (m) { return m.role !== 'break'; }).slice(-1)[0];
+      const lastG = state.group.messages.filter(function (m) { return m.role !== 'sys'; }).slice(-1)[0];
+      const rows = [
+        { id: 'group', title: state.group.name, preview: lastG ? lastG.text : '还没有消息', when: lastG ? lastG.time : '', unread: 2, to: 'group' },
+        { id: 'companion', title: state.pet.name, preview: lastC ? lastC.text : '还没有消息', when: lastC ? lastC.time : '', unread: 0, to: 'companion' }
+      ].filter(function (r) {
+        const q = state.search.trim();
+        return !q || (r.title + r.preview).indexOf(q) !== -1;
+      });
+      $('#view-root').innerHTML =
+        topbar('消息', '<span></span>', iconBtn('new-group', '', ICO.plus, '新建群聊')) +
+        offlineBar() +
+        '<div class="search"><label class="sr" for="msg-search">搜索</label><input id="msg-search" value="' + escapeHtml(state.search) + '" placeholder="搜索会话" data-od-id="msg-search"></div>' +
+        '<div class="list">' + (rows.length ? rows.map(function (r) {
+          return '<button type="button" class="msg-row" data-action="open-thread" data-to="' + r.to + '" data-od-id="msg-' + r.id + '">' +
+            '<span class="avatar" aria-hidden="true">' + (r.id === 'companion' ? petSvg(state.pet.variant) : escapeHtml(r.title.slice(0, 1))) + '</span>' +
+            '<span><span class="name">' + escapeHtml(r.title) + '</span><span class="preview">' + escapeHtml(r.preview) + '</span></span>' +
+            '<span><span class="when">' + escapeHtml(r.when) + '</span>' + (r.unread ? '<span class="unread">' + r.unread + '</span>' : '') + '</span></button>';
+        }).join('') : '<p class="hint" style="padding:16px">没有匹配的会话。</p>') + '</div>';
+      const inp = $('#msg-search');
+      if (inp) inp.addEventListener('input', function () {
+        state.search = inp.value;
+        renderMessages();
+        const next = $('#msg-search');
+        next.focus();
+        next.setSelectionRange(next.value.length, next.value.length);
+      });
+    }
+
+    function renderGroup() {
+      const list = state.group.messages.slice();
+      if (state.group.waitingPet) list.push({ id: 'wait', role: 'wait' });
+      $('#view-root').innerHTML =
+        topbar(state.group.name, iconBtn('back', '', ICO.back, '返回'), iconBtn('go', 'data-to="group-manage" data-od-id="btn-group-manage"', ICO.more, '群管理')) +
+        '<div class="chat-scroll" id="group-scroll" data-od-id="group-thread">' +
+        '<div class="chat-dim"></div>' +
+        offlineBar() +
+        bubbles(list, { withName: true }) +
+        composer('group', '发到群里') +
+        '</div>';
+      applyChatPaint($('#group-scroll'), 'group');
+      bindComposer('group');
+    }
+
+    function renderGroupManage() {
+      const tab = state.manageTab;
+      const tabs = [['profile', '资料'], ['members', '成员'], ['assistant', '助手']];
+      let body = '';
+      if (tab === 'profile') {
+        body = '<div class="page-body stack"><div class="card"><p class="hint">群名称</p><p>' + escapeHtml(state.group.name) + '</p><p class="hint" style="margin-top:8px">简介</p><p>' + escapeHtml(state.group.topic) + '</p></div>' +
+          '<button type="button" class="setting-row" data-action="go" data-to="matters" data-filter="group" data-od-id="group-tools"><span>群工具 · 事项</span><span class="hint">待办与提醒收在事项</span></button>' +
+          '<button type="button" class="setting-row" data-action="go" data-to="chat-bg" data-scope="group"><span>本群聊天背景</span><span class="hint">仅自己可见</span></button></div>';
+      } else if (tab === 'members') {
+        body = '<div class="list"><button type="button" class="setting-row">林晏<span class="hint">你 · 群主</span></button><button type="button" class="setting-row">周宁<span class="hint">成员</span></button><button type="button" class="setting-row">陈可<span class="hint">成员</span></button>' +
+          '<button type="button" class="btn btn-primary" style="margin:16px" data-action="go" data-to="invite" data-od-id="btn-invite">邀请成员</button></div>';
+      } else {
+        body = '<div class="page-body stack"><div class="card"><p>' + escapeHtml(state.pet.name) + ' 是本群助手。</p><p class="hint" style="margin-top:8px">在群里用「@小陶」或「小陶，」才会回应。详细进度去事项。关系理解按这只宠物单独保存。</p></div>' +
+          '<button type="button" class="btn" data-action="ask-pet-group">去群里问未回事项</button>' +
+          '<button type="button" class="btn" data-action="go" data-to="relation">查看' + escapeHtml(state.pet.name) + '对本群的理解</button></div>';
+      }
+      $('#view-root').innerHTML =
+        topbar('群管理', iconBtn('back', '', ICO.back, '返回'), '') +
+        '<div class="subnav" style="grid-template-columns:1fr 1fr 1fr">' + tabs.map(function (t) {
+          return '<button type="button" class="' + (tab === t[0] ? 'is-on' : '') + '" data-action="manage-tab" data-id="' + t[0] + '">' + t[1] + '</button>';
+        }).join('') + '</div>' + body;
+    }
+
+    function renderInvite() {
+      $('#view-root').innerHTML =
+        topbar('邀请', iconBtn('back', '', ICO.back, '返回'), '') +
+        '<form class="form" data-form="invite">' +
+        '<label class="setting-row"><span>周宁</span><input type="checkbox" id="inv-zhou"' + (state.invite.zhou ? ' checked' : '') + '></label>' +
+        '<label class="setting-row"><span>陈可</span><input type="checkbox" id="inv-chen"' + (state.invite.chen ? ' checked' : '') + '></label>' +
+        '<p class="hint">演示邀请，不会发送通知。</p>' +
+        '<button class="btn btn-primary" type="submit">发送邀请</button></form>';
+    }
+
+    function kindLabel(k) {
+      return { personal: '个人', group: '群', goal: '目标', remind: '提醒', confirm: '待确认' }[k] || k;
+    }
+    function matterStatus(s) {
+      return s === 'doing' ? '进行中' : s === 'failed' ? '失败' : s === 'pending' ? '待确认' : s === 'done' ? '已完成' : '未开始';
+    }
+
+    function renderMatters() {
+      $('#view-root').innerHTML =
+        topbar('事项', '<span></span>', iconBtn('new-matter', '', ICO.plus, '新建事项')) +
+        offlineBar() +
+        '<div class="filters" role="tablist" aria-label="事项分类">' +
+        [['all', '全部'], ['personal', '个人'], ['group', '群'], ['goal', '目标'], ['remind', '提醒'], ['confirm', '待确认']].map(function (f) {
+          return '<button type="button" class="' + (state.matterFilter === f[0] ? 'is-on' : '') + '" data-action="matter-filter" data-id="' + f[0] + '">' + f[1] + '</button>';
+        }).join('') + '</div>';
+      if (state.demo.loading) {
+        $('#view-root').insertAdjacentHTML('beforeend', '<div class="skel"></div><div class="skel"></div><div class="skel"></div>');
+        return;
+      }
+      if (state.demo.error) {
+        $('#view-root').insertAdjacentHTML('beforeend', '<div class="banner warn">事项没载入。<button type="button" class="linkish" data-action="retry-matters">重试</button></div>');
+        return;
+      }
+      const rows = state.matters.filter(function (t) {
+        return state.matterFilter === 'all' || t.kind === state.matterFilter;
+      });
+      $('#view-root').insertAdjacentHTML('beforeend',
+        '<div class="list" data-od-id="matters-list">' + (rows.length ? rows.map(function (t) {
+          return '<button type="button" class="task-row setting-row" data-action="open-matter" data-id="' + t.id + '" data-od-id="matter-' + t.id + '"><span><strong>' + escapeHtml(t.title) + '</strong><span class="preview">' + kindLabel(t.kind) + ' · ' + escapeHtml(t.from) + ' · ' + matterStatus(t.status) + '</span></span><span aria-hidden="true">›</span></button>';
+        }).join('') : '<p class="hint" style="padding:16px">这个分类里还没有事项。</p>') + '</div>');
+    }
+
+    function renderMatter() {
+      const t = state.matters.filter(function (x) { return x.id === state.activeMatter; })[0] || state.matters[0];
+      const stage = t.stages[Math.min(t.progress, t.stages.length - 1)] || '';
+      $('#view-root').innerHTML =
+        topbar('事项详情', iconBtn('back', '', ICO.back, '返回'), '') +
+        '<div class="page-body stack" data-od-id="view-matter">' +
+        '<div class="card"><p class="pill">' + kindLabel(t.kind) + ' · ' + matterStatus(t.status) + '</p>' +
+        '<h2 style="font-size:var(--text-lg);margin:8px 0;line-height:var(--leading-tight)">' + escapeHtml(t.title) + '</h2>' +
+        '<p>' + escapeHtml(t.detail) + '</p>' +
+        '<p class="hint">来自' + escapeHtml(t.from) + (t.when ? ' · ' + escapeHtml(t.when) : '') + '</p>' +
+        '<div class="bar-track" style="--max:' + t.total + '"><div class="bar" style="--v:' + t.progress + '"></div></div>' +
+        '<p class="hint">进度 ' + t.progress + ' / ' + t.total + (stage ? ' · 当前：' + escapeHtml(stage) : '') + '</p>' +
+        '<p class="hint">阶段：' + t.stages.map(function (s, i) { return (i < t.progress ? '已完成 ' : i === t.progress ? '进行中 ' : '') + s; }).join(' · ') + '</p></div>' +
+        (t.status === 'failed' ? '<button type="button" class="btn btn-primary" data-action="retry-matter" data-id="' + t.id + '">重试</button>' : '') +
+        (t.status === 'doing' && t.progress < t.total ? '<button type="button" class="btn btn-primary" data-action="advance-matter" data-id="' + t.id + '">推进到下一阶段</button>' : '') +
+        (t.status === 'pending' ? '<div class="continue-actions"><button type="button" class="btn btn-primary" data-action="confirm-matter" data-how="yes" data-id="' + t.id + '">确认</button><button type="button" class="btn" data-action="confirm-matter" data-how="no" data-id="' + t.id + '">还不是</button></div>' : '') +
+        (t.kind === 'remind' && t.status !== 'done' ? '<button type="button" class="btn" data-action="snooze-matter" data-id="' + t.id + '">推迟到今晚（演示）</button>' : '') +
+        '<button type="button" class="btn" data-action="go" data-to="companion">问' + escapeHtml(state.pet.name) + '这件群里的事</button>' +
+        '</div>';
+    }
+
+    function renderMe() {
+      $('#view-root').innerHTML =
+        topbar('我的', '', '') +
+        '<div class="list" data-od-id="view-me">' +
+        '<button type="button" class="setting-row" data-action="go" data-to="profile" data-od-id="row-profile"><span><strong>' + escapeHtml(state.profile.name) + '</strong><span class="preview">' + escapeHtml(state.profile.account) + ' · 演示账号</span></span></button>' +
+        '<button type="button" class="setting-row" data-action="go" data-to="appearance">主题与动态</button>' +
+        '<button type="button" class="setting-row" data-action="go" data-to="chat-bg" data-scope="global" data-od-id="row-chat-bg">聊天背景<span class="hint">仅自己可见</span></button>' +
+        '<button type="button" class="setting-row" data-action="go" data-to="notifications">通知</button>' +
+        '<button type="button" class="setting-row" data-action="go" data-to="privacy">账号与隐私</button>' +
+        '<button type="button" class="setting-row" data-action="go" data-to="export">导出数据</button>' +
+        '<button type="button" class="setting-row" data-action="go" data-to="settings">退出与注销</button>' +
+        '</div>';
+    }
+
+    function renderProfile() {
+      $('#view-root').innerHTML =
+        topbar('资料', iconBtn('back', '', ICO.back, '返回'), '') +
+        '<form class="form" data-form="profile"><div class="field"><label for="pf-name">昵称</label><input id="pf-name" required maxlength="20" value="' + escapeHtml(state.profile.name) + '"></div>' +
+        '<p class="hint">账号 ' + escapeHtml(state.profile.account) + ' 不可改（演示）。头像沿用现有账号，本原型不上传照片。</p>' +
+        '<button class="btn btn-primary" type="submit">保存</button></form>';
+    }
+
+    function renderAppearance() {
+      $('#view-root').innerHTML =
+        topbar('主题', iconBtn('back', '', ICO.back, '返回'), '') +
+        '<div class="list">' +
+        [['system', '跟随系统'], ['light', '浅色'], ['dark', '深色']].map(function (o) {
+          return '<button type="button" class="setting-row" data-action="theme" data-id="' + o[0] + '"><span>' + o[1] + '</span><span>' + (state.appearance === o[0] ? '当前' : '') + '</span></button>';
+        }).join('') +
+        '<button type="button" class="setting-row" data-action="toggle-motion"><span>减少动态</span>' + switchEl(state.reduceMotion) + '</button>' +
+        '</div>';
+    }
+
+    function renderNotifications() {
+      $('#view-root').innerHTML =
+        topbar('通知', iconBtn('back', '', ICO.back, '返回'), '') +
+        '<div class="list" data-od-id="view-notifications">' +
+        '<button type="button" class="setting-row" data-action="toggle-notify" data-key="chat"><span>会话消息</span>' + switchEl(state.notify.chat) + '</button>' +
+        '<button type="button" class="setting-row" data-action="toggle-notify" data-key="matter"><span>事项提醒</span>' + switchEl(state.notify.matter) + '</button>' +
+        '<div class="setting-row"><span>异宠主动催回<span class="preview">始终关闭。陪伴不会催你回来。</span></span><span class="hint">关</span></div>' +
+        '<div class="setting-row"><span>桌宠自启<span class="preview">始终关闭。需在异宠 · 桌宠里手动开启。</span></span><span class="hint">关</span></div>' +
+        '</div>';
+    }
+
+    function renderPrivacy() {
+      $('#view-root').innerHTML =
+        topbar('账号与隐私', iconBtn('back', '', ICO.back, '返回'), '') +
+        '<div class="page-body"><div class="card"><p>本次体验使用示例数据。背景图片只在当前页面预览，不会上传。</p><p class="hint" style="margin-top:8px">背景仅自己可见。群关系按宠物隔离，引用成员发言需授权。记忆可以纠正或忘记。刷新页面会重置本次演示操作。</p></div></div>';
+    }
+
+    function renderExport() {
+      $('#view-root').innerHTML =
+        topbar('导出', iconBtn('back', '', ICO.back, '返回'), '') +
+        '<div class="page-body stack"><p>将把合成演示记忆与资料导出为文本。不是完整用户数据备份。</p><button type="button" class="btn btn-primary" data-action="do-export">导出演示文本</button></div>';
+    }
+
+    function renderSettings() {
+      $('#view-root').innerHTML =
+        topbar('退出与注销', iconBtn('back', '', ICO.back, '返回'), '') +
+        '<div class="list">' +
+        '<button type="button" class="setting-row" data-action="dialog" data-kind="logout">退出登录</button>' +
+        '<button type="button" class="setting-row" data-action="dialog" data-kind="destroy">注销账号</button>' +
+        '</div>';
+    }
+
+    function renderChatBg() {
+      const scope = state.bg.scope;
+      const current = scope === 'global' ? state.bg.global : (state.bg.overrides[scope] || state.bg.global);
+      const tiles = ['paper', 'mist', 'weave', 'night'].map(function (id) {
+        const b = BACKGROUNDS[id];
+        return '<button type="button" class="bg-tile' + (current === id ? ' is-on' : '') + '" data-action="pick-bg" data-id="' + id + '" data-od-id="bg-' + id + '"><div class="swatch" style="background:' + (id === 'paper' ? 'var(--bg)' : b.css) + '"></div><span>' + b.name + '</span></button>';
+      }).join('');
+      $('#view-root').innerHTML =
+        topbar('聊天背景', iconBtn('back', '', ICO.back, '返回'), '') +
+        '<div class="page-body stack">' +
+        '<p class="hint">只改变你看到的背景和气泡颜色，对方不受影响。默认与推荐不会按时间或宠物状态自动更换。</p>' +
+        '<p class="pill">' + (scope === 'global' ? '作用于所有聊天' : '仅此对话覆盖') + (state.bg.photos[current] ? ' · 当前为本地图片' : '') + '</p>' +
+        '<div class="bg-grid">' + tiles + '</div>' +
+        '<button type="button" class="btn" data-action="go" data-to="chat-bg-photo">从图片选择</button>' +
+        '<button type="button" class="btn" data-action="go" data-to="chat-bg-ai">AI 设计（演示）</button>' +
+        (scope !== 'global' && state.bg.overrides[scope] ? '<button type="button" class="btn" data-action="clear-override">恢复全局背景</button>' : '') +
+        '</div>';
+    }
+
+    function renderPhoto() {
+      $('#view-root').innerHTML =
+        topbar('从图片选择', iconBtn('back', '', ICO.back, '返回'), '') +
+        '<div class="page-body stack">' +
+        '<p class="hint">文件只在本地预览，不会上传。</p>' +
+        '<div class="field"><label for="photo-file">选择图片</label><input id="photo-file" type="file" accept="image/*"></div>' +
+        '<div class="preview-chat" id="photo-preview"><div class="chat-dim"></div><div class="bubble pet" style="position:relative">预览：结构可以先短一点。</div><div class="bubble user" style="position:relative;align-self:flex-end">好。</div></div>' +
+        '<div class="field"><label for="photo-x">左右 ' + state.bg.photoPosX + '</label><input id="photo-x" type="range" min="0" max="100" value="' + state.bg.photoPosX + '"></div>' +
+        '<div class="field"><label for="photo-y">上下 ' + state.bg.photoPosY + '</label><input id="photo-y" type="range" min="0" max="100" value="' + state.bg.photoPosY + '"></div>' +
+        '<div class="field"><label for="photo-z">远近 ' + state.bg.photoZoom.toFixed(2) + '</label><input id="photo-z" type="range" min="1" max="2.4" step="0.05" value="' + state.bg.photoZoom + '"></div>' +
+        '<div class="field"><label for="photo-d">暗度（保证文字可读） ' + Math.round(state.bg.photoDim * 100) + '%</label><input id="photo-d" type="range" min="0" max="0.6" step="0.02" value="' + state.bg.photoDim + '"></div>' +
+        '<p class="hint" id="photo-warn"' + (state.bg.photoDim < 0.18 ? '' : ' hidden') + '>遮罩偏浅，深色文字可能不够清楚。</p>' +
+        '<button type="button" class="btn btn-primary" data-action="apply-photo">应用到预览中的气泡并使用</button>' +
+        '</div>';
+      paintPhotoPreview();
+      const file = $('#photo-file');
+      file.addEventListener('change', function () {
+        const f = file.files && file.files[0];
+        if (!f) return;
+        if (!f.type.startsWith('image/') || f.size > 12 * 1024 * 1024) { announce('请选择不超过 12 MB 的图片'); return; }
+        const r = new FileReader();
+        r.onerror = function () { announce('图片读取失败，请重新选择'); };
+        r.onload = function () {
+          const img = new Image();
+          img.onload = function () { state.bg.photoUrl = String(r.result); state.bg.photoRatio = img.naturalWidth / img.naturalHeight; paintPhotoPreview(); };
+          img.onerror = function () { announce('图片无法预览，请换一张'); };
+          img.src = String(r.result);
+        };
+        r.readAsDataURL(f);
+      });
+      ['photo-x', 'photo-y', 'photo-z', 'photo-d'].forEach(function (id) {
+        $('#' + id).addEventListener('input', function (e) {
+          if (id === 'photo-x') state.bg.photoPosX = Number(e.target.value);
+          if (id === 'photo-y') state.bg.photoPosY = Number(e.target.value);
+          if (id === 'photo-z') state.bg.photoZoom = Number(e.target.value);
+          if (id === 'photo-d') state.bg.photoDim = Number(e.target.value);
+          const lab = e.target.closest('.field').querySelector('label');
+          if (id === 'photo-x' && lab) lab.textContent = '左右 ' + state.bg.photoPosX;
+          if (id === 'photo-y' && lab) lab.textContent = '上下 ' + state.bg.photoPosY;
+          if (id === 'photo-z' && lab) lab.textContent = '远近 ' + state.bg.photoZoom.toFixed(2);
+          if (id === 'photo-d' && lab) lab.textContent = '暗度（保证文字可读） ' + Math.round(state.bg.photoDim * 100) + '%';
+          const warn = $('#photo-warn');
+          if (warn) warn.hidden = state.bg.photoDim >= 0.18;
+          paintPhotoPreview();
+        });
+      });
+    }
+    function paintPhotoPreview() {
+      paintBackground($('#photo-preview'), 'photo', { url: state.bg.photoUrl, x: state.bg.photoPosX, y: state.bg.photoPosY, zoom: state.bg.photoZoom, dim: state.bg.photoDim, ratio: state.bg.photoRatio });
+    }
+
+    function renderAi() {
+      const st = state.bg.aiStatus;
+      $('#view-root').innerHTML =
+        topbar('AI 设计', iconBtn('back', '', ICO.back, '返回'), '') +
+        '<div class="page-body stack">' +
+        '<p class="demo-tag">演示效果 · 未调用图片模型</p>' +
+        '<div class="field"><label for="ai-prompt">希望的画面</label><textarea id="ai-prompt" rows="3" placeholder="例如：很淡的竹影，不要抢文字">' + escapeHtml(state.bg.aiPrompt) + '</textarea></div>' +
+        '<div class="continue-actions"><button type="button" class="linkish" data-action="ai-hint" data-id="淡竹影，纸上的影子">淡竹</button><button type="button" class="linkish" data-action="ai-hint" data-id="细沙一样的点纹">细沙</button><button type="button" class="linkish" data-action="ai-hint" data-id="傍晚窗边很浅的光">暮色窗</button></div>' +
+        (st === 'busy' ? '<p>正在生成候选…</p>' : (st === 'done' ? '' : '<button type="button" class="btn btn-primary" data-action="ai-run">生成候选</button>')) +
+        (st === 'done' ? '<div class="bg-grid">' + [['bamboo', '淡竹影'], ['sand', '细沙纹'], ['dusk', '暮色窗']].map(function (v) {
+          return '<button type="button" class="bg-tile' + (state.bg.aiPick === v[0] ? ' is-on' : '') + '" data-action="ai-pick" data-id="' + v[0] + '"><div class="swatch" style="background-image:' + BACKGROUNDS[v[0]].css + '"></div><span>' + v[1] + ' · 演示</span></button>';
+        }).join('') + '</div><button type="button" class="btn btn-primary" data-action="ai-apply">应用所选</button><button type="button" class="btn" data-action="ai-run">修改描述并重新生成</button>' : '') +
+        '</div>';
+      const ta = $('#ai-prompt');
+      if (ta) ta.addEventListener('input', function () { state.bg.aiPrompt = ta.value; });
+    }
+
+    function renderLogin() {
+      $('#view-root').innerHTML =
+        topbar('登录', '', '') +
+        '<form class="form" data-form="login"><div class="field"><label for="login-id">账号</label><input id="login-id" type="email" autocomplete="username" required value="' + escapeHtml(state.login.id) + '"></div>' +
+        '<div class="field"><label for="login-pw">密码</label><input id="login-pw" type="password" autocomplete="current-password" required></div>' +
+        (state.login.err ? '<p class="err">' + escapeHtml(state.login.err) + '</p>' : '') +
+        '<button class="btn btn-primary" type="submit"' + (state.login.busy ? ' disabled' : '') + '>' + (state.login.busy ? '正在登录…' : '登录') + '</button>' +
+        '<button type="button" class="btn" data-action="go" data-to="register">没有账号，去注册</button></form>';
+    }
+
+    function renderRegister() {
+      $('#view-root').innerHTML =
+        topbar('注册', iconBtn('go', 'data-to="login"', ICO.back, '返回'), '') +
+        '<form class="form" data-form="register"><div class="field"><label for="reg-id">邮箱</label><input id="reg-id" type="email" required value="' + escapeHtml(state.register.id) + '"></div>' +
+        '<div class="field"><label for="reg-pw">密码（至少 8 位）</label><input id="reg-pw" type="password" required minlength="8"></div>' +
+        '<div class="field"><label for="reg-pw2">确认密码</label><input id="reg-pw2" type="password" required></div>' +
+        (state.register.err ? '<p class="err">' + escapeHtml(state.register.err) + '</p>' : '') +
+        '<button class="btn btn-primary" type="submit"' + (state.register.busy ? ' disabled' : '') + '>' + (state.register.busy ? '正在提交…' : '注册') + '</button></form>';
+    }
+
+    function renderHatch() {
+      const h = state.hatch;
+      let body = '';
+      if (h.step === 'expect') {
+        body = '<form class="form" data-form="hatch"><div class="field"><label for="hatch-text">你希望它是什么样</label><textarea id="hatch-text" rows="4" maxlength="200" placeholder="例如：安静、陶土色、不吵">' + escapeHtml(h.text) + '</textarea></div><button class="btn btn-primary" type="submit">生成预览</button></form>';
+      } else if (h.step === 'generating') {
+        body = '<div class="page-body"><p>正在生成预览…</p><p class="hint">演示等待，未调用模型。</p></div>';
+      } else if (h.step === 'failed') {
+        body = '<div class="page-body"><p class="err">预览没生成。</p><button type="button" class="btn btn-primary" data-action="hatch-retry">重试</button></div>';
+      } else {
+        body = '<div class="page-body stack"><p class="demo-tag">演示效果</p><div class="bg-grid">' +
+          [['a', '陶土'], ['b', '暖砂'], ['c', '青灰']].map(function (v) {
+            return '<button type="button" class="bg-tile' + (h.pick === v[0] ? ' is-on' : '') + '" data-action="hatch-pick" data-id="' + v[0] + '"><div class="swatch" style="display:grid;place-items:center;color:var(--accent)">' + petSvg(v[0]) + '</div><span>' + v[1] + '</span></button>';
+          }).join('') + '</div><button type="button" class="btn btn-primary" data-action="hatch-confirm">确认形象</button></div>';
+      }
+      $('#view-root').innerHTML = topbar('未确认的异宠', iconBtn('back', '', ICO.back, '返回'), '') + body;
+    }
+
+    function bindComposer(prefix) {
+      const form = $('[data-composer="' + prefix + '"]');
+      if (!form) return;
+      const ta = form.querySelector('textarea');
+      ta.addEventListener('input', function () {
+        state[prefix].draft = ta.value;
+        ta.style.height = '44px';
+        ta.style.height = Math.min(120, ta.scrollHeight) + 'px';
+      });
+      ta.addEventListener('focus', function () {
+        if (prefix === 'companion') {
+          state.companion.inputFocus = true;
+          const stage = $('.pet-stage');
+          if (stage) stage.classList.add('is-compact');
+          const st = $('.pet-status');
+          if (st) st.textContent = '在听';
+        }
+        pinComposer(prefix);
+      });
+      ta.addEventListener('blur', function () {
+        if (prefix === 'companion') state.companion.inputFocus = false;
+      });
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        sendThread(prefix);
+      });
+    }
+
+    function sendThread(prefix) {
+      const box = state[prefix];
+      const text = (box.draft || '').trim();
+      if (!text) return;
+      if (state.demo.offline) { announce('现在离线'); box.status = 'failed'; box.failedDraft = text; box.draft = text; render(); return; }
+      if (prefix === 'group') { sendGroup(text); return; }
+      if (box.status === 'responding') return;
+      box.draft = '';
+      box.failedDraft = '';
+      box.messages.push({ id: prefix + Date.now(), role: 'user', text: text, time: nowTime(), name: state.profile.name });
+      if (state.demo.fail) {
+        box.status = 'failed';
+        box.failedDraft = text;
+        box.draft = text;
+        box.messages.pop();
+        render();
+        announce('发送失败，草稿已保留');
+        return;
+      }
+      box.status = 'responding';
+      render();
+      pinComposer(prefix);
+      announce('正在回复');
+      if (state.demo.sending) return;
+      clearTimeout(replyTimers[prefix]);
+      replyTimers[prefix] = setTimeout(function () {
+        box.messages.push({ id: prefix + 'r' + Date.now(), role: 'pet', name: state.pet.name, text: autoReply(prefix, text), time: nowTime() });
+        box.status = 'idle';
+        render();
+        pinComposer(prefix);
+        announce('已回复');
+      }, 900);
+    }
+
+    function sendGroup(text) {
+      const box = state.group;
+      if (box.status === 'sending') return;
+      box.draft = '';
+      const id = 'g' + Date.now();
+      const msg = { id: id, role: 'user', name: state.profile.name, text: text, time: nowTime(), sendState: 'saving' };
+      box.messages.push(msg);
+      box.status = 'sending';
+      render();
+      pinComposer('group');
+      announce('保存中');
+      if (state.demo.fail) {
+        setTimeout(function () {
+          msg.sendState = 'failed';
+          box.failedDraft = text;
+          box.draft = text;
+          box.status = 'failed';
+          render();
+          announce('发送失败');
+        }, 400);
+        return;
+      }
+      setTimeout(function () {
+        if (msg.sendState === 'failed') return;
+        msg.sendState = 'sending';
+        render();
+        announce('发送中');
+      }, 280);
+      if (state.demo.sending) return;
+      setTimeout(function () {
+        msg.sendState = 'sent';
+        box.status = 'idle';
+        render();
+        announce('已发送');
+        if (invokesPet(text)) startGroupPet(text);
+      }, 800);
+    }
+
+    function startGroupPet(text) {
+      state.group.waitingPet = true;
+      render();
+      pinComposer('group');
+      clearTimeout(replyTimers.groupPet);
+      replyTimers.groupPet = setTimeout(function () {
+        state.group.waitingPet = false;
+        state.group.messages.push({ id: 'gp' + Date.now(), role: 'pet', name: state.pet.name, text: autoReply('group-pet', text), time: nowTime() });
+        render();
+        pinComposer('group');
+        announce(state.pet.name + ' 已回复');
+      }, 900);
+    }
+
+    function autoReply(prefix, text) {
+      if (prefix === 'group-pet') {
+        if (text.indexOf('未回') !== -1) return '未回的是第三节数据来源，周宁昨天提过。进度在事项里，我这边不展开成任务表。';
+        return '我记下了。要看阶段和待确认，去事项里打开那一条。';
+      }
+      if (state.personality.paused && /习惯|性格/.test(text)) return '学习已暂停，我仍按原来的底色陪你，不把新习惯写进去。';
+      if (/茶|咖啡/.test(text)) {
+        const tea = state.memories.find(function (m) { return m.id === 'm1' && m.status === 'active'; });
+        const coffee = state.memories.find(function (m) { return m.id === 'm2' && m.status === 'active'; });
+        if (tea && coffee) return '你最近更偏爱茶，也保留着以前喝咖啡的经历。我们可以接着聊刚才的材料。';
+        if (tea) return '你最近更偏爱茶。我们可以接着聊刚才的材料。';
+        return '我会以你现在说的为准。我们可以接着聊刚才的话题。';
+      }
+      if (state.style.structure && text.length > 40) return '先结构：目的、范围、方法、交付。你要先改哪一块？';
+      if (state.style.short) return state.style.noNudge ? '我在。下一条你可以直接贴改过的部分。' : '我在，随时贴过来。';
+      return '我在。下一条你可以直接贴改过的部分。';
+    }
+
+    function go(to) {
+      state.route = to;
+      if (to === 'companion' || to === 'memory' || to === 'growth' || to === 'deskpet') {
+        state.tab = 'pet';
+        state.petSub = to;
+      }
+      if (to === 'messages') state.tab = 'messages';
+      if (to === 'matters') state.tab = 'matters';
+      if (to === 'me') state.tab = 'me';
+      render();
+    }
+
+    function back() {
+      const map = {
+        'memory-form': 'memory', 'memory-source': state.sourceMemory === 'recent' ? 'companion' : 'memory',
+        style: 'growth', relation: 'growth',
+        group: 'messages', 'group-manage': 'group', invite: 'group-manage',
+        matter: 'matters',
+        profile: 'me', settings: 'me', appearance: 'me', privacy: 'me', export: 'me', notifications: 'me',
+        'chat-bg': state.bg.scope === 'global' ? 'me' : (state.bg.scope === 'group' ? 'group-manage' : 'companion'),
+        'chat-bg-photo': 'chat-bg', 'chat-bg-ai': 'chat-bg',
+        hatch: 'growth', register: 'login'
+      };
+      go(map[state.route] || 'companion');
+    }
+
+    function setBg(id) {
+      if (state.bg.scope === 'global') state.bg.global = id;
+      else state.bg.overrides[state.bg.scope] = id;
+    }
+
+    function openSheet(kind) {
+      const sheet = $('#sheet');
+      let html = '<p id="sheet-title" class="hint" style="padding:8px 16px">更多</p>';
+      if (kind === 'companion') {
+        html += '<button type="button" data-action="go" data-to="chat-bg" data-scope="companion">聊天背景（本对话）</button>' +
+          '<button type="button" data-action="new-topic">新话题</button>' +
+          '<button type="button" data-action="go" data-to="style">相处风格</button>' +
+          '<button type="button" data-action="go" data-to="relation">群关系理解</button>' +
+          '<button type="button" data-action="go" data-to="memory">记忆</button>';
+      } else if (kind === 'correct') {
+        html = '<p id="sheet-title" class="hint" style="padding:8px 16px">纠正这条理解</p>' +
+          '<button type="button" data-action="correct-as" data-how="no_longer">不再喜欢</button>' +
+          '<button type="button" data-action="correct-as" data-how="never_was">我从没喜欢过</button>';
+      } else if (kind === 'pic') {
+        html = '<p id="sheet-title" class="hint" style="padding:8px 16px">消息操作</p>' +
+          '<p class="hint" style="padding:0 16px">图片只在本地演示，不会上传，也不会发给群成员。</p>' +
+          '<button type="button" data-action="fake-pic">插入一条图片说明</button>';
+      }
+      html += '<button type="button" data-action="close-sheet">取消</button>';
+      sheet.innerHTML = html;
+      $('#sheet-scrim').hidden = false;
+      sheet.querySelector('button').focus();
+    }
+    function closeSheet() { $('#sheet-scrim').hidden = true; }
+
+    function openDialog(kind) {
+      const el = $('#dialog');
+      const copy = {
+        logout: ['退出登录', '只退出本演示会话，不会删除数据。', '退出', 'dialog-logout'],
+        destroy: ['注销账号', '演示不会真正删除任何数据，只会回到登录页。', '仍要注销', 'dialog-destroy'],
+        forget: ['忘记这条', '停止使用这条记忆及关联依据。原始聊天仍可回看，当前话题可以继续。', '忘记', 'dialog-forget'],
+        topic: ['开始新话题', '不会删除上面的对话，只会在下面分开。', '开始', 'dialog-topic'],
+        'reset-persona': ['恢复初始性格', '回到确认形象时的底色：安静、不催促。已纠正的习惯会清掉演示偏移。', '恢复', 'dialog-persona']
+      }[kind];
+      el.innerHTML = '<h2 id="dialog-title">' + copy[0] + '</h2><p>' + copy[1] + '</p><div class="dialog-actions"><button type="button" class="btn btn-primary" data-action="' + copy[3] + '">' + copy[2] + '</button><button type="button" data-action="close-dialog">取消</button></div>';
+      $('#dialog-scrim').hidden = false;
+      el.querySelector('button').focus();
+    }
+    function closeDialog() { $('#dialog-scrim').hidden = true; }
+
+    function deskSizePx() { return state.deskpet.size === 'sm' ? 56 : state.deskpet.size === 'lg' ? 96 : 72; }
+
+    function paintDesk() {
+      const d = state.deskpet;
+      const pet = $('#float-pet');
+      const chat = $('#desk-chat');
+      const restore = $('#desk-restore');
+      const lock = $('#desk-lock');
+      const show = d.running && !d.hidden && !state.demo.lock && !d.accountAlert;
+      pet.hidden = !show;
+      restore.hidden = !(d.running && d.hidden && !state.demo.lock);
+      lock.hidden = !state.demo.lock;
+      if (d.accountAlert) {
+        pet.hidden = true;
+        restore.hidden = true;
+        chat.hidden = false;
+        chat.style.left = '16px';
+        chat.style.top = '72px';
+        chat.innerHTML = '<p>' + escapeHtml(d.accountAlert) + '</p><p class="hint">需在设置里重新开启。不会自启，也不会催回。</p>';
+        return;
+      }
+      pet.className = 'float-pet' + (state.reduceMotion ? '' : ' is-breathe') + (d.size === 'sm' ? ' is-sm' : d.size === 'lg' ? ' is-lg' : '');
+      pet.style.left = d.x + '%';
+      pet.style.top = d.y + '%';
+      pet.innerHTML = petSvg(state.pet.variant);
+      const open = show && d.chatOpen;
+      chat.hidden = !open;
+      if (open) {
+        const px = deskSizePx();
+        chat.style.left = '12px';
+        chat.style.top = Math.min(d.y + 8, 58) + '%';
+        if (d.x < 50) chat.style.left = 'calc(' + d.x + '% + ' + (px + 8) + 'px)';
+        else chat.style.left = '12px';
+        const last = d.messages.slice(-2).map(function (m) {
+          return '<p class="hint" style="margin:0 0 6px">' + (m.role === 'user' ? '你' : state.pet.name) + '：' + escapeHtml(m.text) + '</p>';
+        }).join('');
+        chat.innerHTML = '<p class="demo-tag">小窗 · 不是全屏应用</p>' +
+          (state.demo.offline ? '<p class="hint">离线，保持安静。</p>' : '') +
+          (last || '<p class="hint">点这里跟' + escapeHtml(state.pet.name) + '说一句。不会催你。</p>') +
+          '<form data-form="desk-chat" class="stack" style="gap:8px;margin-top:8px"><label class="sr" for="desk-in">桌宠消息</label><textarea id="desk-in" rows="2" maxlength="200">' + escapeHtml(d.draft) + '</textarea><button class="btn btn-primary" type="submit"' + (state.demo.offline ? ' disabled' : '') + '>发送</button></form>';
+      }
+    }
+
+    function bindDeskDrag() {
+      const el = $('#float-pet');
+      let dragging = false, moved = false, sx = 0, sy = 0, ox = 0, oy = 0;
+      el.addEventListener('pointerdown', function (e) {
+        if (e.button && e.button !== 0) return;
+        dragging = true; moved = false;
+        el.setPointerCapture(e.pointerId);
+        const wall = $('#desk-wallpaper').getBoundingClientRect();
+        sx = e.clientX; sy = e.clientY;
+        ox = (e.clientX - wall.left) / wall.width * 100 - state.deskpet.x;
+        oy = (e.clientY - wall.top) / wall.height * 100 - state.deskpet.y;
+      });
+      el.addEventListener('pointermove', function (e) {
+        if (!dragging) return;
+        if (Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy) > 6) moved = true;
+        const wall = $('#desk-wallpaper').getBoundingClientRect();
+        const x = (e.clientX - wall.left) / wall.width * 100 - ox;
+        const y = (e.clientY - wall.top) / wall.height * 100 - oy;
+        state.deskpet.x = Math.max(2, Math.min(82, x));
+        state.deskpet.y = Math.max(8, Math.min(78, y));
+        el.style.left = state.deskpet.x + '%';
+        el.style.top = state.deskpet.y + '%';
+      });
+      el.addEventListener('pointerup', function () {
+        dragging = false;
+        if (!moved) {
+          state.deskpet.chatOpen = !state.deskpet.chatOpen;
+          paintDesk();
+        }
+      });
+    }
+
+    function render() {
+      applyChrome();
+      const route = state.auth === 'in' ? state.route : (state.route === 'register' ? 'register' : 'login');
+      const renderers = {
+        companion: renderCompanion, memory: renderMemory, 'memory-form': renderMemoryForm, 'memory-source': renderSource,
+        growth: renderGrowth, style: renderStyle, relation: renderRelation, deskpet: renderDeskpet,
+        messages: renderMessages, group: renderGroup, 'group-manage': renderGroupManage, invite: renderInvite,
+        matters: renderMatters, matter: renderMatter,
+        me: renderMe, profile: renderProfile, appearance: renderAppearance, notifications: renderNotifications,
+        privacy: renderPrivacy, export: renderExport, settings: renderSettings,
+        'chat-bg': renderChatBg, 'chat-bg-photo': renderPhoto, 'chat-bg-ai': renderAi,
+        login: renderLogin, register: renderRegister, hatch: renderHatch
+      };
+      if (renderers[route]) renderers[route]();
+      const showTab = state.auth === 'in' && TAB_ROUTES.indexOf(route) !== -1;
+      $('.tabbar').hidden = !showTab;
+      $$('.tabbar button').forEach(function (b) {
+        const on = b.getAttribute('data-tab') === state.tab;
+        b.classList.toggle('is-on', on);
+        if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+      });
+    }
+
+    $('#width-tools').innerHTML = [320, 360, 390, 430].map(function (w) {
+      return '<button type="button" class="chip' + (w === 390 ? ' is-on' : '') + '" data-action="width" data-w="' + w + '">' + w + 'px</button>';
+    }).join('');
+
+    document.addEventListener('click', function (e) {
+      const t = e.target.closest('[data-action], [data-demo]');
+      if (!t) return;
+      if (t.hasAttribute('data-demo') && !t.getAttribute('data-action')) {
+        const key = t.getAttribute('data-demo');
+        state.demo[key] = !state.demo[key];
+        if (key === 'empty') { state.companion.messages = state.demo.empty ? [] : (state.demo.long ? LONG.slice() : SHORT.slice()); state.companion.continueOpen = !state.demo.empty; }
+        if (key === 'long') { state.demo.empty = false; state.companion.messages = state.demo.long ? LONG.slice() : SHORT.slice(); }
+        if (key === 'loggedOut') { state.auth = state.demo.loggedOut ? 'out' : 'in'; state.route = state.demo.loggedOut ? 'login' : 'companion'; }
+        if (key === 'sending' && !state.demo.sending) {
+          if (state.companion.status === 'responding') { state.companion.status = 'idle'; }
+          if (state.group.status === 'sending') {
+            const last = state.group.messages.filter(function (m) { return m.role === 'user'; }).slice(-1)[0];
+            if (last) last.sendState = 'sent';
+            state.group.status = 'idle';
+          }
+        }
+        if (key === 'deskDemo' && state.demo.deskDemo && !state.deskpet.running) {
+          announce('演示层已打开。要让宠物出现，需在桌宠设置里开启（默认关闭）。');
+        }
+        if (key === 'offline' && state.deskpet.running) announce(state.demo.offline ? '桌宠离线，保持安静' : '已恢复联网');
+        render();
+        return;
+      }
+      const act = t.getAttribute('data-action');
+      if (act === 'width') {
+        state.width = Number(t.getAttribute('data-w'));
+        $$('#width-tools .chip').forEach(function (c) { c.classList.toggle('is-on', c === t); });
+        render();
+      } else if (act === 'tab') {
+        go(TAB_ROOTS[t.getAttribute('data-tab')]);
+      } else if (act === 'pet-sub') {
+        go(t.getAttribute('data-to'));
+      } else if (act === 'new-group') {
+        $('#dialog').innerHTML = '<h2 id="dialog-title">新建群聊</h2><form data-form="create-group" class="stack"><div class="field"><label for="group-name">群名称</label><input id="group-name" maxlength="30" required placeholder="给群聊起个名字"></div><p class="hint">成员：你、周宁、陈可 · 示例数据</p><button type="submit" class="btn btn-primary">创建群聊</button><button type="button" class="btn" data-action="close-dialog">取消</button></form>';
+        $('#dialog-scrim').hidden = false;
+        $('#group-name').focus();
+      } else if (act === 'new-matter') {
+        $('#dialog').innerHTML = '<h2 id="dialog-title">新建事项</h2><form data-form="create-matter" class="stack"><div class="field"><label for="matter-title">标题</label><input id="matter-title" maxlength="40" required placeholder="例如：核对数据口径"></div><div class="field"><label for="matter-kind">分类</label><select id="matter-kind"><option value="personal">个人</option><option value="group">群</option><option value="goal">目标</option><option value="remind">提醒</option><option value="confirm">待确认</option></select></div><button type="submit" class="btn btn-primary">保存</button><button type="button" class="btn" data-action="close-dialog">取消</button></form>';
+        $('#dialog-scrim').hidden = false;
+        $('#matter-title').focus();
+      } else if (act === 'go') {
+        if (t.getAttribute('data-mem')) {
+          if (t.getAttribute('data-to') === 'memory-form') state.editingMemory = t.getAttribute('data-mem');
+          if (t.getAttribute('data-to') === 'memory-source') state.sourceMemory = t.getAttribute('data-mem');
+        } else if (t.getAttribute('data-to') === 'memory-form') state.editingMemory = null;
+        if (t.getAttribute('data-scope')) state.bg.scope = t.getAttribute('data-scope');
+        if (t.getAttribute('data-filter')) state.matterFilter = t.getAttribute('data-filter');
+        closeSheet();
+        go(t.getAttribute('data-to'));
+      } else if (act === 'open-thread') {
+        const to = t.getAttribute('data-to');
+        if (to === 'companion') { state.tab = 'pet'; go('companion'); }
+        else go(to);
+      } else if (act === 'back') { closeSheet(); back(); }
+      else if (act === 'reset') {
+        Object.values(replyTimers).forEach(clearTimeout);
+        const next = structuredClone(initialDemoState);
+        Object.keys(state).forEach(function (k) { state[k] = next[k]; });
+        state.companion.messages = SHORT.slice();
+        state.memories = seedMemories();
+        state.matters = seedMatters();
+        go('companion');
+      } else if (act === 'continue-go') { go('companion'); setTimeout(function () { $('#companion-input') && $('#companion-input').focus(); }, 0); }
+      else if (act === 'continue-hide') { state.companion.continueOpen = false; render(); }
+      else if (act === 'continue-show') { state.companion.continueOpen = true; render(); }
+      else if (act === 'new-topic') { closeSheet(); openDialog('topic'); }
+      else if (act === 'sheet-companion') openSheet('companion');
+      else if (act === 'msg-pic') openSheet('pic');
+      else if (act === 'fake-pic') {
+        state.group.messages.push({ id: 'pic' + Date.now(), role: 'user', name: state.profile.name, text: '（图片演示，未发送文件）', time: nowTime(), sendState: 'sent' });
+        closeSheet(); render();
+      }
+      else if (act === 'close-sheet') closeSheet();
+      else if (act === 'close-dialog') closeDialog();
+      else if (act === 'dialog') openDialog(t.getAttribute('data-kind'));
+      else if (act === 'dialog-topic') {
+        state.companion.messages.push({ id: 'brk' + Date.now(), role: 'break', text: '新话题 · 今天' });
+        state.companion.continueOpen = false;
+        closeDialog(); render();
+      } else if (act === 'dialog-logout' || act === 'dialog-destroy') {
+        state.auth = 'out';
+        state.demo.loggedOut = true;
+        if (state.deskpet.running) {
+          state.deskpet.running = false;
+          state.deskpet.accountAlert = '账号已变化，桌宠已停止';
+        }
+        closeDialog(); go('login');
+      } else if (act === 'dialog-forget') {
+        const id = state._forgetId;
+        state.memories.forEach(function (m) { if (m.id === id || (id === 'm2' && m.id === 'm3')) m.status = 'forgotten'; });
+        closeDialog(); go('memory'); announce('已忘记，可以继续当前话题');
+      } else if (act === 'dialog-persona') {
+        state.personality.offset = 28;
+        state.personality.paused = false;
+        state.personality.note = '已恢复为确认形象时的底色：安静、不催促。';
+        state.personality.habits.forEach(function (h) { h.status = 'corrected'; });
+        closeDialog(); render(); announce('已恢复初始性格');
+      } else if (act === 'retry') {
+        const th = t.getAttribute('data-thread');
+        state[th].draft = state[th].draft || state[th].failedDraft;
+        state[th].status = 'idle';
+        state.demo.fail = false;
+        render();
+        sendThread(th);
+      } else if (act === 'retry-msg') {
+        const msg = state.group.messages.filter(function (m) { return m.id === t.getAttribute('data-id'); })[0];
+        if (!msg) return;
+        state.demo.fail = false;
+        state.group.draft = msg.text;
+        state.group.messages = state.group.messages.filter(function (m) { return m.id !== msg.id; });
+        state.group.status = 'idle';
+        sendGroup(msg.text);
+      } else if (act === 'mem-important') {
+        state.memories.forEach(function (m) { if (m.id === t.getAttribute('data-mem')) m.important = !m.important; });
+        render();
+      } else if (act === 'mem-correct') {
+        state._correctId = t.getAttribute('data-mem');
+        openSheet('correct');
+      } else if (act === 'correct-as') {
+        const how = t.getAttribute('data-how');
+        state.memories.forEach(function (m) {
+          if (m.id !== state._correctId) return;
+          m.status = how;
+          if (how === 'no_longer') { m.layer = 'past'; m.note = '你表示不再喜欢。仍保留为过去偏好，没有写成讨厌。'; }
+          if (how === 'never_was') {
+            m.layer = 'change'; m.title = '已纠正的理解'; m.note = '原理解有误，不能再描述为你的真实过去。';
+            if (m.id === 'm2') state.memories.forEach(function (x) { if (x.id === 'm3') { x.status = 'never_was'; x.title = '已失效的变化依据'; x.note = '关联理解已被纠正，不再用于当前回应。'; } });
+          }
+        });
+        closeSheet(); render(); announce('已纠正，可以继续当前话题');
+      } else if (act === 'mem-forget') { state._forgetId = t.getAttribute('data-mem'); openDialog('forget'); }
+      else if (act === 'retry-extract') { state.demo.extractFail = false; render(); announce('已重新提取'); }
+      else if (act === 'open-matter') { state.activeMatter = t.getAttribute('data-id'); go('matter'); }
+      else if (act === 'matter-filter') { state.matterFilter = t.getAttribute('data-id'); render(); }
+      else if (act === 'retry-matters') { state.demo.error = false; render(); }
+      else if (act === 'retry-matter' || act === 'advance-matter') {
+        state.matters.forEach(function (task) {
+          if (task.id !== t.getAttribute('data-id')) return;
+          if (act === 'retry-matter') { task.status = 'doing'; task.progress = Math.max(task.progress, 1); }
+          else {
+            task.progress = Math.min(task.total, task.progress + 1);
+            if (task.progress >= task.total) task.status = 'done';
+          }
+        });
+        render();
+      } else if (act === 'confirm-matter') {
+        state.matters.forEach(function (task) {
+          if (task.id !== t.getAttribute('data-id')) return;
+          task.status = t.getAttribute('data-how') === 'yes' ? 'done' : 'doing';
+          task.confirm = t.getAttribute('data-how');
+          if (task.status === 'done') task.progress = task.total;
+        });
+        render();
+      } else if (act === 'snooze-matter') {
+        state.matters.forEach(function (task) { if (task.id === t.getAttribute('data-id')) task.when = '今晚 21:00'; });
+        render(); announce('已推迟到今晚（演示）');
+      } else if (act === 'manage-tab') { state.manageTab = t.getAttribute('data-id'); render(); }
+      else if (act === 'ask-pet-group') {
+        state.group.draft = '@小陶 帮我看未回事项';
+        go('group');
+      } else if (act === 'open-hatch') { state.hatch = { step: 'expect', text: '', pick: 'a' }; go('hatch'); }
+      else if (act === 'hatch-retry') { state.hatch.step = 'generating'; render(); setTimeout(function () { state.hatch.step = 'preview'; render(); }, 800); }
+      else if (act === 'hatch-pick') { state.hatch.pick = t.getAttribute('data-id'); render(); }
+      else if (act === 'hatch-confirm') { state.pet.variant = state.hatch.pick; state.pet.confirmed = true; go('companion'); }
+      else if (act === 'toggle-motion') { state.reduceMotion = !state.reduceMotion; render(); }
+      else if (act === 'toggle-style') { state.style[t.getAttribute('data-key')] = !state.style[t.getAttribute('data-key')]; render(); }
+      else if (act === 'toggle-notify') { state.notify[t.getAttribute('data-key')] = !state.notify[t.getAttribute('data-key')]; render(); }
+      else if (act === 'toggle-auth') {
+        const id = t.getAttribute('data-id');
+        state.relation.auth[id] = !state.relation.auth[id];
+        render();
+      } else if (act === 'pause-learn') { state.personality.paused = !state.personality.paused; render(); }
+      else if (act === 'correct-habit') {
+        state.personality.habits.forEach(function (h) { if (h.id === t.getAttribute('data-id')) h.status = 'corrected'; });
+        render(); announce('已纠正该习惯，不再按它回应');
+      } else if (act === 'theme') { state.appearance = t.getAttribute('data-id'); render(); }
+      else if (act === 'pick-bg') { setBg(t.getAttribute('data-id')); render(); }
+      else if (act === 'clear-override') { state.bg.overrides[state.bg.scope] = null; render(); }
+      else if (act === 'apply-photo') {
+        if (!state.bg.photoUrl) { announce('请先选择图片'); return; }
+        const photoId = 'photo-' + Date.now();
+        state.bg.photos[photoId] = { url: state.bg.photoUrl, x: state.bg.photoPosX, y: state.bg.photoPosY, zoom: state.bg.photoZoom, dim: state.bg.photoDim, ratio: state.bg.photoRatio };
+        setBg(photoId);
+        go(state.bg.scope === 'global' ? 'me' : state.bg.scope);
+      } else if (act === 'ai-hint') { state.bg.aiPrompt = t.getAttribute('data-id'); render(); }
+      else if (act === 'ai-run') { state.bg.aiStatus = 'busy'; render(); setTimeout(function () { state.bg.aiStatus = 'done'; render(); }, 800); }
+      else if (act === 'ai-pick') { state.bg.aiPick = t.getAttribute('data-id'); render(); }
+      else if (act === 'ai-apply') { setBg(state.bg.aiPick); go(state.bg.scope === 'global' ? 'me' : state.bg.scope); }
+      else if (act === 'do-export') {
+        const blob = new Blob(['异宠演示导出\n' + state.memories.map(function (m) { return m.date + ' ' + m.title; }).join('\n')], { type: 'text/plain' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'yichong-demo.txt';
+        a.click();
+      } else if (act === 'desk-perm') {
+        if (state.deskpet.permission === 'granted') { state.deskpet.permission = 'denied'; state.deskpet.running = false; }
+        else if (state.deskpet.permission === 'denied' || state.deskpet.permission === 'none') {
+          state.deskpet.permission = 'asking';
+          render();
+          setTimeout(function () { state.deskpet.permission = 'granted'; render(); announce('已允许（演示，未调用系统权限）'); }, 700);
+          return;
+        }
+        render();
+      } else if (act === 'desk-toggle') {
+        if (state.deskpet.running) {
+          state.deskpet.running = false;
+          state.deskpet.hidden = false;
+          state.deskpet.chatOpen = false;
+          state.deskpet.accountAlert = '';
+          announce('桌宠已停止');
+        } else {
+          if (state.deskpet.permission !== 'granted') { announce('需要先允许显示在其他应用上层（演示）'); render(); return; }
+          state.deskpet.running = true;
+          state.deskpet.enabled = true;
+          state.demo.deskDemo = true;
+          state.deskpet.accountAlert = '';
+          announce('桌宠已在演示层打开，不会开机自启');
+        }
+        render();
+      } else if (act === 'desk-size') { state.deskpet.size = t.getAttribute('data-id'); render(); }
+      else if (act === 'desk-plat') { state.deskpet.platform = t.getAttribute('data-id'); render(); }
+      else if (act === 'desk-hide') { state.deskpet.hidden = !state.deskpet.hidden; state.deskpet.chatOpen = false; render(); }
+      else if (act === 'desk-restore') { state.deskpet.hidden = false; render(); }
+      else if (act === 'show-desk') { state.demo.deskDemo = true; render(); }
+      else if (act === 'hide-desk') { state.demo.deskDemo = false; document.body.classList.remove('show-desk'); render(); }
+      else if (act === 'account-shift') {
+        if (state.deskpet.running) {
+          state.deskpet.running = false;
+          state.deskpet.hidden = false;
+          state.deskpet.chatOpen = false;
+          state.deskpet.accountAlert = '账号已变化，桌宠已停止';
+          state.demo.deskDemo = true;
+          announce('账号已变化，桌宠已停止');
+        } else announce('当前未开启桌宠');
+        render();
+      }
+    });
+
+    document.addEventListener('submit', function (e) {
+      const form = e.target.closest('[data-form]');
+      if (!form) return;
+      e.preventDefault();
+      const kind = form.getAttribute('data-form');
+      if (kind === 'create-group') {
+        const name = $('#group-name').value.trim();
+        if (!name) return;
+        state.group.name = name;
+        state.group.messages = [{ id: 'created', role: 'sys', text: '群聊已建立 · 示例数据', time: nowTime() }];
+        state.group.draft = ''; state.group.status = 'idle';
+        closeDialog(); go('group');
+      } else if (kind === 'create-matter') {
+        const title = $('#matter-title').value.trim();
+        const kindv = $('#matter-kind').value;
+        if (!title) return;
+        state.matters.unshift({ id: 'n' + Date.now(), kind: kindv, title: title, from: kindv === 'group' ? state.group.name : '个人', status: kindv === 'confirm' ? 'pending' : 'doing', detail: '手工新增的演示事项。', progress: 0, total: 2, stages: ['开始', '完成'], confirm: kindv === 'confirm' ? 'pending' : null, when: kindv === 'remind' ? '今晚' : null });
+        closeDialog(); go('matters');
+      } else if (kind === 'memory') {
+        const title = $('#mem-title').value.trim();
+        const quote = $('#mem-quote').value.trim();
+        const layer = $('#mem-layer').value;
+        const n = (title + quote).length;
+        const active = state.memories.filter(function (m) { return m.manual && m.status !== 'forgotten'; }).length;
+        const err = $('#mem-err');
+        if (!title) { err.hidden = false; err.textContent = '请写理解本身。'; return; }
+        if (n > 400) { err.hidden = false; err.textContent = '超过 400 字。'; return; }
+        if (!state.editingMemory && active >= 20) { err.hidden = false; err.textContent = '已有 20 条。'; return; }
+        if (state.editingMemory) {
+          state.memories.forEach(function (m) { if (m.id === state.editingMemory) { m.title = title; m.quote = quote; m.layer = layer; } });
+        } else {
+          state.memories.unshift({ id: 'm' + Date.now(), manual: true, layer: layer, title: title, quote: quote || '（无原话）', date: '2026-09-20', important: false, status: 'active', note: '手工新增。' });
+        }
+        go('memory');
+      } else if (kind === 'invite') {
+        state.invite.zhou = $('#inv-zhou').checked;
+        state.invite.chen = $('#inv-chen').checked;
+        state.group.messages.push({ id: 'inv' + Date.now(), role: 'sys', text: '已发出邀请（演示）', time: nowTime() });
+        go('group');
+      } else if (kind === 'profile') {
+        const n = $('#pf-name').value.trim();
+        if (!n) return;
+        state.profile.name = n;
+        state.relation.owner.name = n;
+        go('me');
+      } else if (kind === 'hatch') {
+        state.hatch.text = $('#hatch-text').value.trim();
+        if (!state.hatch.text) return;
+        state.hatch.step = 'generating';
+        render();
+        setTimeout(function () { state.hatch.step = state.demo.fail ? 'failed' : 'preview'; render(); }, 900);
+      } else if (kind === 'login') {
+        const id = $('#login-id').value.trim();
+        const pw = $('#login-pw').value;
+        state.login.id = id;
+        if (!id || !pw) { state.login.err = '请填写账号和密码。'; render(); return; }
+        if (id.indexOf('@') === -1) { state.login.err = '账号需要是邮箱。'; render(); return; }
+        state.login.busy = true; state.login.err = ''; render();
+        setTimeout(function () { state.login.busy = false; state.auth = 'in'; state.demo.loggedOut = false; go('companion'); }, 600);
+      } else if (kind === 'register') {
+        const id = $('#reg-id').value.trim();
+        const pw = $('#reg-pw').value;
+        const pw2 = $('#reg-pw2').value;
+        state.register.id = id;
+        if (!id || id.indexOf('@') === -1) { state.register.err = '请填写有效邮箱。'; render(); return; }
+        if (pw.length < 8) { state.register.err = '密码至少 8 位。'; render(); return; }
+        if (pw !== pw2) { state.register.err = '两次密码不一致。'; render(); return; }
+        state.register.busy = true; state.register.err = ''; render();
+        setTimeout(function () { state.register.busy = false; state.auth = 'in'; go('companion'); }, 600);
+      } else if (kind === 'desk-chat') {
+        const text = ($('#desk-in') && $('#desk-in').value || '').trim();
+        if (!text || state.demo.offline) return;
+        state.deskpet.draft = '';
+        state.deskpet.messages.push({ role: 'user', text: text });
+        state.deskpet.messages.push({ role: 'pet', text: '我在。这是桌面小窗，不是全屏聊天。' });
+        paintDesk();
+      }
+    });
+
+    document.addEventListener('input', function (e) {
+      if (e.target.id === 'mem-title' || e.target.id === 'mem-quote') {
+        const a = (($('#mem-title') && $('#mem-title').value) || '') + (($('#mem-quote') && $('#mem-quote').value) || '');
+        if ($('#mem-count')) $('#mem-count').textContent = a.length + ' / 400';
+      }
+      if (e.target.id === 'desk-in') state.deskpet.draft = e.target.value;
+    });
+
+    function syncClock() {
+      const d = new Date();
+      $('#clock').textContent = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    }
+    syncClock();
+    setInterval(syncClock, 30000);
+
+    function pinComposer(prefix) {
+      const sc = $('#' + prefix + '-scroll') || $('.chat-scroll');
+      if (sc) sc.scrollTop = sc.scrollHeight;
+    }
+    function onVV() {
+      if (!window.visualViewport) return;
+      const vv = window.visualViewport;
+      const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      document.documentElement.style.setProperty('--vv-kb', kb + 'px');
+      const form = $('.view .composer');
+      if (form && kb > 40) pinComposer(form.getAttribute('data-composer'));
+    }
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', onVV);
+      window.visualViewport.addEventListener('scroll', onVV);
+    }
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () { if (state.appearance === 'system') render(); });
+    window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', function (e) { if (e.matches) state.reduceMotion = true; render(); });
+    $('#sheet-scrim').addEventListener('click', function (e) { if (e.target === $('#sheet-scrim')) closeSheet(); });
+    $('#dialog-scrim').addEventListener('click', function (e) { if (e.target === $('#dialog-scrim')) closeDialog(); });
+    document.addEventListener('keydown', function (e) {
+      const modal = !$('#dialog-scrim').hidden ? $('#dialog') : !$('#sheet-scrim').hidden ? $('#sheet') : null;
+      if (!modal) return;
+      if (e.key === 'Escape') { e.preventDefault(); closeDialog(); closeSheet(); return; }
+      if (e.key === 'Tab') {
+        const items = Array.from(modal.querySelectorAll('button:not(:disabled), input, select, textarea, [tabindex="0"]'));
+        if (!items.length) return;
+        const first = items[0], last = items[items.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    });
+    bindDeskDrag();
+    render();
+  })();
+  </script>
+</body>
+</html>

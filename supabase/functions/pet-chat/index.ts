@@ -1,3 +1,4 @@
+import { processPetAction, petActionsEnabled } from "../_shared/petActions.ts";
 import {VisionModelAdapter,visionAvailable,visionModelName} from "../_shared/visionAdapter.ts";
 import {loadVisionInput} from "../_shared/visionData.ts";
 import { z } from "npm:zod@4";
@@ -13,6 +14,7 @@ import { optionsResponse } from "../_shared/cors.ts";
 import { sha256 } from "../_shared/hash.ts";
 
 import { processMemoryJobs } from "../_shared/memoryWorker.ts";
+import { loadPetLearningContext, processPetLearningJobs, styleHints } from "../_shared/personalityLearning.ts";
 
 import { scorePreference, selectPreferences, type PreferenceFacts } from "../_shared/preferenceMemory.ts";
 
@@ -60,7 +62,7 @@ async function handlePetChat(request: Request, emit?: (event:Record<string,unkno
     if(Boolean(input.image_asset_id)!==Boolean(input.image_asset_version)||input.image_asset_id&&mode!=="companion")throw new Error("vision_input_invalid");
     if(input.image_asset_id&&!visionAvailable())throw new Error("vision_unavailable");
 
-    const petResult=await client.from("pets").select("id,name,status,personality_summary").eq("owner_id",user.id).single();
+    const petResult=await client.from("pets").select("id,name,status,personality_summary,personality_seed_prompt").eq("owner_id",user.id).single();
 
     if(petResult.error) throw petResult.error; const pet=petResult.data;
 
@@ -134,6 +136,7 @@ async function handlePetChat(request: Request, emit?: (event:Record<string,unkno
 
     if(!thread.some(row=>row.id===turn.message_id)) throw new Error("private_request_topic_changed");
 
+    let capabilityHandled = false;
     let workVersions:{id:string;version:number}[]=[]; let reminderVersions:{id:string;version:number}[]=[]; let extraContextIds:string[]=[];
 
     let content:string; let recallSources:unknown[]=[]; let evidenceIds:string[]=[]; let manualIds:string[]=[];
@@ -151,6 +154,14 @@ async function handlePetChat(request: Request, emit?: (event:Record<string,unkno
       content=answer.content;
       modelFinishedAt=Date.now();
     } else if(mode==="companion"){
+
+      const capabilityAction = await processPetAction(client, { petId: pet.id, petName: pet.name, ownerId: user.id, callerId: user.id, sourceKind: "private", sourceId: turn.message_id, content: input.content, timezone: input.timezone, contextStartedAt: turn.context_started_at });
+      if (capabilityAction?.handled) {
+        capabilityHandled = true;
+        content = capabilityAction.replyText;
+        modelStartedAt = modelFinishedAt = Date.now();
+        if (capabilityAction.revision !== undefined) turn.revision = capabilityAction.revision;
+      } else {
 
       modelStartedAt=Date.now();
 
@@ -192,7 +203,7 @@ async function handlePetChat(request: Request, emit?: (event:Record<string,unkno
 
       }
 
-      const action=groupReply?null:await processCompanionAction(client,{ownerId:user.id,petId:pet.id,requestId,sourceMessageId:turn.message_id,expectedRevision:turn.revision,content:input.content,timezone:input.timezone??"Asia/Shanghai",contextStartedAt:turn.context_started_at});
+      const action=groupReply||petActionsEnabled()?null:await processCompanionAction(client,{ownerId:user.id,petId:pet.id,requestId,sourceMessageId:turn.message_id,expectedRevision:turn.revision,content:input.content,timezone:input.timezone??"Asia/Shanghai",contextStartedAt:turn.context_started_at});
 
       if(groupReply){content=groupReply.content;recallSources=groupReply.sources;}
 
@@ -200,7 +211,7 @@ async function handlePetChat(request: Request, emit?: (event:Record<string,unkno
 
       else {
 
-      const [facts,memories,evolved,style]=await Promise.all([
+      const [facts,memories,evolved,style,learning]=await Promise.all([
 
         client.rpc("get_pet_preference_facts",{target_pet_id:pet.id}),
 
@@ -209,12 +220,13 @@ async function handlePetChat(request: Request, emit?: (event:Record<string,unkno
         client.rpc("get_companion_memory_context",{target_pet_id:pet.id,topic_started_at:turn.context_started_at,query_text:input.content}),
 
         client.from("user_preferences").select("pet_reply_style").eq("user_id",user.id).maybeSingle(),
+        loadPetLearningContext(client,pet.id),
 
       ]);
 
       if(facts.error) throw facts.error; if(memories.error) throw memories.error; if(evolved.error)throw evolved.error; if(style.error)throw style.error;
 
-      extraContextIds=evolved.data?.source_ids??[];
+      extraContextIds=[...(evolved.data?.source_ids??[]),...learning.private_source_ids];
 
       const preferences=((facts.data??[]) as PreferenceFacts[]).map(fact=>scorePreference(fact));
 
@@ -226,7 +238,7 @@ async function handlePetChat(request: Request, emit?: (event:Record<string,unkno
 
       modelStartedAt=Date.now();
 
-      const prompt={petName:pet.name,personality:pet.personality_summary??"正在形成",styles:[],memories:safeMemories,recalledMessages:[],messages:[...thread].reverse(),contextStartedAt:turn.context_started_at,preferences,excludedMessageIds:[...excludedIds],lifeFacts:(evolved.data?.facts??[]) as LifeFact[],interactionSettings:(evolved.data?.settings??{}) as InteractionSettings,responseStyle:(["balanced","detailed"].includes(style.data?.pet_reply_style)?style.data!.pet_reply_style:"concise") as "concise"|"balanced"|"detailed"};
+      const prompt={petName:pet.name,personality:pet.personality_seed_prompt??pet.personality_summary??"正在形成",styles:styleHints(learning.styles,"private"),memories:safeMemories,recalledMessages:[],messages:[...thread].reverse(),contextStartedAt:turn.context_started_at,preferences,excludedMessageIds:[...excludedIds],lifeFacts:(evolved.data?.facts??[]) as LifeFact[],interactionSettings:(evolved.data?.settings??{}) as InteractionSettings,responseStyle:(["balanced","detailed"].includes(style.data?.pet_reply_style)?style.data!.pet_reply_style:"concise") as "concise"|"balanced"|"detailed"};
 
       const reply=input.stream && emit ? await streamPrivateCompanionReply(prompt,async(partial)=>{
 
@@ -247,6 +259,7 @@ async function handlePetChat(request: Request, emit?: (event:Record<string,unkno
       }
 
       modelFinishedAt=Date.now();
+      }
 
     } else {
 
@@ -260,7 +273,7 @@ async function handlePetChat(request: Request, emit?: (event:Record<string,unkno
 
     }
 
-    const contextIds=input.image_asset_id||mode!=="companion"?[turn.message_id]:[...new Set([...thread.map(item=>item.id),...extraContextIds])];
+    const contextIds=capabilityHandled||input.image_asset_id||mode!=="companion"?[turn.message_id]:[...new Set([...thread.map(item=>item.id),...extraContextIds])];
     const committed=await client.rpc("commit_pet_private_delivery",{target_pet_id:pet.id,request_id:requestId,target_token:turn.token,expected_revision:turn.revision,reply_content:content,target_model_run_id:runId,reply_recall_sources:recallSources,evidence_ids:evidenceIds,manual_ids:manualIds,context_ids:contextIds,target_agent_request_id:agentRequestId,work_versions:workVersions,reminder_versions:reminderVersions});
 
     if(committed.error) throw committed.error;
@@ -283,7 +296,10 @@ async function handlePetChat(request: Request, emit?: (event:Record<string,unkno
 
     })().catch(()=>undefined));
 
-    if(mode==="companion"&&!input.image_asset_id) runInBackground(processMemoryJobs(client,pet.id,turn.message_id).catch(()=>undefined));
+    if(mode==="companion"&&!input.image_asset_id) {
+      runInBackground(processMemoryJobs(client,pet.id,turn.message_id).catch(()=>undefined));
+      runInBackground(processPetLearningJobs(client,{petId:pet.id,sourceId:turn.message_id}).catch(()=>undefined));
+    }
 
     const response=json(request,{...reply,target_space_name:targetSpaceName});
     if(recallTiming)console.info(JSON.stringify({event:"private_group_recall",...recallTiming,status:"succeeded"}));

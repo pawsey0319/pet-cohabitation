@@ -1,0 +1,182 @@
+{
+  "runtime": "1.0.9",
+  "versionCode": 11,
+  "appConfig": {
+    "expo": {
+      "name": "异宠共生空间",
+      "slug": "pet-cohabitation",
+      "version": "1.0.9",
+      "description": "轻量真实聊天与可培养生成式异宠 Demo。",
+      "scheme": "pet-cohabitation",
+      "orientation": "portrait",
+      "userInterfaceStyle": "automatic",
+      "backgroundColor": "#FAFAFA",
+      "runtimeVersion": {
+        "policy": "appVersion"
+      },
+      "updates": {
+        "url": "https://u.expo.dev/8cc62f33-fbad-4b84-b0c7-2f579cbc9e37",
+        "requestHeaders": {
+          "expo-channel-name": "preview"
+        },
+        "checkAutomatically": "ON_LOAD",
+        "fallbackToCacheTimeout": 0
+      },
+      "android": {
+        "package": "com.pawsey.petcohabitation",
+        "googleServicesFile": "./google-services.json",
+        "versionCode": 11,
+        "permissions": [
+          "android.permission.RECORD_AUDIO",
+          "android.permission.POST_NOTIFICATIONS",
+          "android.permission.READ_MEDIA_IMAGES",
+          "android.permission.MODIFY_AUDIO_SETTINGS",
+          "android.permission.FOREGROUND_SERVICE",
+          "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+        ],
+        "adaptiveIcon": {
+          "backgroundColor": "#FAFAFA",
+          "foregroundImage": "./assets/brand/adaptive-foreground.png"
+        }
+      },
+      "web": {
+        "bundler": "metro",
+        "output": "single",
+        "name": "异宠共生空间",
+        "shortName": "异宠共生",
+        "lang": "zh-CN",
+        "themeColor": "#16142D",
+        "description": "轻量真实聊天与可培养生成式异宠 Demo。",
+        "display": "standalone",
+        "orientation": "portrait"
+      },
+      "experiments": {
+        "typedRoutes": true
+      },
+      "plugins": [
+        "expo-router",
+        "expo-sqlite",
+        "expo-audio",
+        "expo-asset",
+        "expo-secure-store",
+        [
+          "expo-notifications",
+          {
+            "color": "#FF806F",
+            "defaultChannel": "messages"
+          }
+        ],
+        "expo-updates",
+        "expo-sharing",
+        [
+          "expo-splash-screen",
+          {
+            "backgroundColor": "#FAFAFA",
+            "dark": {
+              "image": "./assets/brand/splash-dark.png",
+              "backgroundColor": "#141312"
+            },
+            "resizeMode": "contain",
+            "image": "./assets/brand/splash-light.png",
+            "imageWidth": 160
+          }
+        ]
+      ],
+      "extra": {
+        "publicAppUrl": "https://pet-cohabitation-public.vercel.app",
+        "router": {},
+        "eas": {
+          "projectId": "8cc62f33-fbad-4b84-b0c7-2f579cbc9e37"
+        }
+      },
+      "owner": "pawsey",
+      "icon": "./assets/brand/icon.png"
+    }
+  },
+  "jsonHashEncoding": "JSON.stringify(JSON.parse(UTF8_without_BOM)); native text uses LF",
+  "packageJsonSha256": "eff1f4d2e942e383a97be71bfb339b33c2316fa61262f461c807d6cee4dda03b",
+  "packageLockSha256": "11dbc0b8a8c7a1b14cdaf4ec6706e88824927cde1b2db79e28e01469f75b677e",
+  "nativeFiles": [
+    {
+      "path": "modules/desktop-pet/android/build.gradle",
+      "sha256LF": "970791c7fe6d628c5995349809a80ab11b700d35c131c46473acd17255a8644f"
+    },
+    {
+      "path": "modules/desktop-pet/android/host-tests/build.gradle.kts",
+      "sha256LF": "50acfbbc698509da7d23cf3428bffc8d00fd78160f628c2fab51d41828f29103"
+    },
+    {
+      "path": "modules/desktop-pet/android/host-tests/settings.gradle.kts",
+      "sha256LF": "956db19e6c0e717e18a1530a45405fb52722374aa535da8f28244b3e5e994571"
+    },
+    {
+      "path": "modules/desktop-pet/android/host-tests/src/main/kotlin/PetDesktopTaskService.kt",
+      "sha256LF": "2c992b42bc750c44dce590cfae4ed31f6d220afbcc28cf7003957295b5d4f99f"
+    },
+    {
+      "path": "modules/desktop-pet/android/host-tests/src/test/kotlin/PetDesktopServiceTest.kt",
+      "sha256LF": "065fd27fca2d1b68cc1e08a2cb7bc14c0a0e823f168a22c7496698a6cabaa0e0"
+    },
+    {
+      "path": "modules/desktop-pet/android/host-tests/src/test/kotlin/PetDesktopStoreTest.kt",
+      "sha256LF": "64acbd2ade789beed2fa91d337bf55925f5113886512c4080dad6adfcc658692"
+    },
+    {
+      "path": "modules/desktop-pet/android/src/main/AndroidManifest.xml",
+      "sha256LF": "f30f76680403d17ca09dd82718c5097407038f0f5259d4f6f88c67beeae4abc2"
+    },
+    {
+      "path": "modules/desktop-pet/android/src/main/java/expo/modules/petdesktop/PetDesktopModule.kt",
+      "sha256LF": "aee53f623df57ce57b02cd3cb727775b48cefea78d35b7df6a1a6e1778f72d9a"
+    },
+    {
+      "path": "modules/desktop-pet/android/src/main/java/expo/modules/petdesktop/PetDesktopService.kt",
+      "sha256LF": "02e901a8311f73745e2527cf962cfb3541aa86ed95feaf67b900dc66b86e2051"
+    },
+    {
+      "path": "modules/desktop-pet/android/src/main/java/expo/modules/petdesktop/PetDesktopStore.kt",
+      "sha256LF": "2958645af9c8444c16b511d934b787eff1cc699a80f671c1678453422119a5f3"
+    },
+    {
+      "path": "modules/desktop-pet/android/src/main/java/expo/modules/petdesktop/PetDesktopTaskService.kt",
+      "sha256LF": "a18405afaafb5e6640d2df5fe0db935ccc72f393a6722a27d512da26eb54e055"
+    },
+    {
+      "path": "modules/desktop-pet/expo-module.config.json",
+      "sha256LF": "8d18fac9b54586606817cfdedc5290d2b1f3ac351270b037c325be312740cd66"
+    },
+    {
+      "path": "modules/desktop-pet/index.ts",
+      "sha256LF": "5b2abe39f1a45a72b1e8dc826db9908485a116dca66090cdb29e88be19a70f39"
+    },
+    {
+      "path": "modules/desktop-pet/package.json",
+      "sha256LF": "ed381bc7d3ef45b87f7f7a019afffb56f64983c040633855837ec4490179e48c"
+    },
+    {
+      "path": "modules/voice/android/build.gradle",
+      "sha256LF": "5d433aff51b41745ef8a646a2377fc2a83560db3241889e0ed88c5a5d39b2b71"
+    },
+    {
+      "path": "modules/voice/android/src/main/AndroidManifest.xml",
+      "sha256LF": "305a95f2dc72b60bf760506a5b8f984ae7cf880bc5775fb8e7456dc5b30d4b6e"
+    },
+    {
+      "path": "modules/voice/android/src/main/java/expo/modules/petsystemvoice/PetSystemVoiceModule.kt",
+      "sha256LF": "f5d2e32c5373ec538cc539e41a91de10bbda1468ea125291e668f8cdf1b34460"
+    },
+    {
+      "path": "modules/voice/expo-module.config.json",
+      "sha256LF": "c299a1077cdb32d83ffd0bf61ce0c5af9334d8b174ce368f0e3a4baca0fd3ea7"
+    },
+    {
+      "path": "modules/voice/index.ts",
+      "sha256LF": "c8ac260e4f9311120da4bd4f062dc7b842d7d859ce3e26f1704a942c46d5e143"
+    },
+    {
+      "path": "modules/voice/package.json",
+      "sha256LF": "333a9ded21a98de77cc2f347196107e79967f3257dbc31e021b6d264e4b540bd"
+    }
+  ],
+  "note": "Native changes or dependency changes require a new native release and runtime review. This file does not authorize publication."
+}

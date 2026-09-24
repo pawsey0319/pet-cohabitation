@@ -1,9 +1,11 @@
+import { applyReadState, subscribeReadState, flushReadState } from "../../../src/chat/readState";
+import { coalesceRefresh } from "../../../src/chat/messageSync";
 import { SpaceAvatar } from "../../../src/avatars/SpaceAvatar";
 import { Icon } from "../../../src/ui/Icon";
 import { KeyboardScreen } from "../../../src/components/KeyboardLayout";
 import { createThemedStyles } from "../../../src/theme/themedStyles";
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSession } from "../../../src/auth/SessionProvider";
@@ -36,13 +38,21 @@ export default function ChatsScreen() {
   const [creating, setCreating] = useState(false); const [name, setName] = useState(""); const [kind, setKind] = useState<RelationshipKind>("friend_pair"); const [busy, setBusy] = useState(false);
   const [joining, setJoining] = useState(false);
   const [query,setQuery]=useState("");
-  const filteredSpaces=spaces.filter(space=>space.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
-  const load = useCallback(async () => {
-    try { setSpaces(await repository.listSpaces(profile!.id)); setError(null); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "会话加载失败"); }
-    finally { setLoading(false); }
-  }, [profile, repository]);
-  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  const [,refreshReadView]=useState(0);
+  const ownerRef=useRef(profile?.id);ownerRef.current=profile?.id;
+  const listGeneration=useRef(0);
+  useEffect(()=>profile?subscribeReadState(profile.id,()=>refreshReadView(value=>value+1)):undefined,[profile?.id]);
+  const filteredSpaces=applyReadState(profile!.id,spaces).filter(space=>space.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const load = useMemo(() => coalesceRefresh(async () => {
+    const owner=profile?.id;if(!owner)return;
+    const generation=++listGeneration.current;
+    try {
+      const next=await repository.listSpaces(owner);
+      if(ownerRef.current===owner && generation===listGeneration.current){setSpaces(next);setError(null);}
+    } catch (reason) { if(ownerRef.current===owner && generation===listGeneration.current)setError(reason instanceof Error ? reason.message : "会话加载失败"); }
+    finally { if(ownerRef.current===owner && generation===listGeneration.current)setLoading(false); }
+  }), [profile?.id, repository]);
+  useFocusEffect(useCallback(() => { void load(); if(profile)void flushReadState(profile.id,(space,id)=>repository.markRead(space,id)).then(load); }, [load,profile?.id,repository]));
   const spaceSubscriptionKey = spaces.map((space) => space.id).sort().join(",");
   useEffect(() => {
     if (!spaceSubscriptionKey) return;

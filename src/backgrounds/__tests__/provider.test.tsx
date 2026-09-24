@@ -21,7 +21,7 @@ let mockMutationListener:((payload:any)=>void)|null=null;
 let mockSystemListener:((payload:any)=>void)|null=null;
 let mockSubscriptionListener:((status:string)=>void)|null=null;
 const mockRemoveChannel=jest.fn();
-const mockChannel=jest.fn(()=>{const channel={on:(kind:string,_filter:unknown,listener:(payload:any)=>void)=>{if(kind==="system")mockSystemListener=listener;else mockMutationListener=listener;return channel;},subscribe:(listener:(status:string)=>void)=>{mockSubscriptionListener=listener;return channel;}};return channel;});
+const mockChannel=jest.fn(()=>{const channel={on:(kind:string,_filter:unknown,listener:(payload:any)=>void)=>{if(kind==="system")mockSystemListener=listener;else if((_filter as {table?:string})?.table==="chat_background_mutations") mockMutationListener=listener;return channel;},subscribe:(listener:(status:string)=>void)=>{mockSubscriptionListener=listener;return channel;}};return channel;});
 const mockFrom=jest.fn((table:string)=>{
   const filters:Record<string,unknown>={};let writing=false;let deleted=false;let values:Record<string,unknown>|null=null;let maximum:number|undefined;let ids:string[]|undefined;
   const query:{[key:string]:any}={

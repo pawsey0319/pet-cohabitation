@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data: 'self'; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<title>异宠桌面伙伴</title><link rel="stylesheet" href="styles.css"></head>
+<body>
+  <main id="controls" hidden>
+    <header><span class="eyebrow">你的个人伙伴</span><h1>桌面异宠</h1><p>待在你放置的位置。点一下聊聊，右键或长按随时隐藏。</p></header>
+    <form id="login"><label>邮箱<input id="email" type="email" autocomplete="username" required maxlength="320"></label><label>密码<input id="password" type="password" autocomplete="current-password" required maxlength="1024"></label><button type="submit" class="primary">登录现有账号</button><p class="note">使用与安卓 App 相同的账号。</p></form>
+    <section id="settings" hidden><h2 id="pet-name">异宠</h2><p id="desktop-status"></p><div class="actions"><button id="start" class="primary">开启桌宠</button><button id="visibility">隐藏桌宠</button><button id="stop">停止桌宠</button></div><p class="note">首次默认关闭，不开机自启。锁屏时自动隐藏。需要先在 App 确认真实透明的异宠形象。</p><button id="logout" class="quiet">退出账号并清理本机资料</button></section>
+    <footer><button id="open-app" class="quiet">打开完整异宠应用</button><p id="controls-error" role="alert"></p></footer>
+  </main>
+  <main id="chat" hidden><header class="chat-header"><div><span class="eyebrow">陪伴</span><h1 id="chat-name">异宠</h1></div><button id="chat-open-app" class="quiet">打开 App</button></header><section id="messages" aria-label="陪伴对话"></section><div id="chat-status" role="status"></div><form id="composer"><textarea id="draft" placeholder="和异宠说点什么" rows="2" maxlength="4000" aria-label="聊天内容"></textarea><button id="send" class="primary" type="submit">发送</button></form></main>
+  <canvas id="pet" width="512" height="512" aria-label="桌面异宠，点击聊天，长按或右键设置" hidden></canvas>
+  <script src="renderer.js"></script>
+</body></html>

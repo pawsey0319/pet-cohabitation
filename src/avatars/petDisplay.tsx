@@ -1,6 +1,7 @@
+import { usePetWorkspace } from "../pets/PetWorkspaceProvider";
+import { usePetSectionFocusEffect as useFocusEffect } from "../pets/PetSectionScope";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Image, Pressable, Text, View } from "react-native";
-import { useFocusEffect } from "expo-router";
 import { useSession } from "../auth/SessionProvider";
 import { requireSupabase } from "../lib/supabase";
 import { createRequestId } from "../lib/uuid";
@@ -20,16 +21,24 @@ async function request<T>(ownerId: string, body: Record<string, unknown>): Promi
   const client = requireSupabase(); const session = await client.auth.getSession();
   if (session.data.session?.user.id !== ownerId) throw new Error("账号已切换，请重新打开。");
   const result = await client.functions.invoke("pet-display", { body, headers: { Authorization: `Bearer ${session.data.session.access_token}` } });
-  if (result.error || result.data?.error) throw new Error("本次操作未完成，仍显示原图。请稍后重试。");
+  if (result.error || result.data?.error) throw new Error("本次操作未完成。请稍后重试。");
   return result.data as T;
 }
 export function usePetDisplay(petId: string | null | undefined, sourceAssetId: string | null | undefined) {
   const { profile, isLocalDemo } = useSession(); const key = `${profile?.id}:${petId}:${sourceAssetId}`;
-  const [stored, setStored] = useState<{ key: string; data: DisplayState } | null>(null); const [revision, setRevision] = useState(0);
+  const workspace = usePetWorkspace();
+  const cacheKey = `pet-display:${key}`;
+  type Snapshot = { key: string; data: DisplayState; expiresAt: number };
+  const [stored, setStored] = useState<Snapshot | null>(() => workspace?.cache.peek<Snapshot>(cacheKey) ?? null); const [revision, setRevision] = useState(0);
   const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const requests = useRef(new Map<string, string>()); const currentKey = useRef(key); currentKey.current = key;
   const idFor = (operation: string) => { const id = requests.current.get(operation) ?? createRequestId(); requests.current.set(operation, id); return id; };
-  const state = stored?.key === key ? stored.data : null;
+  const state = stored?.key === key && stored.expiresAt > Date.now() ? stored.data : null;
+  useEffect(() => {
+    if (!stored || !Number.isFinite(stored.expiresAt)) return;
+    const timer = setTimeout(() => { setStored(null); workspace?.cache.invalidate([cacheKey], true); }, Math.max(0, stored.expiresAt - Date.now()));
+    return () => clearTimeout(timer);
+  }, [stored, workspace, cacheKey]);
   const ready = state?.preference.use_transparent && state.job?.status === "succeeded" && state.source_asset_id === sourceAssetId;
   // Treat older-server URLs as previews too; missing approval metadata never
   // silently selects a completed derivative as the main pet portrait.
@@ -43,38 +52,40 @@ export function usePetDisplay(petId: string | null | undefined, sourceAssetId: s
     const poll = async () => {
       clearTimeout(timer); if (!current()) return; const generation = ++sequence; let refreshAfter: number | null = null;
       try {
-        const data = await request<DisplayState>(profile.id, { action: "status", pet_id: petId });
+        const fetch = async (): Promise<Snapshot> => { const started = Date.now(); const data = await request<DisplayState>(profile.id, { action: "status", pet_id: petId }); return { key, data, expiresAt: data.preference.use_transparent && data.job?.status === "succeeded" && (data.url || data.candidate_url) ? started + 290_000 : Infinity }; };
+        const snapshot = workspace ? await workspace.cache.read(cacheKey, fetch, 0, false) : await fetch();
+        const data = snapshot.data;
         if (current() && generation === sequence) {
           const matchesSource = data.source_asset_id === sourceAssetId;
-          setStored(matchesSource ? { key, data } : null);
+          setStored(matchesSource ? snapshot : null);
           if (matchesSource && data.preference.use_transparent) {
             if (["queued", "running", "uploading"].includes(data.job?.status ?? "")) refreshAfter = PENDING_REFRESH_MS;
             else if (data.job?.status === "succeeded" && (data.candidate_url || data.url)) refreshAfter = IMAGE_REFRESH_MS;
           }
         }
-      } catch { if (current() && generation === sequence) setStored(null); }
+      } catch { if (current() && generation === sequence) { setStored(value => value && value.expiresAt > Date.now() ? value : null); refreshAfter = PENDING_REFRESH_MS; } }
       if (refreshAfter !== null && current() && generation === sequence) timer = setTimeout(() => void poll(), refreshAfter);
     };
     const client = requireSupabase();
     const channel = client.channel(`pet-display:${profile.id}:${petId}:${sourceAssetId}:${createRequestId()}`, { config: { broadcast: { replication_ready: true } } })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "pet_display_preferences", filter: `pet_id=eq.${petId}` }, event => {
-        if (active && currentKey.current === key && event.new.owner_id === profile.id && event.new.pet_id === petId) { sequence++; setStored(null); void poll(); }
+        if (active && currentKey.current === key && event.new.owner_id === profile.id && event.new.pet_id === petId) { sequence++; workspace?.cache.invalidate([cacheKey], true); setStored(null); void poll(); }
       })
       .on("system", {}, event => { if (event.status === "ok" && event.extension === "postgres_changes") void poll(); })
       .subscribe(status => {
         if (status === "SUBSCRIBED") void poll();
-        if (active && currentKey.current === key && ["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) { sequence++; clearTimeout(timer); setStored(null); }
+        if (active && currentKey.current === key && ["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) { sequence++; clearTimeout(timer); timer = setTimeout(() => void poll(), PENDING_REFRESH_MS); }
       });
     const listener = AppState.addEventListener("change", next => {
       if (!active || currentKey.current !== key) return;
       foreground = next === "active";
-      if (foreground) void poll(); else { sequence++; clearTimeout(timer); setStored(null); }
+      if (foreground) void poll(); else { sequence++; clearTimeout(timer); }
     });
-    void poll(); return () => { active = false; sequence++; clearTimeout(timer); listener.remove(); void client.removeChannel(channel); setStored(null); };
-  }, [key, profile?.id, petId, sourceAssetId, isLocalDemo, revision]));
+    void poll(); return () => { active = false; sequence++; clearTimeout(timer); listener.remove(); void client.removeChannel(channel); };
+  }, [key, profile?.id, petId, sourceAssetId, isLocalDemo, revision, workspace]));
   const change = async (transparent: boolean) => {
     if (!profile || !petId || !state) return; setBusy(true); setError(null);
-    if (!transparent) setStored({ key, data: { ...state, url: null, candidate_url: null } });
+    if (!transparent) setStored(null);
     try {
       let version = state.preference.version;
       if (state.preference.use_transparent !== transparent) {
@@ -84,7 +95,7 @@ export function usePetDisplay(petId: string | null | undefined, sourceAssetId: s
       // Repeated enable must not increment a reviewed version or regenerate a
       // ready candidate. Explicit restore and re-enable uses a new version.
       if (transparent && (version !== state.preference.version || !["queued", "running", "uploading", "succeeded"].includes(state.job?.status ?? ""))) await request(profile.id, { action: "request", pet_id: petId, request_id: idFor(`${key}:request:${version}:${state.job?.status === "failed" ? state.job.id : "initial"}`), expected_version: version });
-      if (currentKey.current === key) setRevision(value => value + 1);
+      if (currentKey.current === key) { workspace?.cache.invalidate([cacheKey], true); setRevision(value => value + 1); }
     } catch (reason) { if (currentKey.current === key) setError(reason instanceof Error ? reason.message : "暂时未完成"); }
     finally { if (currentKey.current === key) setBusy(false); }
   };
@@ -95,7 +106,7 @@ export function usePetDisplay(petId: string | null | undefined, sourceAssetId: s
       await request(profile.id, { action: "approve", pet_id: petId, job_id: state.job.id, source_asset_id: state.source_asset_id, expected_version: state.preference.version, request_id: idFor(`${key}:approve:${state.job.id}:${state.preference.version}`) });
       // Fetch current authoritative state rather than applying a possibly
       // delayed approval receipt after source/version/owner changes.
-      if (currentKey.current === key) setRevision(value => value + 1);
+      if (currentKey.current === key) { workspace?.cache.invalidate([cacheKey], true); setRevision(value => value + 1); }
     } catch (reason) { if (currentKey.current === key) setError(reason instanceof Error ? reason.message : "暂时未完成"); }
     finally { if (currentKey.current === key) setBusy(false); }
   };

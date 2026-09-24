@@ -1,0 +1,83 @@
+{
+  "run": "fa87a428-d4eb-4042-9f82-0586df06c52d",
+  "at": "2026-09-22T09:15:29.923Z",
+  "project": "lthcucgggoevgcboouqw",
+  "synthetic_only": true,
+  "ids": [
+    "c0cba174-0ac1-43a1-aa48-01c27adb4902",
+    "a3bfa903-c47d-4918-8181-0812afbfa63d"
+  ],
+  "spaces": [
+    "2b1485ed-6636-4fee-bba9-a1ad5db7abd1"
+  ],
+  "checks": [
+    "deployed catalog and execution flag",
+    "unverified image capability remains closed",
+    "cloud route executes member request to mention owner",
+    "structured mention uses verified owner ID",
+    "real notification event exists",
+    "receipt links to the actual group message",
+    "cloud retry does not duplicate the mention",
+    "real model proposes action but server rejects missing grant",
+    "real model and server create the requested work item",
+    "private transport retry does not duplicate work",
+    "revocation prevents the next real-model action",
+    "member cannot read owner private receipts"
+  ],
+  "measurements": [
+    {
+      "function": "pet-capabilities",
+      "elapsed_ms": 3842,
+      "http": 200
+    },
+    {
+      "function": "handle-space-message",
+      "elapsed_ms": 3120,
+      "http": 202
+    },
+    {
+      "function": "handle-space-message",
+      "elapsed_ms": 1065,
+      "http": 202
+    },
+    {
+      "function": "pet-chat",
+      "elapsed_ms": 11353,
+      "http": 200
+    },
+    {
+      "function": "pet-chat",
+      "elapsed_ms": 5943,
+      "http": 200
+    },
+    {
+      "function": "pet-chat",
+      "elapsed_ms": 1001,
+      "http": 200
+    },
+    {
+      "function": "pet-chat",
+      "elapsed_ms": 7272,
+      "http": 200
+    }
+  ],
+  "cleanup": [
+    {
+      "kind": "space",
+      "id": "2b1485ed-6636-4fee-bba9-a1ad5db7abd1",
+      "removed": true
+    },
+    {
+      "kind": "account",
+      "id": "c0cba174-0ac1-43a1-aa48-01c27adb4902",
+      "removed": true
+    },
+    {
+      "kind": "account",
+      "id": "a3bfa903-c47d-4918-8181-0812afbfa63d",
+      "removed": true
+    }
+  ],
+  "failure": null,
+  "passed": true
+}

@@ -1,0 +1,101 @@
+{
+  "at": "2026-09-22T09:36:31.880Z",
+  "runtime": "1.0.9",
+  "uiUpdateId": "01a0c83c-707c-7a7f-b16c-5868b629c50c",
+  "capabilityUpdateId": "01a0c86d-a9af-77e7-8c8e-1564a4f04dce",
+  "otaRemoteAssets": 28,
+  "cloudFunctions": [
+    {
+      "created_at": 1787642830557,
+      "entrypoint_path": "file:///tmp/user_fn_lthcucgggoevgcboouqw_e64616b7-fed2-436c-8f46-540e6b51f426_50/source/supabase/functions/export-my-data/index.ts",
+      "ezbr_sha256": "49293735d18ca07a0497cf30b11e69020d8817607b890fd1466ea891baa372dd",
+      "id": "e64616b7-fed2-436c-8f46-540e6b51f426",
+      "import_map": false,
+      "name": "export-my-data",
+      "slug": "export-my-data",
+      "status": "ACTIVE",
+      "updated_at": 1790068230090,
+      "verify_jwt": true,
+      "version": 51
+    },
+    {
+      "created_at": 1787642838680,
+      "entrypoint_path": "file:///tmp/user_fn_lthcucgggoevgcboouqw_fc22b0fe-ef95-4ac5-8388-1375891e369f_61/source/supabase/functions/handle-space-message/index.ts",
+      "ezbr_sha256": "743039cca555a4edf923fe25a78283c0425c1368f13932e84a8d710d44690464",
+      "id": "fc22b0fe-ef95-4ac5-8388-1375891e369f",
+      "import_map": false,
+      "name": "handle-space-message",
+      "slug": "handle-space-message",
+      "status": "ACTIVE",
+      "updated_at": 1790068230090,
+      "verify_jwt": true,
+      "version": 62
+    },
+    {
+      "created_at": 1787642843170,
+      "entrypoint_path": "file:///tmp/user_fn_lthcucgggoevgcboouqw_dec8a85e-a361-4939-b1f1-8e121fab8d93_68/source/supabase/functions/pet-chat/index.ts",
+      "ezbr_sha256": "47a3a673289d9f8fdd6190865c073413134c30a9eda648c2e9c1206ee9108eda",
+      "id": "dec8a85e-a361-4939-b1f1-8e121fab8d93",
+      "import_map": false,
+      "name": "pet-chat",
+      "slug": "pet-chat",
+      "status": "ACTIVE",
+      "updated_at": 1790068230090,
+      "verify_jwt": true,
+      "version": 69
+    },
+    {
+      "created_at": 1789366816480,
+      "entrypoint_path": "file:///tmp/user_fn_lthcucgggoevgcboouqw_d7298acd-a753-4fb9-ad8e-cc8df8af40c1_18/source/supabase/functions/dispatch-space-messages/index.ts",
+      "ezbr_sha256": "593e4eb3dcb12ed57c1f90709a17bef100efc508948937183e5f06e4c396ef82",
+      "id": "d7298acd-a753-4fb9-ad8e-cc8df8af40c1",
+      "import_map": false,
+      "name": "dispatch-space-messages",
+      "slug": "dispatch-space-messages",
+      "status": "ACTIVE",
+      "updated_at": 1790068230090,
+      "verify_jwt": false,
+      "version": 19
+    },
+    {
+      "created_at": 1790068230090,
+      "entrypoint_path": "file:///tmp/user_fn_lthcucgggoevgcboouqw_8c309571-1bc1-407a-94a3-abd204f28c11_1/source/supabase/functions/pet-capabilities/index.ts",
+      "ezbr_sha256": "a7b6d39ba8c0d03b337f496c3f79108e1c5624fb1060690228bacff055c8859a",
+      "id": "8c309571-1bc1-407a-94a3-abd204f28c11",
+      "import_map": false,
+      "name": "pet-capabilities",
+      "slug": "pet-capabilities",
+      "status": "ACTIVE",
+      "updated_at": 1790068230090,
+      "verify_jwt": false,
+      "version": 2
+    }
+  ],
+  "migrationReadback": {
+    "capability_count": 105,
+    "grant_rls": true,
+    "migration_versions": [
+      "202609220001",
+      "202609220002",
+      "202609220003",
+      "202609220004"
+    ],
+    "plan_rls": true,
+    "receipt_rls": true
+  },
+  "web": {
+    "url": "https://pet-cohabitation-public.vercel.app",
+    "bundle": "index-5cc4b20b8b68ecbaf4c5bc6c921763c6.js",
+    "checks": 37,
+    "success": true
+  },
+  "realModelCloudChecks": 12,
+  "phoneAcceptance": "pending",
+  "independentGrokReview": "not_run_model_choice_pending",
+  "limitations": [
+    "No native device results supplied",
+    "Prior unresolved acceptance items unchanged",
+    "Image understanding and original-image editing remain disabled",
+    "No new paid resources"
+  ]
+}

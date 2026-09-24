@@ -1,0 +1,130 @@
+{
+  "archivedAt": "2026-09-24T03:45:32.883Z",
+  "scope": "Selected release/acceptance evidence; not a database, credential or complete test-results backup",
+  "files": [
+    {
+      "source": "test-results/pet-capability-cloud-20260922/release-summary.json",
+      "file": "release-summary.json",
+      "bytes": 3750,
+      "sha256": "3569d4af5221a614cd037fd4749d2e1122dfef8655db0f44a8e1232872ae65d5",
+      "sha256LF": "3569d4af5221a614cd037fd4749d2e1122dfef8655db0f44a8e1232872ae65d5"
+    },
+    {
+      "source": "test-results/pet-capability-cloud-20260922/migration-manifest.json",
+      "file": "migration-manifest.json",
+      "bytes": 665,
+      "sha256": "b5aa20fd7118f85f45aad582d23fc5d0a2d66edccab9b2d9f2f5966672ddd457",
+      "sha256LF": "b5aa20fd7118f85f45aad582d23fc5d0a2d66edccab9b2d9f2f5966672ddd457"
+    },
+    {
+      "source": "test-results/pet-capability-cloud-20260922/migration-readback.json",
+      "file": "migration-readback.json",
+      "bytes": 574,
+      "sha256": "f10531b227564da5a8776da57f1219d0fff8a06403dfd277ddbc71bf472d7a6e",
+      "sha256LF": "f10531b227564da5a8776da57f1219d0fff8a06403dfd277ddbc71bf472d7a6e"
+    },
+    {
+      "source": "test-results/pet-capabilities-ota-20260922/published.json",
+      "file": "android-capabilities-ota.json",
+      "bytes": 762,
+      "sha256": "613dcce70cf38fdbb1e5c91883e5a810953f0e4bca3039c32f99a80304cde1ef",
+      "sha256LF": "613dcce70cf38fdbb1e5c91883e5a810953f0e4bca3039c32f99a80304cde1ef"
+    },
+    {
+      "source": "test-results/pet-capabilities-ota-20260922/export-proof.json",
+      "file": "android-capabilities-export.json",
+      "bytes": 258,
+      "sha256": "4ef0688b91a90838fd920ebd818a88da325544f88b4f845c2fda2cb372486205",
+      "sha256LF": "4ef0688b91a90838fd920ebd818a88da325544f88b4f845c2fda2cb372486205"
+    },
+    {
+      "source": "test-results/pet-capabilities-ota-20260922/cloud-verification.json",
+      "file": "android-capabilities-remote.json",
+      "bytes": 5519,
+      "sha256": "3f7330c70cebffd24497510bc1652520f11c9eabeccf5e7beabd0682e2c5de8f",
+      "sha256LF": "3f7330c70cebffd24497510bc1652520f11c9eabeccf5e7beabd0682e2c5de8f"
+    },
+    {
+      "source": "test-results/pet-ui-ota-20260922/published.json",
+      "file": "android-ui-ota.json",
+      "bytes": 742,
+      "sha256": "e2714ddc23c4c5295d83cbf8f4c5f63e801560a8275de64970d633258239bf9a",
+      "sha256LF": "e2714ddc23c4c5295d83cbf8f4c5f63e801560a8275de64970d633258239bf9a"
+    },
+    {
+      "source": "test-results/pet-ui-ota-20260922/cloud-verification.json",
+      "file": "android-ui-remote.json",
+      "bytes": 5519,
+      "sha256": "8d54d800bdb8510089fba414f8376c6cc46cad6e24497a6370785dc37f7ad210",
+      "sha256LF": "8d54d800bdb8510089fba414f8376c6cc46cad6e24497a6370785dc37f7ad210"
+    },
+    {
+      "source": "test-results/pet-actions-integration-20260922.json",
+      "file": "capabilities-local-integration.json",
+      "bytes": 1686,
+      "sha256": "021a7697fd1176343af02e9ca3d85c5e8a4c675bed960e6d176d84031d185c93",
+      "sha256LF": "021a7697fd1176343af02e9ca3d85c5e8a4c675bed960e6d176d84031d185c93"
+    },
+    {
+      "source": "test-results/pet-capability-cloud-fa87a428-d4eb-4042-9f82-0586df06c52d/report.json",
+      "file": "capabilities-real-model-cloud.json",
+      "bytes": 2013,
+      "sha256": "209c9164b472228d650857ab852d49016d5065f63b775d8dea43872524f72890",
+      "sha256LF": "209c9164b472228d650857ab852d49016d5065f63b775d8dea43872524f72890"
+    },
+    {
+      "source": "test-results/public-next-version-browser-f1b9294c-bd0f-4d79-ab7b-4896d2c28d91/report.json",
+      "file": "public-web-acceptance.json",
+      "bytes": 5950,
+      "sha256": "f65508f4ae8860151e7c87abbb5efaf7d48134e74e3b54e8b77c45af3a7d55cf",
+      "sha256LF": "f65508f4ae8860151e7c87abbb5efaf7d48134e74e3b54e8b77c45af3a7d55cf"
+    },
+    {
+      "source": "test-results/public-next-version-browser-f1b9294c-bd0f-4d79-ab7b-4896d2c28d91/01b-workspace-after-delayed-switches.png",
+      "file": "workspace.png",
+      "bytes": 22060,
+      "sha256": "15a9abd38b576cd71b972f872e7b8e6da1cedadfb902dea905847f5c40ff813a"
+    },
+    {
+      "source": "test-results/public-next-version-browser-f1b9294c-bd0f-4d79-ab7b-4896d2c28d91/01c-capability-grant-revoked.png",
+      "file": "capabilities.png",
+      "bytes": 24865,
+      "sha256": "07dca29bd9b9f401bd7f5a3beccbc6d9348f4aa9c9feab764b292b90fac4bdcd"
+    },
+    {
+      "source": "test-results/pet-workspace-browser-20260922/report.json",
+      "file": "workspace-local-browser.json",
+      "bytes": 402,
+      "sha256": "98d4000d6358c910e5ff6631e518f8d7133610f760bd646904352314df872e2d",
+      "sha256LF": "98d4000d6358c910e5ff6631e518f8d7133610f760bd646904352314df872e2d"
+    },
+    {
+      "source": "test-results/android-1.0.9-build11-delivery.json",
+      "file": "android-build11-delivery.json",
+      "bytes": 3786,
+      "sha256": "a93f29e4ca6597b5dfa82e7ec4dd7f93014f337122567f4b9d784613f6a69888",
+      "sha256LF": "a93f29e4ca6597b5dfa82e7ec4dd7f93014f337122567f4b9d784613f6a69888"
+    },
+    {
+      "source": "test-results/android-1.0.9-build11-public-build.json",
+      "file": "android-build11-public-build.json",
+      "bytes": 269,
+      "sha256": "393bded00d35b8efd0bbc61c3117c51b693011ac8cdb18638575b5cdec6478a3",
+      "sha256LF": "5567608dce15244d58ac98275981b79af19ab37c354d3a206a8f1c2993d213b0"
+    },
+    {
+      "source": "test-results/android-1.0.9-build11-signature.json",
+      "file": "android-build11-signature.json",
+      "bytes": 2479,
+      "sha256": "7b27e1f6a5bd4c399ac55670aa9659f47fc110cf0b364e8d9b3cfa737d9a24c0",
+      "sha256LF": "1512dbc52d46db6277c1b1c1ffa1cd089246da034007ac8068cdfe562421415d"
+    },
+    {
+      "source": "test-results/windows-install-0a418e90-44a6-481e-8e4f-86b5d195bc84/report.json",
+      "file": "windows-1.1.1-install.json",
+      "bytes": 6807,
+      "sha256": "7c1c7379f3b479fc5342e3928ee774faaa1f88efb82e337dd785ed851482edf3",
+      "sha256LF": "5a17f7b24a487f88544ca7d40c4f8ac4c65a65f11593241fb7be9ba9fa288fed"
+    }
+  ]
+}

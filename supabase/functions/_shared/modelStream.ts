@@ -36,10 +36,29 @@ export async function streamPrivateCompanionReply(input:CompanionPromptInput,onT
   const base=Deno.env.get("TEXT_API_BASE_URL"),key=Deno.env.get("TEXT_API_KEY"),model=Deno.env.get("TEXT_MODEL");
   if(!base||!key||!model)throw new Error("text_model_configuration_missing");
   const cancellation=signal?AbortSignal.any([signal,AbortSignal.timeout(90000)]):AbortSignal.timeout(90000);
+  const messages=buildPrivateCompanionMessages(input);
+  for(let attempt=0;attempt<2;attempt++){
+    try {
+      cancellation.throwIfAborted();
+      return await streamAttempt({base,key,model,messages:attempt===0?messages:[...messages,{role:"system",content:'上一轮输出未通过 JSON 格式校验。请重新回答本轮问题，只输出一个完整 JSON 对象，content 为非空字符串（最多1200字），concerns_owner 为布尔值，risk 为 none、low 或 high。不要输出 Markdown、思考过程或对象以外的文字。'}],temperature:attempt===0?.35:0},onText,cancellation);
+    } catch(reason){
+      if(cancellation.aborted)throw new Error(signal?.aborted?"private_request_stopped":"text_model_timeout");
+      // Only completed, malformed text may be regenerated once. Never retry
+      // transport failures, stop/forget guard failures, truncated output or tools.
+      if(attempt!==0||!(reason instanceof Error)||!["text_model_invalid_json","text_model_invalid_structure"].includes(reason.message))throw reason;
+      // Revoke provisional text AND recheck the caller's revision/lease before
+      // another model call. The same request still has exactly one final commit.
+      await onText("");
+    }
+  }
+  throw new Error("text_model_invalid_json");
+}
+
+async function streamAttempt(config:{base:string;key:string;model:string;messages:readonly {role:string;content:string}[];temperature:number},onText:(content:string)=>Promise<void>,cancellation:AbortSignal):Promise<{content:string}> {
   let response:Response;
   try {
-    response=await fetch(`${base.replace(/\/+$/,"")}/chat/completions`,{method:"POST",headers:{Authorization:`Bearer ${key}`,"Content-Type":"application/json"},body:JSON.stringify({model,messages:buildPrivateCompanionMessages(input),stream:true,response_format:{type:"json_object"},temperature:.35,max_tokens:1200,reasoning_effort:"low"}),signal:cancellation});
-  }catch(reason){throw new Error(signal?.aborted?"private_request_stopped":reason instanceof Error&&/timeout|abort/i.test(reason.name)?"text_model_timeout":"text_model_network_error");}
+    response=await fetch(`${config.base.replace(/\/+$/,"")}/chat/completions`,{method:"POST",headers:{Authorization:`Bearer ${config.key}`,"Content-Type":"application/json"},body:JSON.stringify({model:config.model,messages:config.messages,stream:true,response_format:{type:"json_object"},temperature:config.temperature,max_tokens:1200,reasoning_effort:"low"}),signal:cancellation});
+  }catch(reason){throw new Error(reason instanceof Error&&/timeout|abort/i.test(reason.name)?"text_model_timeout":"text_model_network_error");}
   if(!response.ok)throw new Error(`text_model_http_${response.status}`);
   if(!response.body || !response.headers.get("content-type")?.includes("text/event-stream"))throw new Error("text_model_stream_unsupported");
   const reader=response.body.getReader(),decoder=new TextDecoder();let buffer="",raw="",visible="",finish="",lastPublish=0;

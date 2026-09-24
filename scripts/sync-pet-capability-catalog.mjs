@@ -1,0 +1,11 @@
+import { readFile, writeFile } from 'node:fs/promises';
+import { PET_CAPABILITIES } from '../supabase/functions/_shared/petCapabilities.ts';
+const file = 'supabase/migrations/202609220001_pet_capabilities.sql';
+const sql = await readFile(file, 'utf8');
+const marker = '-- Explicit-actor counterparts';
+const values = PET_CAPABILITIES.map(c => [c.id,c.label,c.category,c.mode,c.parameters,c.route??null].map(v => v===null?'null':`'${v.replaceAll("'","''")}'`).join(','));
+const seed = `-- BEGIN GENERATED CAPABILITIES\ninsert into pet_action_capabilities(id,label,category,mode,parameters,route) values\n${values.map(row=>`(${row})`).join(',\n')};\n-- END GENERATED CAPABILITIES\n\n`;
+const stripped = sql.replace(/-- BEGIN GENERATED CAPABILITIES[\s\S]*?-- END GENERATED CAPABILITIES\r?\n\s*/g, '');
+if (!stripped.includes(marker)) throw new Error('seed marker missing');
+await writeFile(file,stripped.replace(marker,seed+marker));
+console.log(`Registered ${PET_CAPABILITIES.length} user capabilities`);

@@ -1,11 +1,16 @@
+import { PetActionReceipts } from "../../src/pets/PetActionReceipts";
+import { usePetWorkspace } from "../../src/pets/PetWorkspaceProvider";
+import { PetSectionScope, usePetSection, usePetSectionFocusEffect } from "../../src/pets/PetSectionScope";
+import { PetMemoryPanel } from "../pet-memory";
+import { PetDesktopPanel } from "../pet-desktop";
 import { WorkActionCard } from "../../src/work/WorkActionCard";
 import { StewardActionCard } from "../../src/work/StewardActionCard";
 import type { PrivateStreamEvent, PrivateChatOptions } from "../../src/pets/streamClient";
 import { usePetDisplay, PetDisplayControls } from "../../src/avatars/petDisplay";
-import { ChatBackgroundEditor } from "../../src/backgrounds/ChatBackgroundEditor";
-import { ChatBackgroundSurface, useChatBackgroundColors } from "../../src/backgrounds/ChatBackgroundSurface";
 import { Icon } from "../../src/ui/Icon";
-import { PetSectionNav } from "../../src/components/PetSectionNav";
+import { PetSectionNav, type PetSection } from "../../src/components/PetSectionNav";
+import { PET_FEATURES, legacyPetDestination } from "../../src/navigation/features";
+import { SettingsRow } from "../../src/ui/SettingsRow";
 import { createThemedStyles } from "../../src/theme/themedStyles";
 import { PetCompanionPanel } from "../../src/components/PetCompanionPanel";
 import type { PetCompanionContext } from "../../src/data/types";
@@ -32,9 +37,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSession } from "../../src/auth/SessionProvider";
 import { GenerativePetPreview } from "../../src/components/GenerativePetPreview";
 import { LivingPetPortrait } from "../../src/components/LivingPetPortrait";
-import { DraggablePetStage } from "../../src/components/DraggablePetStage";
 import { EnterSendTextInput } from "../../src/components/EnterSendTextInput";
-import { createChatRepository } from "../../src/data/chatRepository";
 import { createPetRepository } from "../../src/data/petRepository";
 import type {
   ChatSpace,
@@ -69,7 +72,7 @@ function CandidateVisual({
       resizeMode="contain"
       style={{ width: size, height: size, borderRadius: transparent ? 0 : 28 }}
     />
-  ) : (
+  ) : transparent ? <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}><Text style={{ color: colors.textMuted }}>请在下方确认透明形象</Text></View> : (
     <ActivityIndicator color={colors.mint} />
   );
 }
@@ -93,9 +96,6 @@ function SignalCard({
     >
       <View style={styles.signalHead}>
         <Text style={styles.signalTitle}>{signal.tendency}</Text>
-        <Text style={styles.confidence}>
-          {Math.round(signal.confidence * 100)}%
-        </Text>
       </View>
       <Text style={styles.signalBody}>{signal.rationale}</Text>
       <Text style={styles.signalSource}>
@@ -103,7 +103,7 @@ function SignalCard({
         {new Date(signal.createdAt).toLocaleDateString("zh-CN")}
       </Text>
       <Text style={styles.signalImpact}>
-        可能影响：异宠之后的措辞、动作与外观倾向；不会直接规定终态。
+        可能影响之后的表达习惯；形态变化由独立的成长经历决定。
       </Text>
       <View style={styles.signalActions}>
         <Pressable onPress={() => onFeedback("accepted")}>
@@ -182,26 +182,20 @@ function ReplyProgress({
   );
 }
 
-export default function PetRoute() {
+function PetMainPanel({ feature = "companion" }: { feature?: "companion" | "growth" } = {}) {
   const { styles, colors } = useStyles();
-  const [backgroundOpen,setBackgroundOpen]=useState(false);
-  const stewardBackground=useChatBackgroundColors("steward");
   const { profile, isLocalDemo } = useSession();
   const router = useRouter();
-  const params = useLocalSearchParams<{ messageId?: string; memoryId?: string; memory_id?: string }>();
+  const params = useLocalSearchParams<{ messageId?: string; memoryId?: string; memory_id?: string; section?: string; mode?: string }>();
   const [sourceTarget, setSourceTarget] = useState<MemorySourceTarget | null>(null);
   const insets = useSafeAreaInsets();
-  const repository = useMemo(
-    () => (profile ? createPetRepository(profile) : null),
-    [profile],
-  );
-  const chatRepository = useMemo(
-    () => (profile ? createChatRepository(profile) : null),
-    [profile],
-  );
+  const workspace = usePetWorkspace();
+  const repository = workspace?.repository ?? null;
+  const sectionScope = usePetSection();
+  const visible = sectionScope?.visible ?? true;
   const { theme } = useAppTheme();
   const [pet, setPet] = useState<PetRecord | null>(null);
-  const petDisplay = usePetDisplay(pet?.status === "confirmed" ? pet.id : null,pet?.currentAssetId);
+  const petDisplay = usePetDisplay(feature === "growth" && pet?.status === "confirmed" ? pet.id : null,pet?.currentAssetId);
   const [messages, setMessages] = useState<readonly PetPrivateMessage[]>([]);
   const [assets, setAssets] = useState<readonly PetVisualAsset[]>([]);
   const [signals, setSignals] = useState<readonly StyleSignal[]>([]);
@@ -212,9 +206,7 @@ export default function PetRoute() {
   const [generationSessions, setGenerationSessions] = useState<
     readonly PetGenerationSession[]
   >([]);
-  const [spaceDigests, setSpaceDigests] = useState<readonly ChatSpace[]>([]);
   const [name, setName] = useState("");
-  const [chat, setChat] = useState("");
   const [instruction, setInstruction] = useState("请根据这份期待形成第一版");
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [urls, setUrls] = useState<Record<string, string>>({});
@@ -231,7 +223,7 @@ export default function PetRoute() {
   const [loadedOwner, setLoadedOwner] = useState<string | null>(null);
   const [companion, setCompanion] = useState<PetCompanionContext | null>(null);
   const [enteredAt, setEnteredAt] = useState(Date.now());
-  useFocusEffect(useCallback(() => { setEnteredAt(Date.now()); }, []));
+  usePetSectionFocusEffect(useCallback(() => { setEnteredAt(Date.now()); }, []));
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -239,14 +231,14 @@ export default function PetRoute() {
   const [confirming, setConfirming] = useState(false);
   const [correcting, setCorrecting] = useState<StyleSignal | null>(null);
   const [correction, setCorrection] = useState("");
-  const [petSection, setPetSection] = useState<
-    "companion" | "steward" | "growth"
-  >("companion");
+  const petSection = feature;
+  const openPetSection = (section: PetSection) => sectionScope?.navigate(section);
   useEffect(() => {
+    if (feature !== "companion") return;
     setSourceTarget(null);
     const messageId = params.messageId, memoryId = params.memoryId ?? params.memory_id;
-    if (typeof messageId === "string") { setPetSection("companion"); setSourceTarget({ kind: "message", id: messageId }); }
-    else if (typeof memoryId === "string") { setPetSection("companion"); setSourceTarget({ kind: "memory", id: memoryId }); }
+    if (typeof messageId === "string") { setSourceTarget({ kind: "message", id: messageId }); }
+    else if (typeof memoryId === "string") { setSourceTarget({ kind: "memory", id: memoryId }); }
   }, [profile?.id, params.messageId, params.memoryId, params.memory_id]);
   const closeSource = () => { setSourceTarget(null); router.setParams({ messageId: undefined, memoryId: undefined, memory_id: undefined }); };
 
@@ -279,6 +271,8 @@ export default function PetRoute() {
       } else if (nextPet) setName(nextPet.name);
       setError(null);
       setLoading(false);
+      setLoadedOwner(ownerId ?? null);
+      if (nextPet?.status === "confirmed") setAssets(dashboard.currentAsset ? [dashboard.currentAsset] : []);
       if (!nextPet) {
         setLoadedOwner(ownerId ?? null); setCompanion(null);
         setMessages([]); setAssets([]); setSignals([]); setExperiences([]); setEvents([]); setLoadWarnings([]);
@@ -286,9 +280,19 @@ export default function PetRoute() {
       }
 
       const sections = await Promise.allSettled([
-        repository.listPrivateMessages(), repository.listAssets(), repository.listStyleSignals(),
-        repository.listExperiences(), repository.listEvolutionEvents(), repository.listGenerationSessions(),
-        nextPet.status === "confirmed" ? repository.getCompanionContext() : Promise.resolve(null),
+        feature === "companion" ? repository.listPrivateMessages().then(page => {
+          if (activeOwner.current === ownerId && sequence === loadSequence.current) {
+            const sameOwner=messageOwner.current===ownerId;messageOwner.current=ownerId;
+            setMessages(current=>mergePrivateHistory(sameOwner?current:[],page,true));
+          }
+          return page;
+        }) : Promise.resolve([]),
+        nextPet.status === "confirmed" && feature === "companion" ? Promise.resolve(dashboard.currentAsset ? [dashboard.currentAsset] : []) : repository.listAssets(),
+        feature === "growth" ? repository.listStyleSignals().then(value=>{if(activeOwner.current===ownerId&&sequence===loadSequence.current)setSignals(value);return value;}) : Promise.resolve([]),
+        feature === "growth" ? repository.listExperiences().then(value=>{if(activeOwner.current===ownerId&&sequence===loadSequence.current)setExperiences(value);return value;}) : Promise.resolve([]),
+        feature === "growth" ? repository.listEvolutionEvents().then(value=>{if(activeOwner.current===ownerId&&sequence===loadSequence.current)setEvents(value);return value;}) : Promise.resolve([]),
+        nextPet.status !== "confirmed" ? repository.listGenerationSessions() : Promise.resolve([]),
+        nextPet.status === "confirmed" && feature === "companion" ? repository.getCompanionContext().then(context => { if (activeOwner.current === ownerId && sequence === loadSequence.current) setCompanion(context); return context; }) : Promise.resolve(null),
       ]);
       if (activeOwner.current !== ownerId || sequence !== loadSequence.current) return;
       setLoadedOwner(ownerId ?? null);
@@ -314,18 +318,10 @@ export default function PetRoute() {
     } finally {
       if (sequence === loadSequence.current) setLoading(false);
     }
-  }, [repository, profile?.id]);
+  }, [repository, profile?.id, feature]);
+  usePetSectionFocusEffect(useCallback(() => { void load(); }, [load]));
   useEffect(() => {
-    void load();
-  }, [load]);
-  useEffect(() => {
-    if (chatRepository)
-      void chatRepository
-        .listSpaces(profile?.id ?? "")
-        .then(setSpaceDigests)
-        .catch(() => undefined);
-  }, [chatRepository, profile?.id]);
-  useEffect(() => {
+    if (!visible) return;
     let running=false; let dirty=false; let active=true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const refresh=async()=>{
@@ -338,12 +334,12 @@ export default function PetRoute() {
       if(!running){clearTimeout(timer);timer=setTimeout(()=>void refresh(),200);}
     });
     return()=>{active=false;clearTimeout(timer);unsubscribe?.();};
-  }, [load, repository]);
+  }, [load, repository, visible]);
   useEffect(() => {
-    if (!runtime?.expiresAt) return;
+    if (!visible || !runtime?.expiresAt) return;
     const timer = setInterval(() => setNow(Date.now()), 1_000);
     return () => clearInterval(timer);
-  }, [runtime?.expiresAt]);
+  }, [runtime?.expiresAt, visible]);
   useEffect(() => {
     for (const asset of assets) {
       if (asset.storagePath.startsWith("local-") || urls[asset.storagePath])
@@ -355,41 +351,6 @@ export default function PetRoute() {
         ).catch(() => undefined);
     }
   }, [assets, repository, urls]);
-  const sendChat = useCallback(
-    async (submittedText = chat, requestKey: string = createRequestId()) => {
-      const content = submittedText.trim();
-      if (!content || busy || !repository) return;
-      setBusy(true);
-      setError(null);
-      setChat("");
-      const optimistic: PetPrivateMessage = {
-        id: `pending:${requestKey}`,
-        role: "owner",
-        content,
-        createdAt: new Date().toISOString(),
-        requestKey,
-        replyStatus: "queued",
-        conversationKind: "steward",
-        replyPhaseUpdatedAt: new Date().toISOString(),
-      };
-      setMessages((current) =>
-        current.some((message) => message.requestKey === requestKey)
-          ? current
-          : [...current, optimistic],
-      );
-      try {
-        await repository.chat(content, requestKey, "steward");
-      } catch {
-        setError(
-          "异宠回答没有完成。问题已经保留，请查看对应消息下方的状态并重试。",
-        );
-      } finally {
-        await load();
-        setBusy(false);
-      }
-    },
-    [busy, chat, load, repository],
-  );
   if (!profile || !repository) return <Redirect href="/login" />;
   if (loadedOwner !== profile.id) return <View style={{flex:1,justifyContent:"center",padding:24}}><ActivityIndicator /><Text style={styles.copy}>{error ?? "正在加载当前账号的异宠…"}</Text><AppButton label="重新加载" onPress={() => void load()} /></View>;
   const selected = assets.find((asset) => asset.id === selectedAssetId) ?? null;
@@ -488,16 +449,15 @@ export default function PetRoute() {
   if (pet?.status === "confirmed" && petSection === "companion") return (
     <KeyboardScreen style={{flex:1,minHeight:0,backgroundColor:theme.page,paddingTop:insets.top}}>
       {loadWarnings.length ? <Pressable onPress={() => void load()}><Text style={styles.copy}>{loadWarnings.join("；")} · 点击重试</Text></Pressable> : null}
-      {companion ? <PetCompanionPanel key={`companion:${profile.id}`} ownerId={profile.id} petId={isLocalDemo ? undefined : pet.id} petName={pet.name} incubating={false}
+      <PetCompanionPanel key={`companion:${profile.id}`} ownerId={profile.id} petId={isLocalDemo ? undefined : pet.id} petName={pet.name} incubating={false}
         onSource={id => setSourceTarget({ kind: "message", id })} onSearch={() => router.push("/search" as Href)}
-        navigation={<PetSectionNav value={petSection} onChange={setPetSection} />}
-        portraitPetId={pet.id} display={petDisplay}
-        originalPortrait={selected ? <CandidateVisual asset={selected} url={urls[selected.storagePath]} size={160} transparent /> : undefined}
-        portrait={selected ? size => <LivingPetPortrait state={motionState} compact><CandidateVisual asset={selected} url={petDisplay.url ?? urls[selected.storagePath]} size={size} transparent /></LivingPetPortrait> : undefined}
-        messages={messages.filter(message=>message.conversationKind!=="steward")} context={companion} enteredAt={enteredAt} busy={busy}
+        onManageMemory={() => openPetSection("memory")} onSettings={() => router.push("/pet-settings" as Href)}
+        onDesktopPet={() => openPetSection("desktop")}
+        navigation={<PetSectionNav value="companion" onChange={openPetSection} />}
+        messages={messages.filter(message=>message.conversationKind!=="steward")} context={companion ?? {memories:[],contextStartedAt:null}} enteredAt={enteredAt} busy={busy}
         onSend={sendCompanion}
         onStop={requestId=>repository.stopPrivateReply(requestId)}
-        renderActions={sourceMessageId=>!sourceMessageId.startsWith("pending:")?<WorkActionCard sourceMessageId={sourceMessageId}/>:null}
+        renderActions={sourceMessageId=>!sourceMessageId.startsWith("pending:")?<><PetActionReceipts sourceMessageId={sourceMessageId}/><WorkActionCard sourceMessageId={sourceMessageId}/>{!isLocalDemo?<StewardActionCard sourceMessageId={sourceMessageId}/>:null}</>:null}
         onLoadOlder={async()=>{
           const first=messages.filter(m=>!m.id.startsWith("pending:")).at(0);if(!first)return false;
           const older=await repository.listPrivateMessages({at:first.createdAt,id:first.id});
@@ -511,8 +471,8 @@ export default function PetRoute() {
         onSaveMemory={input => companionAction(() => repository.savePersonalMemory(input))}
         onRemoveMemory={id => companionAction(() => repository.removePersonalMemory(id))}
         onNewConversation={() => companionAction(() => repository.startNewConversation())} />
-        : <View style={{padding:24}}><Text style={styles.copy}>正在加载你们的对话与记忆…</Text><AppButton label="重新加载" onPress={() => void load()} /></View>}
-      {!isLocalDemo ? <MemorySourceModal key={`memory-source:${profile.id}`} ownerId={profile.id} petId={pet.id} target={sourceTarget} onClose={closeSource} /> : null}
+
+      {!isLocalDemo ? <MemorySourceModal key={`memory-source:${profile.id}`} ownerId={profile.id} petId={pet.id} target={sectionScope?.visible === false ? null : sourceTarget} onClose={closeSource} /> : null}
     </KeyboardScreen>
   );
   return (
@@ -525,6 +485,7 @@ export default function PetRoute() {
       keyboardShouldPersistTaps="handled"
     >
       {isLocalDemo ? <DemoBanner /> : null}
+      {feature === "growth" && !sectionScope ? <Pressable accessibilityRole="button" accessibilityLabel="返回陪伴" onPress={() => router.canGoBack() ? router.back() : router.replace("/pet" as Href)} style={{ minHeight: 48, flexDirection: "row", alignItems: "center", gap: 8 }}><Icon name="back" color={theme.text}/><Text style={{color:theme.text}}>陪伴</Text></Pressable> : null}
       <View>
         <Text style={styles.eyebrow}>异宠</Text>
         <Text style={styles.title}>{pet ? pet.name : "孵化你的异宠"}</Text>
@@ -781,28 +742,33 @@ export default function PetRoute() {
             </Surface>
           ) : null}
           {pet.status === "confirmed" ? (
-            <PetSectionNav value={petSection} onChange={section=>{setPetSection(section);if(section==="companion")setEnteredAt(Date.now());}}/>
+            <PetSectionNav value={petSection === "growth" ? "growth" : "companion"} onChange={openPetSection}/>
           ) : null}
+          {pet.status === "confirmed" && petSection === "growth" ? <View>
+            <SettingsRow title="性格变化" note="看看它如何在相处中形成习惯" icon="pet" onPress={() => router.push("/pet-personality" as Href)} />
+            <SettingsRow title="群关系理解" note="查看有来源的理解，纠正或忘记" icon="messages" onPress={() => router.push("/pet-relations" as Href)} />
+            <SettingsRow title="相处设置" note="称呼、回应长度与建议方式" icon="settings" onPress={() => router.push("/pet-settings" as Href)} />
+          </View> : null}
           {pet.status === "confirmed" &&
           selected &&
-          petSection !== "steward" ? (
+          petSection === "growth" ? (
             <Surface style={[styles.confirmed, petSection === "growth" && {backgroundColor:"transparent",borderWidth:0,shadowOpacity:0,elevation:0}]}>
               <Text style={styles.stageLabel}>
                 {petSection === "growth"
                   ? "成长档案 · 同一生命继续变化"
                   : "陪伴 · 你的长期伙伴"}
               </Text>
-              <DraggablePetStage ownerId={profile.id} petId={pet.id}>{size =>
+              <View style={{alignItems:"center",paddingVertical:24}}>
                 <LivingPetPortrait state={motionState} compact>
                   <CandidateVisual
                     asset={selected}
-                    url={petDisplay.url ?? urls[selected.storagePath]}
-                    size={size}
+                    url={petDisplay.url}
+                    size={200}
                     transparent
                   />
                 </LivingPetPortrait>
-              }</DraggablePetStage>
-              {petSection === "companion" ? (
+              </View>
+              {feature === "companion" ? (
                 <View style={styles.petActions}>
                   {(
                     [
@@ -923,138 +889,6 @@ export default function PetRoute() {
               )}
             </Surface>
           ) : null}
-          {pet.status === "confirmed" && petSection === "steward" ? (
-            <>
-              <Surface style={styles.digestCard}>
-                <View style={styles.chatHead}>
-                  <Text style={styles.sectionTitle}>各群消息管家</Text>
-                  <Text style={styles.private}>
-                    已读、未读都可回忆 · 从加入后开始
-                  </Text>
-                </View>
-                {spaceDigests.length ? (
-                  spaceDigests.map((space) => (
-                    <View key={space.id} style={styles.digestRow}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.digestName}>{space.name}</Text>
-                        <Text numberOfLines={1} style={styles.digestMessage}>
-                          {space.lastMessage ?? "还没有消息"}
-                        </Text>
-                      </View>
-                      <View style={styles.digestCount}>
-                        <Text style={styles.digestCountText}>
-                          {space.unreadCount > 0
-                            ? `${space.unreadCount} 条未读`
-                            : "当前无未读"}
-                        </Text>
-                      </View>
-                    </View>
-                  ))
-                ) : (
-                  <Text style={styles.copy}>
-                    加入关系空间后，这里会出现各群最近消息和未读数。即使消息已经读过，也可以直接在下面让异宠帮你回忆。
-                  </Text>
-                )}
-              </Surface>
-              <ChatBackgroundSurface threadKey="steward" style={[styles.chatCard,{padding:16,borderRadius:12}]}>
-                <View style={styles.chatHead}>
-                  <Text style={styles.sectionTitle}>消息管家</Text><Pressable accessibilityRole="button" accessibilityLabel="设置消息管家背景" onPress={()=>setBackgroundOpen(true)} style={{minWidth:48,minHeight:48,alignItems:"center",justifyContent:"center"}}><Icon name="image" color={colors.text}/></Pressable>
-                  <Text style={styles.private}>
-                    仅主人可见 · 按明确群名检索可读历史
-                  </Text>
-                </View>
-                <View style={styles.thread}>
-                  {messages.filter(message => message.conversationKind !== "companion").slice(-12).map((message) => (
-                    <View key={message.id} style={styles.privateTurn}>
-                      <View
-                        style={[
-                          styles.privateMessage,
-                          {backgroundColor:message.role === "owner" ? stewardBackground.userBubble : stewardBackground.bubble},
-                          message.role === "owner"
-                            ? styles.ownerMessage
-                            : styles.petMessage,
-                          {backgroundColor:message.role === "owner" ? stewardBackground.userBubble : stewardBackground.bubble},
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.privateText,
-                            message.role === "owner" && styles.ownerText,
-                            {color:message.role === "owner" ? stewardBackground.userText : stewardBackground.text},
-                          ]}
-                        >
-                          {message.content}
-                        </Text>
-                        {message.role === "pet" &&
-                        message.recallSources?.length ? (
-                          <Text style={styles.memorySource}>
-                            消息来源：
-                            {[
-                              ...new Map(
-                                message.recallSources.map((source) => [
-                                  source.spaceId,
-                                  source,
-                                ]),
-                              ).values(),
-                            ]
-                              .map(
-                                (source) =>
-                                  `${source.spaceName} · ${new Date(source.createdAt).toLocaleDateString("zh-CN")}`,
-                              )
-                              .join("；")}
-                          </Text>
-                        ) : null}
-                        {message.agentRequestId ? (
-                          <Text style={styles.agentRequestLabel}>
-                            已进入
-                            {message.targetSpaceName
-                              ? `“${message.targetSpaceName}”`
-                              : ""}
-                            主 Agent 请求链 · 可追溯
-                          </Text>
-                        ) : null}
-                      </View>
-                      {message.role === "owner" && !message.id.startsWith("pending:") ? <StewardActionCard key={`steward-action:${message.id}`} sourceMessageId={message.id}/> : null}
-                      {message.role === "owner" ? (
-                        <ReplyProgress
-                          message={message}
-                          busy={busy}
-                          onRetry={() =>
-                            void sendChat(
-                              message.content,
-                              message.requestKey ?? createRequestId(),
-                            )
-                          }
-                        />
-                      ) : null}
-                    </View>
-                  ))}
-                </View>
-      <View style={styles.chatComposer}>
-                  <EnterSendTextInput
-                    accessibilityLabel="异宠私聊输入"
-                    value={chat}
-                    onChangeText={setChat}
-                    onSend={(value) => void sendChat(value)}
-                    editable={!busy}
-                    placeholder="可问已读或未读群聊，也可让它整理委托…"
-                    placeholderTextColor={colors.textMuted}
-                    style={styles.chatInput}
-                  />
-                  <Pressable
-                    disabled={busy || !chat.trim()}
-                    onPress={() => void sendChat()}
-                    style={[
-                      styles.chatSend,
-                      (busy || !chat.trim()) && styles.disabled,
-                    ]}
-                  >
-                    <Text style={styles.chatSendText}>发送</Text>
-                  </Pressable>
-                </View>
-              </ChatBackgroundSurface>
-            </>
-          ) : null}
           {pet.status !== "confirmed" || petSection === "growth" ? (
             <View style={styles.signalSection}>
               <Text style={styles.sectionTitle}>我观察到的倾向</Text>
@@ -1089,7 +923,7 @@ export default function PetRoute() {
       {busy ? <ActivityIndicator color={colors.coral} /> : null}
       <Modal
         transparent
-        visible={confirming}
+        visible={confirming && sectionScope?.visible !== false}
         animationType="fade"
         onRequestClose={() => setConfirming(false)}
       >
@@ -1111,7 +945,7 @@ export default function PetRoute() {
       </Modal>
       <Modal
         transparent
-        visible={Boolean(correcting)}
+        visible={Boolean(correcting) && sectionScope?.visible !== false}
         animationType="fade"
         onRequestClose={() => setCorrecting(null)}
       >
@@ -1152,9 +986,8 @@ export default function PetRoute() {
           </Surface>
         </KeyboardScreen>
       </Modal>
-    <ChatBackgroundEditor visible={backgroundOpen} onClose={()=>setBackgroundOpen(false)} threadKey="steward"/>
     </KeyboardScrollView>
-    {pet && !isLocalDemo ? <MemorySourceModal key={`memory-source:${profile.id}`} ownerId={profile.id} petId={pet.id} target={sourceTarget} onClose={closeSource} /> : null}
+    {pet && !isLocalDemo ? <MemorySourceModal key={`memory-source:${profile.id}`} ownerId={profile.id} petId={pet.id} target={sectionScope?.visible === false ? null : sourceTarget} onClose={closeSource} /> : null}
     </KeyboardScreen>
   );
 }
@@ -1422,3 +1255,29 @@ const useStyles = createThemedStyles((colors, theme) => ({
     alignItems: "center",
   },
 }));
+
+
+const WORKSPACE_SECTIONS: readonly PetSection[] = ["companion", "memory", "growth", "desktop"];
+export default function PetRoute() {
+  const { profile } = useSession();
+  return <PetWorkspaceTabs key={profile?.id ?? "guest"} />;
+}
+function PetWorkspaceTabs() {
+  const params = useLocalSearchParams<{ section?: string; mode?: string }>();
+  const router = useRouter();
+  const requested = params.section ?? params.mode;
+  const selected: PetSection = WORKSPACE_SECTIONS.includes(requested as PetSection) ? requested as PetSection : "companion";
+  const [visited, setVisited] = useState<readonly PetSection[]>([selected]);
+  const navigate = useCallback((section: PetSection) => {
+    setVisited(current => current.includes(section) ? current : [...current, section]);
+    router.setParams({ section, mode: undefined });
+  }, [router]);
+  useEffect(() => { setVisited(current => current.includes(selected) ? current : [...current, selected]); }, [selected]);
+  useEffect(() => { if (requested === "reply") router.replace("/pet-settings" as Href); }, [requested, router]);
+  return <View style={{ flex: 1 }} testID="pet-workspace">{WORKSPACE_SECTIONS.filter(section => visited.includes(section) || section === selected).map(section =>
+    <PetSectionScope.Provider key={section} value={{ visible: selected === section, section: selected, navigate }}>
+      <View style={{ flex: 1, display: selected === section ? "flex" : "none" }} accessibilityElementsHidden={selected !== section} importantForAccessibility={selected === section ? "auto" : "no-hide-descendants"}>
+        {section === "memory" ? <PetMemoryPanel /> : section === "desktop" ? <PetDesktopPanel /> : <PetMainPanel feature={section} />}
+      </View>
+    </PetSectionScope.Provider>)}</View>;
+}

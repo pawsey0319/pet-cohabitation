@@ -1,6 +1,6 @@
 param(
-  [string]$PythonPath = (Join-Path $env:TEMP 'pet-transparent-validation/venv/Scripts/python.exe'),
-  [string]$ModelDirectory = (Join-Path $env:TEMP 'pet-transparent-validation')
+  [string]$PythonPath = (Join-Path $env:LOCALAPPDATA 'PetCompanion/transparent-runtime/venv/Scripts/python.exe'),
+  [string]$ModelDirectory = (Join-Path $env:LOCALAPPDATA 'PetCompanion/transparent-runtime/models')
 )
 $ErrorActionPreference = 'Stop'
 $projectRef = 'lthcucgggoevgcboouqw'
@@ -18,7 +18,11 @@ if (Test-Path -LiteralPath $statePath) {
     return
   }
 }
-if (-not (Test-Path -LiteralPath $PythonPath)) { throw '找不到已经验证的透明形象 Python 环境。' }
+if (-not (Test-Path -LiteralPath $PythonPath)) { throw '找不到透明形象运行环境，请先运行 scripts/setup-pet-transparent-worker.ps1。' }
+# The executable's apparent AppData path may be redirected across drives.
+# Launch its canonical path so numba's cache writes remain on one filesystem.
+$PythonPath = & $PythonPath -c 'import os,sys; print(os.path.realpath(sys.executable))'
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $PythonPath)) { throw '无法解析透明形象 Python 实际路径。' }
 $workerPath = Join-Path $repoRoot 'src/avatars/transparent-worker/worker.py'
 & $PythonPath $workerPath --model-dir $ModelDirectory --verify-model
 if ($LASTEXITCODE -ne 0) { throw '透明形象模型校验未通过，未启动。' }
@@ -28,10 +32,14 @@ $pointer = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
 $previousToken = $env:PET_TRANSPARENT_WORKER_TOKEN
 $previousUrl = $env:PET_TRANSPARENT_WORKER_URL
 $previousNoProxy = $env:NO_PROXY
+$previousNumbaCache = $env:NUMBA_CACHE_DIR
 try {
   $env:PET_TRANSPARENT_WORKER_TOKEN = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
   $env:PET_TRANSPARENT_WORKER_URL = "https://$projectRef.supabase.co/functions/v1/pet-transparent-worker"
   $env:NO_PROXY = (@($previousNoProxy, '127.0.0.1', 'localhost', '::1') | Where-Object { $_ }) -join ','
+  # Keep JIT cache below Windows path-length limits after AppData redirection.
+  $env:NUMBA_CACHE_DIR = & $PythonPath -c 'from pathlib import Path; p=(Path.home()/".pet-companion-cache"/"numba").resolve(); p.mkdir(parents=True,exist_ok=True); print(p)'
+  if ($LASTEXITCODE -ne 0) { throw '无法准备透明形象编译缓存。' }
   $stamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
   $stdout = Join-Path $stateDirectory "transparent-$stamp.stdout.log"
   $stderr = Join-Path $stateDirectory "transparent-$stamp.stderr.log"
@@ -48,4 +56,5 @@ try {
   $env:PET_TRANSPARENT_WORKER_TOKEN = $previousToken
   $env:PET_TRANSPARENT_WORKER_URL = $previousUrl
   $env:NO_PROXY = $previousNoProxy
+  $env:NUMBA_CACHE_DIR = $previousNumbaCache
 }

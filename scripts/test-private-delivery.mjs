@@ -18,7 +18,7 @@ try{
  ok(await service.from("pet_companion_states").insert({pet_id:pet,owner_id:A.id,revision:0}));
  const claim=(request=randomUUID(),content="今天很累")=>rpc("claim_pet_private_request",{target_pet_id:pet,request_id:request,owner_content:content,request_mode:"companion"}).then(turn=>({...turn,request}));
  const commit=(turn,extra={})=>rpc("commit_pet_private_delivery",{target_pet_id:pet,request_id:turn.request,target_token:turn.token,expected_revision:turn.revision,reply_content:"可以慢慢说。",target_model_run_id:null,context_ids:[turn.message_id],...extra});
- const partial=(turn,sequence=1)=>rpc("append_pet_private_stream",{p_pet:pet,p_request:turn.request,p_token:turn.token,p_revision:turn.revision,p_sequence:sequence,p_content:"可以慢慢"});
+ const partial=(turn,sequence=1,content="可以慢慢")=>rpc("append_pet_private_stream",{p_pet:pet,p_request:turn.request,p_token:turn.token,p_revision:turn.revision,p_sequence:sequence,p_content:content});
  const first=await claim();assert.equal(await partial(first),true);
  await rejects(()=>claim(),/private_conversation_busy/);
  await rejects(()=>claim(first.request,"换了正文"),/private_request_content_changed|private_request_conflict/);
@@ -26,14 +26,26 @@ try{
  ok(await A.client.rpc("stop_pet_private_reply",{p_pet:pet,p_request:first.request}));
  assert.equal(await partial(first,2),false);await rejects(()=>commit(first),/private_request_lease_changed|private_request_stopped/);
  const stopped=randomUUID();ok(await A.client.rpc("stop_pet_private_reply",{p_pet:pet,p_request:stopped}));await rejects(()=>claim(stopped),/private_request_stopped/);
+ // A format repair revokes provisional text within the SAME request/lease.
+ const repaired=await claim();assert.equal(await partial(repaired),true);
+ assert.equal(await partial(repaired,2,""),true);
+ const cleared=ok(await A.client.from("pet_private_streams").select("content,sequence").eq("request_id",repaired.request).single());
+ assert.equal(cleared.content,"");assert.equal(cleared.sequence,2);checks++;
+ await partial(repaired,1,"迟到的旧临时文字");
+ assert.equal(ok(await A.client.from("pet_private_streams").select("content").eq("request_id",repaired.request).single()).content,"");checks++;
+ assert.equal(await partial(repaired,3,"格式修复后的文字"),true);
+ const repairedReply=await commit(repaired);assert.equal((await commit(repaired)).id,repairedReply.id);
+ assert.equal(ok(await A.client.from("pet_private_threads").select("id").eq("request_key",repaired.request).eq("role","owner")).length,1);
+ assert.equal(ok(await A.client.from("pet_private_threads").select("id").eq("in_reply_to_id",repaired.message_id).eq("role","pet")).length,1);checks++;
  const second=await claim();assert.equal(await partial(second),true);
  const state=ok(await service.from("pet_companion_states").select("revision").eq("pet_id",pet).single());
  ok(await service.from("pet_companion_states").update({revision:state.revision+1}).eq("pet_id",pet));
  assert.equal(ok(await A.client.from("pet_private_streams").select("content,status").eq("request_id",second.request).single()).content,"");
+ assert.equal(await partial(second,2,""),false,'format repair cannot continue after revision changes');checks++;
  await rejects(()=>commit(second),/companion_context_changed/);checks++;
  ok(await service.rpc("fail_pet_private_request",{target_pet_id:pet,request_id:second.request,target_token:second.token,failure_code:"companion_context_changed"}));
  const retry=await claim(second.request);assert.equal(retry.message_id,second.message_id);const reply=await commit(retry);assert.equal((await commit(retry)).id,reply.id);checks++;
- const expired=await claim();ok(await service.from("pet_private_requests").update({lease_until:new Date(Date.now()-1000).toISOString()}).eq("pet_id",pet).eq("client_request_id",expired.request));await rejects(()=>commit(expired),/private_request_lease_changed/);
+ const expired=await claim();ok(await service.from("pet_private_requests").update({lease_until:new Date(Date.now()-1000).toISOString()}).eq("pet_id",pet).eq("client_request_id",expired.request));assert.equal(await partial(expired,2,""),false,'format repair cannot renew an expired lease');checks++;await rejects(()=>commit(expired),/private_request_lease_changed/);
  const recovered=await claim(expired.request);assert.equal(recovered.message_id,expired.message_id);await rejects(()=>commit(expired),/private_request_lease_changed/);await commit(recovered);checks++;
  const work=await rpc("mutate_work_item",{p_actor:A.id,p_action:"create",p_request_id:randomUUID(),p_input:{kind:"task",title:"版本验收"}});const item=work.item??work;
  const action=await claim();ok(await service.from("work_items").update({version:item.version+1}).eq("id",item.id));
@@ -44,5 +56,5 @@ try{
  const recall=await claim();const sources=[{space_id:space,space_name:"来源验收群",message_id:msg.id,created_at:msg.createdAt??msg.created_at}];
  ok(await service.from("space_members").delete().eq("space_id",space).eq("user_id",A.id));await rejects(()=>commit(recall,{reply_recall_sources:sources}),/private_recall_permission_changed/);
  const denied=await B.client.rpc("list_pet_private_history",{p_pet:pet});assert.match(denied.error.message,/forbidden/);checks++;
- console.log(`PASS ${checks} private delivery scenario groups: ordered claims, idempotency, stop, memory revision, expiry, work version, source permission, RLS.`);
+ console.log(`PASS ${checks} private delivery scenario groups: ordered claims, format repair/revocation, stale sequence, idempotency, stop, memory revision, expiry, work version, source permission, RLS.`);
 }finally{if(space)ok(await service.from("spaces").delete().eq("id",space));for(const id of ids.reverse())ok(await service.auth.admin.deleteUser(id));}

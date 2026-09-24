@@ -1,3 +1,4 @@
+import { usePetSection } from "../pets/PetSectionScope";
 import { privateSendQueue, type PrivateQueuedSend } from "../pets/privateSendQueue";
 import type { PrivateStreamEvent, PrivateChatOptions } from "../pets/streamClient";
 import { VisionAttachmentPicker } from "../vision/VisionAttachmentPicker";
@@ -9,7 +10,7 @@ import { createThemedStyles } from "../theme/themedStyles";
 import { KeyboardScreen } from "./KeyboardLayout";
 import { petReplyFailureText, petReplyStage } from "../pets/replyStatus";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, Image, Keyboard, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { DraggablePetStage } from "./DraggablePetStage";
 import { PetDisplayControls, type usePetDisplay } from "../avatars/petDisplay";
 import { newPrivateRequestId } from "../pets/requestId";
@@ -37,6 +38,9 @@ type Props = Readonly<{
   petId?: string;
   onSource?(id: string): void;
   onSearch?(): void;
+  onManageMemory?(): void;
+  onSettings?(): void;
+  onDesktopPet?(): void;
   incubating: boolean;
   portrait?: ReactNode | ((size: number) => ReactNode);
   portraitPetId?: string;
@@ -66,6 +70,9 @@ function requestHasReply(messages: readonly PetPrivateMessage[], requestId: stri
 }
 
 export function PetCompanionPanel(props: Props) {
+  const sectionVisible = usePetSection()?.visible ?? true;
+  const visibleRef = useRef(sectionVisible); visibleRef.current = sectionVisible;
+  const lastVisibleOffset = useRef(0);
   const { styles, colors } = useStyles();
   const background = useChatBackgroundColors("companion");
   const [backgroundOpen, setBackgroundOpen] = useState(false);
@@ -98,6 +105,19 @@ export function PetCompanionPanel(props: Props) {
   const [sendError,setSendError]=useState<{requestId:string;message:string}|null>(null);
   const [confirmingRequest,setConfirmingRequest]=useState<string|null>(null);
   const thread = useRef<ScrollView>(null);
+  const followsLatest = useRef(true);
+  const transcriptGeometry = useRef("");
+  const keepLatestVisible = () => { if (visibleRef.current && followsLatest.current) thread.current?.scrollToEnd({ animated: false }); };
+  const restoreScroll = () => {
+    if (!visibleRef.current) return;
+    if (followsLatest.current) keepLatestVisible();
+    else thread.current?.scrollTo({y:lastVisibleOffset.current,animated:false});
+  };
+  useEffect(() => {
+    if (!sectionVisible) return;
+    const frame = requestAnimationFrame(restoreScroll);
+    return () => cancelAnimationFrame(frame);
+  }, [sectionVisible]);
   const pending = useRef(false);
   const [sending, setSending] = useState(false);
   const queue=useMemo(()=>privateSendQueue(props.ownerId??"local-preview"),[props.ownerId]);
@@ -167,7 +187,7 @@ export function PetCompanionPanel(props: Props) {
     if(draftRef.current.trim()===sent.content&&attachmentRef.current?.uploadId===sent.attachment?.uploadId){setDraft("");setAttachment(null);attachmentRef.current=null;if(props.ownerId)void savePrivateDraft(props.ownerId,null).catch(()=>undefined);}
   },[messages,sending,draftReady,props.ownerId]);
   const latestMessageId = messages.at(-1)?.id;
-  useEffect(() => { thread.current?.scrollToEnd({ animated: false }); }, [latestMessageId]);
+  useEffect(() => { if (visibleRef.current) { followsLatest.current = true; keepLatestVisible(); } }, [latestMessageId]);
   const safeMessages = messages.filter((message)=>(message.conversationKind === undefined || message.conversationKind === "companion") && !context.excludedMessageIds?.includes(message.id));
   const activeMessages = currentPrivateMessages(safeMessages, context.contextStartedAt);
   const listed = showHistory ? messages : activeMessages;
@@ -246,14 +266,26 @@ export function PetCompanionPanel(props: Props) {
     <View style={styles.heading}>
       <View style={styles.headingCopy}><Text style={styles.title}>{petName}</Text><Text style={styles.muted}>你的异宠</Text></View>
       {props.onSearch ? <Pressable accessibilityRole="button" accessibilityLabel="搜索消息事项和记忆" style={styles.headerAction} onPress={props.onSearch}><Icon name="search" color={colors.text} /></Pressable> : null}
-      <Pressable accessibilityRole="button" accessibilityLabel="管理记忆" style={styles.headerAction} onPress={() => setMemoryOpen(true)}><Icon name="memory" color={colors.text} /><Text style={styles.headerLabel}>记忆</Text></Pressable>
+      {!props.onManageMemory ? <Pressable accessibilityRole="button" accessibilityLabel="管理记忆" style={styles.headerAction} onPress={() => setMemoryOpen(true)}><Icon name="memory" color={colors.text} /><Text style={styles.headerLabel}>记忆</Text></Pressable> : null}
+      {props.onSettings ? <Pressable accessibilityRole="button" accessibilityLabel="相处设置" style={styles.headerAction} onPress={props.onSettings}><Icon name="settings" color={colors.text} /></Pressable> : null}
       <Pressable accessibilityRole="button" accessibilityLabel="设置陪伴聊天背景" style={styles.headerAction} onPress={() => setBackgroundOpen(true)}><Icon name="image" color={colors.text} /></Pressable>
     </View>
     {props.navigation}
     <ChatBackgroundSurface threadKey="companion" style={styles.chatBody}>
-    {props.portrait ? <DraggablePetStage ownerId={props.ownerId} petId={props.portraitPetId ?? props.petId} compact={keyboardVisible || windowHeight < 720 || panelHeight > 0 && panelHeight < 620 || voiceOpen} constrained={panelHeight > 0 && panelHeight < 420 || voiceOpen} onAppearance={props.display ? () => setAppearanceOpen(true) : undefined}>{size => typeof props.portrait === "function" ? props.portrait(size) : props.portrait}</DraggablePetStage> : null}
-    <ScrollView ref={thread} style={styles.thread} contentContainerStyle={styles.messages} keyboardShouldPersistTaps="handled">
-    {!activeMessages.length && !props.portrait ? <View style={styles.petStage}><Icon name="pet" size={52} color={colors.coral} /></View> : null}
+    <ScrollView ref={thread} testID="companion-transcript" style={styles.thread} contentContainerStyle={styles.messages} keyboardShouldPersistTaps="handled"
+      onLayout={restoreScroll} onContentSizeChange={keepLatestVisible} scrollEventThrottle={32}
+      onScrollBeginDrag={() => { followsLatest.current = false; }} onTouchMove={() => { followsLatest.current = false; }}
+      {...(Platform.OS === "web" ? { onWheel: () => { followsLatest.current = false; } } : {})}
+      onScroll={event => {
+        if (!visibleRef.current) return;
+        const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+        lastVisibleOffset.current = contentOffset.y;
+        const geometry = `${contentSize.height}:${layoutMeasurement.height}:${layoutMeasurement.width}`;
+        if (transcriptGeometry.current !== geometry) {
+          transcriptGeometry.current = geometry;
+          keepLatestVisible();
+        } else followsLatest.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 64;
+      }}>
     {continuation ? <View style={styles.reunion} accessibilityLabel="私聊接续">
       <View style={styles.row}><Text style={styles.reunionTitle}>{continuation.isReunion ? "欢迎回来，慢慢接着聊" : "上次的话，还可以接着聊"}</Text><Pressable accessibilityRole="button" accessibilityLabel="收起私聊接续" onPress={dismissContinuation}><Text style={styles.muted}>收起</Text></Pressable></View>
       <Text style={styles.muted}>上次你说 · {new Date(continuation.message.createdAt).toLocaleString("zh-CN")}</Text>
@@ -264,6 +296,8 @@ export function PetCompanionPanel(props: Props) {
 
     <View style={styles.row}><Text style={styles.muted}>{context.contextStartedAt ? "这一段对话" : "最近的对话"}</Text><Pressable accessibilityRole="button" disabled={busy} onPress={() => setResetting(true)}><Text style={styles.action}>开启新话题</Text></Pressable></View>
     {showHistory ? <Text style={styles.muted}>历史记录供你回看。新话题不会自动接续之前的对话。</Text> : null}
+    {messages.length > activeMessages.length ? <Pressable accessibilityRole="button" onPress={() => { followsLatest.current=false;setShowHistory((value) => !value); setVisibleCount(20); }}><Text style={styles.history}>{showHistory ? "回到当前对话" : "查看之前的聊天记录"}</Text></Pressable> : null}
+    {props.onLoadOlder&&hasOlder?<Pressable disabled={olderBusy} onPress={()=>{followsLatest.current=false;setOlderBusy(true);void props.onLoadOlder!().then(more=>{setHasOlder(more);setShowHistory(true);setVisibleCount(count=>count+50);}).catch(()=>setError("历史记录暂未加载，请重试。")).finally(()=>setOlderBusy(false));}}><Text style={styles.history}>{olderBusy?"正在加载更早记录…":"加载更早的聊天记录"}</Text></Pressable>:null}
 
       {listed.length > visibleCount ? <Pressable accessibilityRole="button" onPress={() => setVisibleCount((count) => count + 20)}><Text style={styles.history}>查看更多对话</Text></Pressable> : null}
       {!listed.length ? <Text style={styles.empty}>{context.contextStartedAt ? "新的话题，从你想说的地方开始。你保存的记忆仍会保留。" : "我在这里。今天想从什么说起？"}</Text> : null}
@@ -271,7 +305,7 @@ export function PetCompanionPanel(props: Props) {
         <Text selectable style={[styles.message, {color:message.role === "owner" ? background.userText : background.text}]}>{message.content}</Text>
         {message.imageAssetId ? <VisionMessageImage assetId={message.imageAssetId} sourceMessageId={message.id.startsWith("pending:")?undefined:message.id} onDeleted={()=>{setNotice("图片已删除，相关理解与记忆已停用。");}} /> : null}
         {message.role === "pet" ? <SpeakButton voice={voice} messageId={message.id} text={message.content} /> : null}
-        {!message.imageAssetId&&memoryCounts[message.id] ? <MemorySavedIndicator count={memoryCounts[message.id]} onOpen={() => setMemoryOpen(true)} /> : null}
+        {!message.imageAssetId&&memoryCounts[message.id] ? <MemorySavedIndicator count={memoryCounts[message.id]} onOpen={() => props.onManageMemory ? props.onManageMemory() : setMemoryOpen(true)} /> : null}
         {!message.imageAssetId&&message.role === "owner" && (message.conversationKind === "companion" || message.conversationKind === undefined) ? <Pressable accessibilityRole="button" accessibilityLabel={`记住这句：${message.content.slice(0, 30)}`} disabled={busy || context.memories.length >= PERSONAL_MEMORY_LIMIT} onPress={() => edit({ content: message.content, sourceMessageId: message.id })}><Text style={styles.pin}>记住这句</Text></Pressable> : null}
         {message.role === "owner" && message.replyStatus && message.replyStatus !== "succeeded" ? <View>
           <Text style={styles.source}>{message.replyStatus === "failed" ? petReplyFailureText(message.replyErrorCode) : petReplyStage(message.replyStatus).title}</Text>
@@ -290,8 +324,6 @@ export function PetCompanionPanel(props: Props) {
       </View>)}
       {partial?.content?<View accessibilityLabel="正在生成的临时回答" style={[styles.bubble,styles.pet]}><Text style={styles.message}>{partial.content}</Text><Text style={styles.muted}>生成中</Text></View>:null}
       {busy&&!partial?.content ? <ActivityIndicator color={colors.mint} accessibilityLabel="正在回应" /> : null}
-    {messages.length > activeMessages.length ? <Pressable accessibilityRole="button" onPress={() => { setShowHistory((value) => !value); setVisibleCount(20); }}><Text style={styles.history}>{showHistory ? "回到当前对话" : "查看之前的聊天记录"}</Text></Pressable> : null}
-    {props.onLoadOlder&&hasOlder?<Pressable disabled={olderBusy} onPress={()=>{setOlderBusy(true);void props.onLoadOlder!().then(more=>{setHasOlder(more);setShowHistory(true);setVisibleCount(count=>count+50);}).catch(()=>setError("历史记录暂未加载，请重试。")).finally(()=>setOlderBusy(false));}}><Text style={styles.history}>{olderBusy?"正在加载更早记录…":"加载更早的聊天记录"}</Text></Pressable>:null}
     </ScrollView>
     <View style={styles.composer}>
       <EnterSendTextInput accessibilityLabel="异宠私聊输入" value={draft} onChangeText={updateDraft} onSend={(value) => void send(value)} editable={draftReady} maxLength={4000} placeholder={props.incubating ? "说说你喜欢怎样相处…" : "今天有什么想和它说的…"} placeholderTextColor={colors.textMuted} style={styles.input} />
@@ -303,8 +335,8 @@ export function PetCompanionPanel(props: Props) {
     {error && !editor && !removing && !resetting ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
     {!error&&sendError&&!requestHasReply(messages,sendError.requestId)&&!editor&&!removing&&!resetting?<Text accessibilityRole="alert" style={styles.error}>{sendError.message}</Text>:null}
     </ChatBackgroundSurface>
-    <ChatBackgroundEditor visible={backgroundOpen} onClose={() => setBackgroundOpen(false)} threadKey="companion" />
-    <Modal visible={appearanceOpen} transparent animationType="fade" onRequestClose={() => setAppearanceOpen(false)}>
+    <ChatBackgroundEditor visible={sectionVisible && (backgroundOpen)} onClose={() => setBackgroundOpen(false)} threadKey="companion" />
+    <Modal visible={sectionVisible && (appearanceOpen)} transparent animationType="fade" onRequestClose={() => setAppearanceOpen(false)}>
       <KeyboardScreen style={styles.overlay}><Surface style={styles.modal}>
         <View style={styles.row}><Text style={styles.title}>形象与透明效果</Text><AppButton label="返回聊天" variant="quiet" onPress={() => setAppearanceOpen(false)} /></View>
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
@@ -314,12 +346,12 @@ export function PetCompanionPanel(props: Props) {
       </Surface></KeyboardScreen>
     </Modal>
 
-    <Modal visible={memoryOpen && !editor && !removing && !resetting} transparent animationType="fade" onRequestClose={() => setMemoryOpen(false)}>
+    <Modal visible={sectionVisible && (memoryOpen && !editor && !removing && !resetting)} transparent animationType="fade" onRequestClose={() => setMemoryOpen(false)}>
       <KeyboardScreen style={styles.overlay}><Surface style={styles.memoryModal}>
       <View style={styles.row}><Text style={styles.title}>它记住的你</Text><AppButton label="返回聊天" variant="quiet" onPress={() => setMemoryOpen(false)} /></View>
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.memoryList}>
     {memoryOpen && props.petId ? <>
-      <InteractionSettingsPanel petId={props.petId} />
+      {!props.onSettings ? <InteractionSettingsPanel petId={props.petId} /> : null}
       <MemoryEvolutionPanel petId={props.petId} onSource={id => { setMemoryOpen(false); props.onSource?.(id); }} />
       <MemoryReviewPanel key={`${props.petId}:${context.revision}`} petId={props.petId} onSource={id => { setMemoryOpen(false); props.onSource?.(id); }} />
     </> : null}
@@ -339,17 +371,17 @@ export function PetCompanionPanel(props: Props) {
 
       </ScrollView></Surface></KeyboardScreen>
     </Modal>
-    <Modal visible={Boolean(editor)} transparent animationType="fade" onRequestClose={() => { if (!busy) setEditor(null); }}>
+    <Modal visible={sectionVisible && (Boolean(editor))} transparent animationType="fade" onRequestClose={() => { if (!busy) setEditor(null); }}>
       <KeyboardScreen style={styles.overlay}><Surface style={styles.modal}>
         <Text style={styles.title}>{editor?.id ? "更新这条记忆" : "你希望它记住什么？"}</Text>
         <Text style={styles.muted}>{editor?.id ? "更新后按你的最新想法回应，过去的版本保留作变化记录。当前话题可以继续。" : "写下一个偏好、一件经历，或你喜欢的相处方式。保存后可随时编辑。"}</Text>
         <TextInput accessibilityLabel="个人记忆内容" value={editor?.content ?? ""} onChangeText={(content) => setEditor((value) => value ? { ...value, content } : value)} multiline style={[styles.input, styles.memoryInput]} placeholder="例如：我累的时候，先听我说，别急着给建议。" placeholderTextColor={colors.textMuted} editable={!busy} />
         <Text style={memoryLength > PERSONAL_MEMORY_LENGTH ? styles.error : styles.muted}>{memoryLength}/{PERSONAL_MEMORY_LENGTH} 字{memoryLength > PERSONAL_MEMORY_LENGTH ? "，请选取最想留下的部分" : ""}</Text>
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-        <View style={styles.buttons}><AppButton label="取消" variant="quiet" disabled={busy} onPress={() => setEditor(null)} /><AppButton label="保存记忆" disabled={busy || !memoryLength || memoryLength > PERSONAL_MEMORY_LENGTH} onPress={() => void run(async () => { if (!editor) return; await props.onSaveMemory(editor); setEditor(null); setMemoryOpen(true); setNotice("已经记下。以后可以按你的最新想法更新。"); })} /></View>
+        <View style={styles.buttons}><AppButton label="取消" variant="quiet" disabled={busy} onPress={() => setEditor(null)} /><AppButton label="保存记忆" disabled={busy || !memoryLength || memoryLength > PERSONAL_MEMORY_LENGTH} onPress={() => void run(async () => { if (!editor) return; await props.onSaveMemory(editor); setEditor(null); setMemoryOpen(!props.onManageMemory); setNotice("已经记下。以后可以按你的最新想法更新。"); })} /></View>
       </Surface></KeyboardScreen>
     </Modal>
-    <Modal visible={Boolean(removing) || resetting} transparent animationType="fade" onRequestClose={() => { if (!busy) { setRemoving(null); setResetting(false); } }}>
+    <Modal visible={sectionVisible && (Boolean(removing) || resetting)} transparent animationType="fade" onRequestClose={() => { if (!busy) { setRemoving(null); setResetting(false); } }}>
       <KeyboardScreen style={styles.overlay}><Surface style={styles.modal}>
         <Text style={styles.title}>{removing ? "把这件事移出记忆？" : "从一个新话题开始"}</Text>
         <Text style={styles.muted}>{removing ? "这条保存的记忆会被删除，已关联内容不再用于后续回应。原始聊天仍可回看，其他话题可以继续。" : "之前的聊天仍可回看，接下来不会自动接着旧话题。你主动保存的记忆会保留。"}</Text>

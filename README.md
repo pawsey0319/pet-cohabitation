@@ -1,5 +1,7 @@
 # 异宠共生空间
 
+**新设备 / 新模型接续：[先读交接入口](docs/handoff/START-HERE.md)，再看[环境与服务迁移说明](docs/handoff/ENVIRONMENT.md)。当前开发分支是 `codex/agent-workbench-pet-onboarding`，不是较旧的 `main`。** Android 1.0.9 两批 OTA、工作区缓存及能力授权已发布；手机/Grok/多日验收仍有未完成项。接续入口和发布收据优先于下方早期 MVP 概览。
+
 一款面向恋人、好友和最多 20 人熟人圈的 Android / Web 私人沟通应用。首页是轻量微信式会话列表；每位用户只养一只异宠，它能私聊、管理主人有权访问的群消息、进入关系空间，并从真实相处中形成个性与软连续进化。
 
 ## 已实现
@@ -67,15 +69,14 @@ npm run test:e2e
 npx supabase db lint --level warning
 ```
 
-当前自动化包含 184 个领域/UI 测试、数据库集成验收，以及两个真实浏览器账号的邀请、聊天、回复、回应、Agent 摘要和异宠生成—确认—成长流程。完整验收点见 [验收清单](docs/acceptance.md)。
+当前自动化范围与实际执行结果见[交接验证进度](docs/handoff/START-HERE.md)和[最新交付记录](docs/implementation/2026-09-22-pet-workspace-capabilities-release.md)。旧 MVP 清单保留在 [验收清单](docs/acceptance.md)，未取得手机证据的项目不能用自动化结果替代。
 
 ## Android 预览 APK
 
-仓库已配置包名 `com.pawsey.petcohabitation` 和 EAS `preview` APK 构建。首次需要登录 Expo 并为项目写入 EAS Project ID：
+仓库已配置包名 `com.pawsey.petcohabitation`、已有 EAS Project ID 和 `preview` 构建。换设备登录原有 Expo 账号，不重新初始化项目或签名：
 
 ```powershell
 npx eas-cli login
-npx eas-cli init
 npm run build:android:preview
 ```
 

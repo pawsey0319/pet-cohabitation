@@ -1,0 +1,90 @@
+{
+  "checkedAt": "2026-09-21T10:01:25.422Z",
+  "passed": true,
+  "classification": "Android internal device-acceptance candidate",
+  "release": {
+    "version": "1.0.9",
+    "versionCode": 11,
+    "runtimeVersion": "1.0.9",
+    "url": "https://expo.dev/artifacts/eas/Cq3UQrcXE6ADKUHRVNmB2yZj1nx0p7WMGhhRUHObreM.apk",
+    "sha256": "ba8d6dbe1f1501f2cb7a435c27a6e5d1b53b356262df4d5dda93424bb04650df",
+    "bytes": 121818258,
+    "notes": [
+      "手机验收候选：桌宠未发送草稿在关闭、切后台和重新启动后恢复。",
+      "修复待发送队列已满时桌宠启动与停止回复被阻断的问题。",
+      "请覆盖安装并反馈草稿、跨 App 触摸与锁屏通知结果。"
+    ],
+    "publishedAt": "2026-09-21T09:48:25.112Z"
+  },
+  "build": {
+    "id": "0f8b0a47-2cff-4922-a862-f564a25ab55a",
+    "status": "FINISHED",
+    "version": "1.0.9",
+    "versionCode": "11",
+    "buildUrl": "https://expo.dev/artifacts/eas/Cq3UQrcXE6ADKUHRVNmB2yZj1nx0p7WMGhhRUHObreM.apk",
+    "completedAt": "2026-09-21T09:48:25.112Z"
+  },
+  "runtimeCoverage": [
+    {
+      "runtime": "1.0.4",
+      "updateId": "01a0c365-6361-7868-944c-60d329563cbc",
+      "groupId": "b7111e98-89e2-4aed-a93a-e181837a6107",
+      "verifiedAssets": 28,
+      "launchSha256": "a190dc328d5125e734835912d0c83eb5059d2eeacd0becaba0eb2f2ce18f08c2",
+      "sourceProof": "test-results/android-109-update-entry/1.0.4-export.json"
+    },
+    {
+      "runtime": "1.0.5",
+      "updateId": "01a0c366-0514-7336-a544-3724890c332f",
+      "groupId": "70e719ae-42d3-4b12-85b7-5bfdea414230",
+      "verifiedAssets": 28,
+      "launchSha256": "28b0e8bd27fd033d6b01b176ee252980c3309a522e5b5f4dc719b5cc1bdc31c3",
+      "sourceProof": "test-results/android-109-update-entry/1.0.5-export.json"
+    },
+    {
+      "runtime": "1.0.6",
+      "updateId": "01a0c366-b5ab-7831-a3c3-396df7b502ae",
+      "groupId": "1b7a1aef-d858-45c2-ac8a-561bbf431eef",
+      "verifiedAssets": 28,
+      "launchSha256": "e75f083547459d82de8009291b79173dda8ebe53c342de74b460be8a072e1c40",
+      "sourceProof": "test-results/android-109-update-entry/1.0.6-export.json"
+    },
+    {
+      "runtime": "1.0.7",
+      "updateId": "01a0c367-5e7e-7c20-8836-f2e15c42f1d0",
+      "groupId": "83bc2519-29c3-4da1-87af-b2f0cac6082e",
+      "verifiedAssets": 28,
+      "launchSha256": "2c374ddce7b9b414634de5537d34425a4af32f066a164556e55ace60bece83a7",
+      "sourceProof": "test-results/android-109-update-entry/1.0.7-export.json"
+    },
+    {
+      "runtime": "1.0.8",
+      "updateId": "01a0c368-2750-72f9-b467-dc79fd0e3c99",
+      "groupId": "19e6b14e-6a5a-4a5f-9059-9610c60b9d9a",
+      "verifiedAssets": 28,
+      "launchSha256": "34c649eff998e8058d21ab66a72da357202c6fa1371c884714990aabd0151ded",
+      "sourceProof": "test-results/android-109-update-entry/1.0.8-export.json"
+    },
+    {
+      "runtime": "1.0.9",
+      "updateId": "01a0c368-74fe-73de-a1a2-998b2f6b5c91",
+      "groupId": "e0ad388a-cd8a-4ddb-8c47-b77d97ab11b4",
+      "verifiedAssets": 28,
+      "launchSha256": "34c649eff998e8058d21ab66a72da357202c6fa1371c884714990aabd0151ded",
+      "sourceProof": "test-results/android-109-update-entry/1.0.9-export.json"
+    }
+  ],
+  "verifiedAssets": 168,
+  "web": {
+    "pageStatus": 200,
+    "bundleStatus": 200,
+    "bundle": "/_expo/static/js/web/index-92d4c2d1bb36e1f7a51aa9daeca68a6a.js",
+    "bytes": 2209201
+  },
+  "sourceSnapshot": "test-results/next-release-review2-candidate-20260921",
+  "uploadedBuildSource": "test-results/android-1.0.9-build11-upload-verification.json",
+  "physicalDevice": "pending user manual acceptance",
+  "independentGrokReview": "no conclusion; two earlier calls timed out, current call waiting for user model choice",
+  "cloudCompanionFormatFixDeployed": false,
+  "paidResourcesCreated": false
+}

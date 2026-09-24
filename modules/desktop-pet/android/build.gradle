@@ -1,0 +1,15 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+group = 'expo.modules.petdesktop'
+version = '1.0.0'
+dependencies {
+  // Expo core keeps React Android as an implementation dependency. The task
+  // service imports RN APIs directly, so it needs its own compile classpath.
+  implementation 'com.facebook.react:react-android'
+}
+android {
+  namespace 'expo.modules.petdesktop'
+  defaultConfig { versionCode 1; versionName '1.0.0' }
+}

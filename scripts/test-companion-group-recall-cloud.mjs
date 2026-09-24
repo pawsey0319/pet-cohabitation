@@ -6,6 +6,10 @@ import {createClient} from '@supabase/supabase-js';
 const label=process.argv[process.argv.indexOf('--label')+1];
 assert.ok(process.argv.includes('--cloud')&&/^[a-z0-9-]{1,40}$/.test(label??''));
 const mode=process.argv.includes('--steward')?'steward':'companion',final=process.argv.includes('--final');
+const plain=process.argv.includes('--plain');
+const sampleCount=process.argv.includes('--samples')?Number(process.argv[process.argv.indexOf('--samples')+1]):1;
+assert.ok(Number.isInteger(sampleCount)&&sampleCount>=1&&sampleCount<=20);
+assert.ok(!final||sampleCount===1,'final_replay_check_and_measurement_batch_are_separate');
 const url=process.env.SUPABASE_URL;assert.equal(url,'https://lthcucgggoevgcboouqw.supabase.co');
 const out=`test-results/companion-group-timeout-20260914/cloud-${label}.json`;
 assert.ok(!existsSync(out));mkdirSync('test-results/companion-group-timeout-20260914',{recursive:true});
@@ -13,6 +17,7 @@ const opts={auth:{persistSession:false,autoRefreshToken:false}};
 const service=createClient(url,process.env.SUPABASE_SERVICE_ROLE_KEY,opts);
 const users=[],clients=[],sourceIds=[],requests=[];let space,pet,owner;
 const report={started_at:new Date().toISOString(),label,mode,transport:mode==='steward'?'json':'sse',final,synthetic_only:true,synthetic_ids:{users,space:null,pet:null},measurements:[],checks:[],cleanup:[],passed:false};
+report.conditions={path:plain?'personal_companion':'companion_group_recall',sample_count:sampleCount,cold_start:'uncontrolled',subsequent:'same account, pet, network and growing thread; sequential',device:'host SSE client, not Android UI/overlay',first_text:'first nonempty text event only; phase/accepted/done do not count'};
 const save=()=>writeFileSync(out,JSON.stringify(report,null,2));
 const ok=r=>{if(r.error)throw new Error(r.error.message);return r.data;};
 async function account(nickname){const email=`recall-timeout-${randomUUID()}@example.test`,password=`Aa1!${randomUUID()}`;
@@ -20,7 +25,7 @@ async function account(nickname){const email=`recall-timeout-${randomUUID()}@exa
  ok(await service.from('profiles').insert({id:user.id,email,nickname}));const client=createClient(url,process.env.SUPABASE_ANON_KEY,opts);clients.push(client);
  const session=ok(await client.auth.signInWithPassword({email,password})).session;return{id:user.id,client,token:session.access_token};}
 async function ask(content,requestId=randomUUID()){
- requests.push(requestId);const started=performance.now();const result={request_id:requestId,question:content,events:[],accepted_revision:null,elapsed_ms:null,reply:null,error:null};report.measurements.push(result);save();
+ requests.push(requestId);const started=performance.now();const result={request_id:requestId,question:content,events:[],accepted_revision:null,elapsed_ms:null,reply:null,error:null,first_text_ms:null,first_text_preview:null,text_events:0};report.measurements.push(result);save();
  try{
   const response=await fetch(`${url}/functions/v1/pet-chat`,{method:'POST',headers:{apikey:process.env.SUPABASE_ANON_KEY,Authorization:`Bearer ${owner.token}`,'Content-Type':'application/json'},body:JSON.stringify({content,request_id:requestId,mode,...(mode==='companion'?{stream:true}:{}),timezone:'Asia/Shanghai'}),signal:AbortSignal.timeout(145000)});
   result.http_status=response.status;result.server_timing=response.headers.get('server-timing');
@@ -35,6 +40,9 @@ async function ask(content,requestId=randomUUID()){
    try{for(;;){const part=await reader.read();if(part.done)break;buffer+=decoder.decode(part.value,{stream:true});assert.ok(buffer.length<300000);let end;
     while((end=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,end).trim();buffer=buffer.slice(end+1);if(!line.startsWith('data:'))continue;const event=JSON.parse(line.slice(5));
      result.events.push({type:event.type,phase:event.phase??null,at_ms:Math.round(performance.now()-started)});
+     if(event.type==='text'&&typeof event.content==='string'&&event.content.trim()){
+       result.text_events++;if(result.first_text_ms===null){result.first_text_ms=Math.round(performance.now()-started);result.first_text_preview=event.content.slice(0,100);}
+     }
      if(event.type==='accepted')result.accepted_revision=event.revision;
      if(event.type==='done')result.reply=event.message;
      if(event.type==='error')result.error=event.error;
@@ -46,7 +54,7 @@ async function ask(content,requestId=randomUUID()){
   assert.equal(result.reply.conversation_kind,mode,'reply_must_use_requested_mode');
   assert.ok(!result.reply.content.includes('旧暗号紫色月亮'),'pre_join_message_must_not_be_used');
   for(const source of result.reply.recall_sources??[]){assert.equal(source.space_id,space);assert.ok(sourceIds.includes(source.message_id));}
-  assert.ok((result.reply.recall_sources??[]).length>0,'actual_sources_required');return result;
+  if(!plain)assert.ok((result.reply.recall_sources??[]).length>0,'actual_sources_required');return result;
  }catch(error){result.error??=error instanceof Error?error.message.slice(0,160):'request_failed';throw error;}
  finally{result.elapsed_ms=Math.round(performance.now()-started);save();}
 }
@@ -134,9 +142,12 @@ try{
  const rows=Array.from({length:24},(_,i)=>({id:randomUUID(),client_id:randomUUID(),space_id:space,sender_id:i%2?friend.id:owner.id,actor_kind:'human',actor_id:null,actor_name:i%2?'合成查询乙':'合成查询甲',kind:'text',text:facts[i%facts.length],created_at:new Date(Date.now()-1800000+i*1000).toISOString()}));sourceIds.push(...rows.map(x=>x.id));
  ok(await owner.client.from('messages').insert([...rows.filter(x=>x.sender_id===owner.id),{...rows[0],id:randomUUID(),client_id:randomUUID(),text:'旧暗号紫色月亮：早先作废的私人安排。',created_at:new Date(Date.parse(joined)-60000).toISOString()}]));
  ok(await friend.client.from('messages').insert(rows.filter(x=>x.sender_id===friend.id)));
- const first=await ask('帮我总结一下合成爬山群群聊最近说了什么，已经确定的安排和还没确定的事分别是什么？');
- report.checks.push(`real ${mode} ${report.transport} returned a committed sourced group summary`,'pre-join source is excluded');
+ const questions=plain?['这是合成陪伴验收。今天忙完了，想轻松聊两句，暂时不用给我建议。','这是合成陪伴验收。我刚喝了水，现在坐着休息，和我简单聊两句。','这是合成陪伴验收。今天心情平静，想听一句轻松的回应。']:['帮我总结一下合成爬山群群聊最近说了什么，已经确定的安排和还没确定的事分别是什么？','合成爬山群群聊里关于下雨的安排定了吗？','查一下合成爬山群群聊里集合时间地点和路线，哪些已经确定？'];
+ const first=await ask(questions[0]);
+ report.checks.push(`real ${mode} ${report.transport} returned a committed ${plain?'personal reply':'sourced group summary'}`,'pre-join source is excluded');
  await checkRecoveryReads(first,friend);
+ for(let i=1;i<sampleCount;i++)await ask(questions[i%questions.length]);
+ if(sampleCount>1)await settledModelRuns(sampleCount);
  if(final){
   const beforeReplay=await modelRuns();assert.equal(beforeReplay.length,1,'one_model_run_before_replay');
   const replay=await ask(first.question,first.request_id);assert.equal(replay.reply.id,first.reply.id);
@@ -153,5 +164,8 @@ finally{
  for(const id of users)await cleanup('synthetic_account',()=>service.auth.admin.deleteUser(id));
  if(report.cleanup.some(result=>!result.passed)){report.passed=false;report.error??='synthetic_cleanup_failed';process.exitCode=1;}
  await Promise.allSettled(clients.map(x=>x.removeAllChannels()));report.finished_at=new Date().toISOString();save();
+ const successful=report.measurements.filter(row=>!row.error&&row.reply);
+ const stats=(rows,field)=>{const values=rows.map(row=>row[field]).filter(value=>typeof value==='number').sort((a,b)=>a-b);const p=q=>values.length?values[Math.ceil(values.length*q)-1]:null;return{samples:values.length,p50_ms:p(.5),p95_ms:p(.95),min_ms:values[0]??null,max_ms:values.at(-1)??null};};
+ report.summary={attempts:report.measurements.length,succeeded:successful.length,failed:report.measurements.filter(row=>row.error).length,first_text:stats(successful,'first_text_ms'),completed:stats(successful,'elapsed_ms'),all_attempt_durations:stats(report.measurements,'elapsed_ms'),note:'Completed and first-text distributions include successful replies only. Small synthetic sample; no phone rendering or controlled cold/warm comparison.'};save();
  console.log(JSON.stringify({passed:report.passed,mode,transport:report.transport,output:out,error:report.error,measurements:report.measurements.map(x=>({elapsed_ms:x.elapsed_ms,error:x.error,reply_received:!!x.reply})),cleanup:report.cleanup}));
 }

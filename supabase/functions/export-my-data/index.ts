@@ -1,3 +1,4 @@
+import { exportPetLearningData } from "../_shared/personalityLearning.ts";
 import { readAccountPages } from "../_shared/dataPagination.ts";
 import {exportVisionData} from "../_shared/visionData.ts";
 import { exportMemoryEvolutionData } from "../_shared/companionMemoryEvolution.ts";
@@ -37,6 +38,7 @@ Deno.serve(async (request) => {
     ]);
     const vision=await exportVisionData(client,user.id);
     const mediaMaintenance=await ownedPages("media_cleanup_jobs");
+    const personalityLearning=await exportPetLearningData(client,user.id);
     const memoryEvolution=await exportMemoryEvolutionData(client,user.id);
     const work = await exportWorkData(client,user.id);
     const reminders = await exportReminderData(client,user.id);
@@ -52,6 +54,7 @@ Deno.serve(async (request) => {
       ["agent_requests","requested_by","id"],["agent_message_feedback","user_id","id"],
       ["agent_proposal_votes","user_id","proposal_id"],["user_preferences","user_id","user_id"],
       ["model_runs","owner_id","id"],
+      ["pet_delegation_grants","owner_id","id"],["pet_action_receipts","owner_id","id"],["pet_action_plans","owner_id","id"],
     ]) accountOwned[table] = await ownedPages(table,cursor,column);
     const available = await client.from("profiles").select("id").eq("id",user.id).maybeSingle();
     const blocked = await client.from("notification_owner_blocks").select("owner_id").eq("owner_id",user.id).maybeSingle();
@@ -63,6 +66,7 @@ Deno.serve(async (request) => {
       vision,
       media_maintenance:mediaMaintenance,
       memory_evolution:memoryEvolution,
+      personality_learning:personalityLearning,
       exported_at: new Date().toISOString(),
       profile: profile.data,
       pet: pet.data,

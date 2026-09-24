@@ -1,0 +1,21 @@
+{
+  "at": "2026-09-22T09:23:45.305Z",
+  "runtime": "1.0.9",
+  "phase": "capabilities",
+  "updates": [
+    {
+      "id": "01a0c86d-a9af-77e7-8c8e-1564a4f04dce",
+      "createdAt": "2026-09-22T09:23:45.199Z",
+      "group": "6469d156-a327-4a8c-adc6-ee0db6556fbf",
+      "branch": "preview",
+      "message": "Android 1.0.9: pet capabilities, 2026-09-22 acceptance candidate",
+      "runtimeVersion": "1.0.9",
+      "platform": "android",
+      "manifestPermalink": "https://u.expo.dev/update/01a0c86d-a9af-77e7-8c8e-1564a4f04dce",
+      "isRollBackToEmbedded": false,
+      "gitCommitHash": "88aaeb0b2937fbde84dda8aeb1addca409ce0195"
+    }
+  ],
+  "bundleSha256": "e5f413639f0562873963487e5330e6c538acfb4bf81a361a4359f75b225f2862",
+  "phoneAcceptance": "pending"
+}

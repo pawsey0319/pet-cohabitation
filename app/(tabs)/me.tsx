@@ -1,4 +1,5 @@
 import { NotificationSettings } from "../../src/notifications/NotificationSettings";
+import { AppUpdatePanel, installedApp } from "../../src/updates/AppUpdates";
 import { AvatarEditor } from "../../src/avatars/AvatarEditor";
 import { AvatarImage } from "../../src/avatars/AvatarImage";
 import { ChatBackgroundEditor } from "../../src/backgrounds/ChatBackgroundEditor";
@@ -9,9 +10,10 @@ import { readableInk } from "../../src/theme/palette";
 import { createThemedStyles } from "../../src/theme/themedStyles";
 import { localDataKeys } from "../../src/data/localData";
 import { savePrivateDraft } from "../../src/pets/privateDraft";
+import { exportPendingChatMessages } from "../../src/chat/deliveryRuntime";
 import { KeyboardScreen, KeyboardScrollView, KeyboardTextInput } from "../../src/components/KeyboardLayout";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { router } from "expo-router";
+import { router, useLocalSearchParams, type Href } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   Modal,
@@ -37,7 +39,6 @@ import {
 import {
   THEME_PRESETS,
   isHexColor,
-  type PetReplyStyle,
   type ThemePreferences,
 } from "../../src/theme/preferences";
 import { useAppTheme } from "../../src/theme/ThemeProvider";
@@ -63,16 +64,6 @@ const COLOR_FIELDS: readonly {
   { key: "secondaryButton", label: "次按钮", note: "辅助操作" },
   { key: "dangerButton", label: "危险按钮", note: "注销等操作" },
   { key: "accent", label: "强调色", note: "选中与状态" },
-];
-
-const REPLY_STYLES: readonly {
-  value: PetReplyStyle;
-  label: string;
-  note: string;
-}[] = [
-  { value: "concise", label: "简洁", note: "先结论，最多 3 个要点" },
-  { value: "balanced", label: "均衡", note: "结论清楚，保留必要细节" },
-  { value: "detailed", label: "详细", note: "适合长群聊与完整回顾" },
 ];
 
 function Choice<T extends string>({
@@ -187,9 +178,16 @@ export default function MeScreen() {
   const [dataBusy, setDataBusy] = useState(false);
   const [dataMessage, setDataMessage] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [pane,setPane]=useState<"home"|"appearance"|"notifications"|"reply"|"account"|"service">("home");
+  const [pane,setPane]=useState<"home"|"appearance"|"notifications"|"account"|"service"|"updates">("home");
+  const params = useLocalSearchParams<{ pane?: string; section?: string; avatar?: string; background?: string }>();
+  useEffect(() => { if (params.pane === "reply" || params.section === "reply") router.replace("/pet-settings" as Href); }, [params.pane, params.section]);
   const [backgroundOpen,setBackgroundOpen]=useState(false);
   const [avatarOpen,setAvatarOpen]=useState(false);
+  useEffect(() => {
+    if (["appearance","notifications","account","service","updates"].includes(params.pane ?? "")) setPane(params.pane as "appearance"|"notifications"|"account"|"service"|"updates");
+    if (params.avatar === "open") { setAvatarOpen(true); router.setParams({ avatar: undefined }); }
+    if (params.background === "open") { setBackgroundOpen(true); router.setParams({ background: undefined }); }
+  }, [params.pane, params.avatar, params.background]);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [password, setPassword] = useState("");
@@ -221,6 +219,7 @@ export default function MeScreen() {
         await exportJsonFile({
           exported_at: new Date().toISOString(),
           local_demo: true,
+          pending_chat_messages: await exportPendingChatMessages(profile!.id),
           data: Object.fromEntries(
             rows.map(([key, value]) => [key, value ? JSON.parse(value) : null]),
           ),
@@ -231,7 +230,7 @@ export default function MeScreen() {
           { body: {} },
         );
         if (error) throw error;
-        await exportJsonFile(data, `pet-cohabitation-export-${new Date().toISOString().slice(0, 10)}.json`);
+        await exportJsonFile({ ...data, pending_chat_messages: await exportPendingChatMessages(profile!.id) }, `pet-cohabitation-export-${new Date().toISOString().slice(0, 10)}.json`);
       }
       setDataMessage("导出文件已生成");
     } catch (reason) {
@@ -279,7 +278,7 @@ export default function MeScreen() {
       {isLocalDemo ? <DemoBanner /> : null}
       <View style={styles.topline}>
         {pane !== "home" ? <Pressable accessibilityRole="button" accessibilityLabel="返回设置" onPress={()=>setPane("home")} style={{minWidth:48,minHeight:48,justifyContent:"center"}}><Icon name="back" color={theme.text}/></Pressable> : null}
-        <Text style={[styles.title,{fontSize:20}]}>{({home:"我的",appearance:"外观与显示",notifications:"消息通知",reply:"回应偏好",account:"账号与隐私",service:"AI 服务状态"})[pane]}</Text>
+        <Text style={[styles.title,{fontSize:20}]}>{({home:"我的",appearance:"外观与显示",notifications:"消息通知",account:"账号与隐私",service:"AI 服务状态",updates:"应用更新"})[pane]}</Text>
       </View>
       {pane === "home" ? <>
         <View style={{flexDirection:"row",alignItems:"center",gap:16,paddingVertical:20}}><Pressable accessibilityRole="button" accessibilityLabel="编辑个人头像" onPress={()=>setAvatarOpen(true)}><AvatarImage reference={profile?.avatarUrl} name={profile?.nickname??"我"} size={54}/></Pressable><View style={{flex:1,gap:6}}><Text style={{fontSize:21,fontWeight:"600",color:theme.text}}>{profile?.nickname}</Text><Text style={{fontSize:13,color:theme.muted}}>{profile?.email ?? "本地体验"}</Text></View></View>
@@ -287,13 +286,14 @@ export default function MeScreen() {
           <SettingsRow title="个人头像" note="相册裁切、AI 设计与恢复默认" icon="user" onPress={()=>setAvatarOpen(true)}/>
           <SettingsRow title="外观与显示" note="浅色、深色与跟随系统" icon="sun" onPress={()=>setPane("appearance")}/>
           <SettingsRow title="聊天背景" note="推荐背景、上传图片、AI 设计" icon="image" onPress={()=>setBackgroundOpen(true)}/>
-          <SettingsRow title="回应偏好" icon="pet" onPress={()=>setPane("reply")}/>
           <SettingsRow title="消息通知" icon="messages" onPress={()=>setPane("notifications")}/>
           <SettingsRow title="账号与隐私" icon="shield" onPress={()=>setPane("account")}/>
           <SettingsRow title="AI 服务状态" icon="settings" onPress={()=>setPane("service")}/>
+          <SettingsRow title="应用更新" note="检查云端版本，一键下载更新" icon="settings" onPress={()=>setPane("updates")}/>
         </View>
       </> : null}
 
+      {pane === "updates" ? <Surface><AppUpdatePanel /></Surface> : null}
       {pane === "service" ? (<Surface style={styles.healthCard}>
         <View style={styles.healthCopy}>
           <Text style={styles.sectionKicker}>连接状态</Text>
@@ -565,31 +565,7 @@ export default function MeScreen() {
         </View>
       </Surface>) : null}
 
-      {pane === "reply" ? (<Surface style={styles.section}>
-        <View style={styles.sectionHead}>
-          <View>
-            <Text style={styles.sectionKicker}>消息管家</Text>
-            <Text style={styles.sectionTitle}>群聊回顾偏好</Text>
-          </View>
-        </View>
-        <Text style={styles.controlNote}>
-          只改变回答组织方式，不改变它能读取的范围，也不会让它编造群聊内容。
-        </Text>
-        <View style={styles.replyGrid}>
-          {REPLY_STYLES.map((option) => (
-            <Choice
-              key={option.value}
-              value={option.value}
-              current={preferences.petReplyStyle}
-              label={option.label}
-              note={option.note}
-              onPress={(petReplyStyle) => update({ petReplyStyle })}
-            />
-          ))}
-        </View>
-      </Surface>) : null}
-
-      {(pane !== "notifications" && (dirty || notificationsDirty || pane === "appearance" || pane === "reply")) ? <>
+      {(pane !== "notifications" && (dirty || notificationsDirty || pane === "appearance")) ? <>
       <View
         style={[
           styles.saveBar,
@@ -717,7 +693,7 @@ export default function MeScreen() {
         onPress={() => void signOut()}
       />
       <Text style={styles.version}>
-        异宠 · 1.0.5
+        异宠 · {Platform.OS === "web" ? "网页版" : installedApp.version || "版本未识别"}
       </Text>
 
       <AvatarEditor visible={avatarOpen} onClose={()=>setAvatarOpen(false)}/>

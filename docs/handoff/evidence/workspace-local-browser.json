@@ -1,0 +1,15 @@
+{
+  "success": true,
+  "checks": [
+    "companion-without-portrait",
+    "companion-after-20-rounds",
+    "companion-reading-offset-preserved",
+    "memory-after-write",
+    "legacy-growth-redirect",
+    "capability-catalog"
+  ],
+  "errors": [],
+  "switches": 76,
+  "p95_browser_with_automation_ms": 47,
+  "scope": "Synthetic browser only. Native phone performance and notifications remain untested."
+}

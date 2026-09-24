@@ -2,6 +2,8 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react-native
 import { AppState } from "react-native";
 import { usePetDisplay } from "../petDisplay";
 
+jest.mock("../../pets/PetWorkspaceProvider", () => ({ usePetWorkspace: () => null }));
+
 const mockInvoke = jest.fn(); let mockOwner = "owner-a", mockRequest = 0;
 const mockCreateChannel = jest.fn(), mockRemoveChannel = jest.fn();
 const mockChannels: Array<{ events: Array<{ type: string; callback: (value: any) => void }>; status?: (value: string) => void }> = [];
@@ -46,7 +48,7 @@ test("completed transparent job remains a candidate until the owner confirms its
   expect(result.current.candidateUrl).toBe("https://fixture.invalid/unreviewed-head-only.png");
 });
 
-test("a rejected mask leaves the original portrait selected", async () => {
+test("a rejected mask leaves the main portrait empty", async () => {
   mockInvoke.mockResolvedValue({ data: status("failed", null), error: null });
   const { result } = await renderHook(() => usePetDisplay("pet-a", "source-a"));
   await waitFor(() => expect(result.current.state?.job?.status).toBe("failed"));
@@ -89,7 +91,7 @@ test.each([
   expect(result.current.url).toBeNull();
 });
 
-test("approval failure retains the original and leaves candidate available for review", async () => {
+test("approval failure leaves the main portrait empty and candidate available for review", async () => {
   mockInvoke.mockImplementation(async (_name, { body }) => body.action === "approve" ? { error: new Error("offline") } : { data: candidate(), error: null });
   const { result } = await renderHook(() => usePetDisplay("pet-a", "source-a"));
   await waitFor(() => expect(result.current.candidateUrl).toBeTruthy());
@@ -176,7 +178,7 @@ test("foreground and page reentry revalidate approved/restored state", async () 
   try {
     const { result } = await renderHook(() => usePetDisplay("pet-a", "source-a"));
     await waitFor(() => expect(result.current.url).toBeTruthy());
-    await act(() => listener("background")); expect(result.current.url).toBeNull();
+    await act(() => listener("background")); expect(result.current.url).toBe(approved().url);
     server = candidate(); await act(() => listener("active"));
     await waitFor(() => expect(result.current.candidateUrl).toBeTruthy()); expect(result.current.url).toBeNull();
     const focus = [...mockFocusEntries][0];
@@ -251,8 +253,9 @@ describe("signed image URL renewal", () => {
       const { result } = await renderHook(() => usePetDisplay("pet-a", "source-a"));
       await advance(100000);
       const reenter = await leave();
-      expect(result.current.url).toBeNull(); expect(result.current.candidateUrl).toBeNull();
+      expect(result.current.url).toBe(approved().url);
       await advance(600000); expect(mockInvoke).toHaveBeenCalledTimes(1);
+      expect(result.current.url).toBeNull();
       server = freshApproved(); await reenter();
       expect(result.current.url).toBe(freshApproved().url); expect(mockInvoke).toHaveBeenCalledTimes(2);
       await advance(240000); expect(mockInvoke).toHaveBeenCalledTimes(3);
@@ -264,8 +267,9 @@ describe("signed image URL renewal", () => {
       await advance(240000); expect(mockInvoke).toHaveBeenCalledTimes(2);
       const reenter = await leave();
       await act(() => complete({ data: freshApproved(), error: null }));
-      expect(result.current.url).toBeNull(); expect(result.current.candidateUrl).toBeNull();
+      expect(result.current.url).toBe(approved().url);
       await advance(600000); expect(mockInvoke).toHaveBeenCalledTimes(2);
+      expect(result.current.url).toBeNull();
       await reenter(); expect(result.current.candidateUrl).toBe(freshCandidate().candidate_url); expect(result.current.url).toBeNull();
     });
   });
@@ -291,35 +295,35 @@ describe("signed image URL renewal", () => {
     await advance(600000); expect(mockInvoke).toHaveBeenCalledTimes(3);
   });
 
-  test("a renewal request error clears signed URLs and waits for a new lifecycle or connection event", async () => {
+  test("a transient renewal error retains a valid approved URL and retries after five seconds", async () => {
     mockInvoke.mockResolvedValueOnce({ data: approved(), error: null }).mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ data: freshCandidate(), error: null });
     const { result } = await renderHook(() => usePetDisplay("pet-a", "source-a"));
     await advance(240000);
-    expect(result.current.url).toBeNull(); expect(result.current.candidateUrl).toBeNull();
-    await advance(600000); expect(mockInvoke).toHaveBeenCalledTimes(2);
-    await act(() => mockChannels.at(-1)!.status!("SUBSCRIBED"));
+    expect(result.current.url).toBe(approved().url);
+    await advance(4999); expect(mockInvoke).toHaveBeenCalledTimes(2);
+    await advance(1); expect(mockInvoke).toHaveBeenCalledTimes(3);
     expect(result.current.candidateUrl).toBe(freshCandidate().candidate_url); expect(result.current.url).toBeNull();
-    await advance(240000); expect(mockInvoke).toHaveBeenCalledTimes(4);
   });
 
-  test.each(["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"])("%s clears the portrait and cancels its pending renewal", async connectionStatus => {
+  test.each(["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"])("%s retains valid approval while retrying the connection", async connectionStatus => {
     mockInvoke.mockResolvedValue({ data: approved(), error: null });
     const { result } = await renderHook(() => usePetDisplay("pet-a", "source-a"));
     await advance(100000);
     await act(() => mockChannels.at(-1)!.status!(connectionStatus));
-    expect(result.current.url).toBeNull(); expect(result.current.candidateUrl).toBeNull();
-    await advance(600000); expect(mockInvoke).toHaveBeenCalledTimes(1);
+    expect(result.current.url).toBe(approved().url);
+    await advance(5000); expect(mockInvoke).toHaveBeenCalledTimes(2);
   });
 
-  test("a renewal already in flight cannot restore an image after a connection error", async () => {
+  test("a late response after connection failure cannot replace the retained approval", async () => {
     let complete!: (value: unknown) => void;
-    mockInvoke.mockResolvedValueOnce({ data: approved(), error: null }).mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
+    mockInvoke.mockResolvedValueOnce({ data: approved(), error: null }).mockImplementationOnce(() => new Promise(resolve => { complete = resolve; })).mockRejectedValue(new Error("offline"));
     const { result } = await renderHook(() => usePetDisplay("pet-a", "source-a"));
     await advance(240000);
     await act(() => mockChannels.at(-1)!.status!("CHANNEL_ERROR"));
     await act(() => complete({ data: freshApproved(), error: null }));
+    expect(result.current.url).toBe(approved().url);
+    await advance(50000);
     expect(result.current.url).toBeNull(); expect(result.current.candidateUrl).toBeNull();
-    await advance(600000); expect(mockInvoke).toHaveBeenCalledTimes(2);
   });
 
   test("a remote restore supersedes an in-flight renewal and cancels future image refreshes", async () => {

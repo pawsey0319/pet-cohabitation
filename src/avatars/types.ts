@@ -4,6 +4,14 @@ export type AvatarTarget = { kind: "profile" | "space"; id: string };
 export type AvatarAsset = { id: string; storage_path: string; source: "upload" | "ai"; created_at: string };
 export type AvatarState = { reference: string | null; version: number };
 export type AvatarMember = { id: string; nickname: string; avatarUrl?: string | null; joinedAt?: string };
+/** References never contain credentials or private draft storage paths. */
+export type ActorAvatarRef = { kind: "human" | "pet"; actorId: string; reference: string | null; spaceId?: string; version?: string };
+export type AvatarRead = { reference: string; space_id: string | null; url?: string | null; version?: string; published?: boolean; expires_at?: number; error?: string };
+export type SpaceAvatarState = { reference: string | null; version: number; members: AvatarMember[] };
+export function petAvatarReference(petId: string): string { return `pet-avatar://${petId}`; }
+export function petAvatarId(reference?: string | null): string | null {
+  return /^pet-avatar:\/\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(reference ?? "")?.[1] ?? null;
+}
 export type AvatarJob = { request_id: string; status: "queued" | "running" | "succeeded" | "failed"; asset_id: string | null; error_code: string | null; prompt: string };
 export function avatarAssetId(reference?: string | null): string | null {
   const match = /^avatar:\/\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(reference ?? "");

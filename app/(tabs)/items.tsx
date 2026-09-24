@@ -12,5 +12,5 @@ export default function ItemsScreen() {
   const spaceId = workRouteParam(params.spaceId);
   const itemId = workRouteParam(params.itemId);
   if (spaceId) return <Redirect href={{ pathname: "/group-items", params: { spaceId, ...(itemId ? { itemId } : {}) } }} />;
-  return <View style={{ flex: 1, paddingTop: insets.top + 8, backgroundColor: theme.page }}><WorkItemsPanel initialItemId={itemId} /></View>;
+  return <View style={{ flex: 1, paddingTop: insets.top + 8, backgroundColor: theme.page }}><View style={{ flex: 1, width: "100%", maxWidth: 900, alignSelf: "center" }}><WorkItemsPanel initialItemId={itemId} /></View></View>;
 }

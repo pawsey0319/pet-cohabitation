@@ -258,7 +258,9 @@ export function ChatBackgroundProvider({children}:PropsWithChildren) {
       const receipt=event.new.receipt,assetId=receipt?.asset?.id;
       if(receipt?.outcome==="deleted"&&typeof assetId==="string"&&/^[0-9a-f-]{36}$/i.test(assetId))invalidateAsset(id,assetId);
       synchronize();
-    }).on("system",{},event=>{
+    }).on("postgres_changes",{event:"*",schema:"public",table:"chat_background_settings",filter:`owner_id=eq.${id}`},synchronize)
+      .on("postgres_changes",{event:"*",schema:"public",table:"chat_background_generations",filter:`owner_id=eq.${id}`},synchronize)
+      .on("system",{},event=>{
       // Joining can precede WAL replication readiness; reconcile the intervening changes.
       if(event.status==="ok"&&(event.extension==="postgres_changes"||event.extension==="system"))synchronize();
     }).subscribe(status=>{if(status==="SUBSCRIBED")synchronize();});

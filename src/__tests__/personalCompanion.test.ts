@@ -110,4 +110,17 @@ test("private prompts preserve conversation roles, include the current turn once
   expect(payload.filter((item) => item.content.endsWith("CURRENT QUESTION"))).toHaveLength(1);
   expect(JSON.stringify(payload)).not.toContain("OLD COFFEE");
   expect(payload[1].content).toContain("我喜欢茶");
+  expect(JSON.parse(payload.find(item => item.role === "assistant")!.content)).toEqual({ content: "[2026-09-07T08:01:00Z] hi" });
+});
+
+test("assistant format examples preserve quoted history without inventing metadata or reviving excluded content", () => {
+  const payload = buildPrivateCompanionMessages({ petName: "芽芽", personality: "curious", styles: [], memories: [], recalledMessages: [], contextStartedAt: null, excludedMessageIds: ["forgotten"], messages: [
+    { id: "forgotten", role: "pet", content: "SECRET forgotten reply", created_at: "2026-09-21T08:00Z" },
+    { id: "safe", role: "pet", content: '这是“原话”与 "quotes"\n第二行🙂', created_at: "2026-09-21T08:01Z" },
+    { role: "owner", content: "继续", created_at: "2026-09-21T08:02Z" },
+  ] });
+  const examples = payload.filter(item => item.role === "assistant");
+  expect(examples).toHaveLength(1);
+  expect(JSON.parse(examples[0].content)).toEqual({ content: '[2026-09-21T08:01Z] 这是“原话”与 "quotes"\n第二行🙂' });
+  expect(JSON.stringify(payload)).not.toContain("SECRET");
 });

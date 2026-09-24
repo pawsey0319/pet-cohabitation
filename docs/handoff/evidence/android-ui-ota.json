@@ -1,0 +1,21 @@
+{
+  "at": "2026-09-22T08:29:59.890Z",
+  "runtime": "1.0.9",
+  "phase": "ui",
+  "updates": [
+    {
+      "id": "01a0c83c-707c-7a7f-b16c-5868b629c50c",
+      "createdAt": "2026-09-22T08:29:59.292Z",
+      "group": "d33a80b6-d0e3-41c7-b557-58646da54657",
+      "branch": "preview",
+      "message": "Android 1.0.9: pet ui, 2026-09-22 acceptance candidate",
+      "runtimeVersion": "1.0.9",
+      "platform": "android",
+      "manifestPermalink": "https://u.expo.dev/update/01a0c83c-707c-7a7f-b16c-5868b629c50c",
+      "isRollBackToEmbedded": false,
+      "gitCommitHash": "88aaeb0b2937fbde84dda8aeb1addca409ce0195"
+    }
+  ],
+  "bundleSha256": "d2a704354af8337a968c6229731d19061eccd541d6f5e0f4570f23bc91a35f39",
+  "phoneAcceptance": "pending"
+}

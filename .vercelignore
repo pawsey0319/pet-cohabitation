@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.git/
+.expo/
+.worktrees/
+.superpowers/
+.env*
+test-results/
+playwright-report/
+coverage/
+artifacts/
+desktop/
+docs/design/
+supabase/.temp/
+supabase/.branches/
+supabase/functions/.env.production
+*.log

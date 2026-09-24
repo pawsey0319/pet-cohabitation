@@ -10,32 +10,52 @@ import { loadPrivateDraft, savePrivateDraft } from "../pets/privateDraft";
 import { clearPrivateSendQueue, privateSendQueue } from "../pets/privateSendQueue";
 import { prepareVisionAttachment } from "../vision/repository";
 import { Text } from "react-native";
+import { PetSectionScope } from "../pets/PetSectionScope";
 beforeEach(async () => { await clearPrivateSendQueue("local-preview"); });
 
 function props() { return { petName: "芽芽", incubating: false, messages: [{ id: "owner1", role: "owner" as const, content: "我想准备面试", createdAt: "2026-09-06T08:00:00Z" }], context: { memories: [], contextStartedAt: null }, enteredAt: Date.parse("2026-09-07T08:00:00Z"), busy: false, onSend: jest.fn().mockResolvedValue(undefined), onSaveMemory: jest.fn().mockResolvedValue(undefined), onRemoveMemory: jest.fn().mockResolvedValue(undefined), onNewConversation: jest.fn().mockResolvedValue(undefined) }; }
 
-test("appearance controls are available beside the movable pet and approval stays explicit", async () => {
- const callbacks=props(),approve=jest.fn().mockResolvedValue(undefined),change=jest.fn();
- const display={url:null,candidateUrl:"https://fixture.invalid/candidate.png",state:{preference:{version:0,use_transparent:true},source_asset_id:"source-a",url:null,candidate_url:"https://fixture.invalid/candidate.png",job:{id:"job-a",status:"succeeded",error_code:null}},error:null,busy:false,approve,change};
- await render(<PetCompanionPanel {...callbacks} portrait={()=> <Text>移动本体</Text>} originalPortrait={<Text>原始素材对照</Text>} display={display}/>);
- expect(screen.queryByText("原图对照")).toBeNull(); expect(approve).not.toHaveBeenCalled();
- await fireEvent.press(screen.getByLabelText("形象与透明效果"));
- expect(screen.getByText("原始素材对照")).toBeTruthy(); expect(screen.getByText("透明效果预览")).toBeTruthy(); expect(approve).not.toHaveBeenCalled();
- await fireEvent.press(screen.getByText("使用此透明效果")); expect(approve).toHaveBeenCalledTimes(1); expect(change).not.toHaveBeenCalled();
- await fireEvent.press(screen.getByText("返回聊天")); expect(screen.getByLabelText("异宠私聊输入")).toBeTruthy();
+test("independent settings route preserves the current editable draft and does not open a duplicate memory hub", async () => {
+  const settings = jest.fn(), memories = jest.fn();
+  await render(<PetCompanionPanel {...props()} onSettings={settings} onManageMemory={memories} />);
+  await fireEvent.changeText(screen.getByLabelText("异宠私聊输入"), "我还没发完的话");
+  await fireEvent.press(screen.getByLabelText("相处设置"));
+  expect(settings).toHaveBeenCalledTimes(1); expect(memories).not.toHaveBeenCalled();
+  expect(screen.queryByText("它记住的你")).toBeNull(); expect(screen.getByLabelText("异宠私聊输入").props.value).toBe("我还没发完的话");
 });
 
-test("small keyboard layout temporarily removes the pet canvas without losing the chat composer", async () => {
- const view=await render(<PetCompanionPanel {...props()} portrait={()=> <Text>移动本体</Text>}/>);
- const panel=view.getByTestId("pet-position-stage").parent!.parent!;
- // Resolve the outer panel by its layout callback, as the stage itself has no
- // keyboard listener or screen geometry ownership.
- let root=panel;while(root.parent && !root.props.onLayout)root=root.parent;
- await fireEvent(root,"layout",{nativeEvent:{layout:{x:0,y:0,width:390,height:360}}});
- expect(screen.queryByTestId("pet-position-canvas")).toBeNull();
- expect(screen.getByLabelText("异宠私聊输入")).toBeTruthy(); expect(screen.getByLabelText("发送私聊")).toBeTruthy();
- await fireEvent(root,"layout",{nativeEvent:{layout:{x:0,y:0,width:390,height:760}}});
- expect(screen.getByTestId("pet-position-canvas")).toBeTruthy();
+test("companion never renders a pet portrait or empty-state stage, and keeps the composer", async () => {
+ const callbacks=props();
+ const view=await render(<PetCompanionPanel {...callbacks} messages={[]} portrait={() => <Text>原图本体</Text>} onDesktopPet={jest.fn()} />);
+ expect(screen.queryByText("原图本体")).toBeNull();
+ expect(screen.queryByTestId("pet-position-stage")).toBeNull();
+ expect(screen.queryByLabelText("桌面异宠设置")).toBeNull();
+ await fireEvent.changeText(screen.getByLabelText("异宠私聊输入"), "草稿保留");
+ expect(screen.getByLabelText("异宠私聊输入").props.value).toBe("草稿保留");
+ await view.unmount();
+});
+
+test("a reply continues while its panel is hidden and keeps the next draft when restored",async()=>{
+ const owner="hidden-reply-continuity",callbacks=props();
+ let emit!:(event:any)=>void,finish!:()=>void;
+ callbacks.onSend.mockImplementation((_text,_id,onEvent)=>{emit=onEvent;return new Promise<void>(resolve=>{finish=resolve;});});
+ const panel=(visible:boolean)=><PetSectionScope.Provider value={{visible,section:"companion",navigate:jest.fn()}}><PetCompanionPanel {...callbacks} ownerId={owner}/></PetSectionScope.Provider>;
+ const view=await render(panel(true));
+ await waitFor(()=>expect(screen.getByLabelText("异宠私聊输入").props.editable).toBe(true));
+ await fireEvent.changeText(screen.getByLabelText("异宠私聊输入"),"请继续讲这个故事");
+ await fireEvent.press(screen.getByLabelText("发送私聊"));
+ await waitFor(()=>expect(callbacks.onSend).toHaveBeenCalledTimes(1));
+ await act(()=>emit({type:"text",content:"故事的开头"}));
+ await fireEvent.changeText(screen.getByLabelText("异宠私聊输入"),"下一条还没有发送的草稿");
+ await view.rerender(panel(false));
+ await act(()=>emit({type:"text",content:"故事的开头，切页期间仍然继续"}));
+ await view.rerender(panel(true));
+ expect(screen.getByText("故事的开头，切页期间仍然继续")).toBeTruthy();
+ expect(screen.getByLabelText("异宠私聊输入").props.value).toBe("下一条还没有发送的草稿");
+ await act(()=>finish());
+ expect(callbacks.onSend).toHaveBeenCalledTimes(1);
+ expect((await loadPrivateDraft(owner))?.content).toBe("下一条还没有发送的草稿");
+ await view.unmount();await clearPrivateSendQueue(owner);
 });
 
 test("failed image upload keeps draft and retries its exact request and image",async()=>{

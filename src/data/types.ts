@@ -1,7 +1,7 @@
 export type RelationshipKind = "friend_pair" | "lover_pair" | "friend_circle";
 export type MessageKind = "text" | "image" | "voice" | "system";
 export type ActorKind = "human" | "pet" | "space_agent";
-export type DeliveryState = "preparing" | "uploading" | "pending" | "sent" | "failed";
+export type DeliveryState = "saving" | "preparing" | "uploading" | "pending" | "sent" | "failed";
 export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "blocked";
 export type AgentFeedbackRating = "natural" | "irrelevant" | "intrusive" | "unsafe";
 export type PetMotionState = "idle" | "listening" | "thinking" | "speaking" | "happy" | "eating" | "playing" | "sleeping";
@@ -26,6 +26,8 @@ export type ChatSpace = Readonly<{
   lastMessage?: string | null;
   lastMessageAt?: string | null;
   unreadCount: number;
+  lastReadSequence?: number;
+  latestSequence?: number;
   observationEnabled?: boolean;
 }>;
 
@@ -38,6 +40,8 @@ export type ChatMessage = Readonly<{
   actorId?: string | null;
   actorName: string;
   senderAvatarUrl?: string | null;
+  spaceSequence?: number;
+  syncSequence?: number;
   kind: MessageKind;
   text: string | null;
   mediaPath: string | null;

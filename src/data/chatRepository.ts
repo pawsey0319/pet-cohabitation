@@ -1,3 +1,4 @@
+import type { ReadReceipt } from "../chat/readState";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createRequestId } from "../lib/uuid";
 import type { ChatChange, MessageCursor } from "../chat/messageSync";
@@ -26,7 +27,7 @@ export interface ChatRepository {
   getMessagesByIds(spaceId: string, ids: readonly string[]): Promise<readonly ChatMessage[]>;
   sendMessage(message: QueuedMessage, actorName: string): Promise<ChatMessage>;
   toggleReaction(messageId: string, emoji: string, userId: string): Promise<void>;
-  markRead(spaceId: string, throughMessageId?: string | null): Promise<void>;
+  markRead(spaceId: string, throughMessageId?: string | null): Promise<ReadReceipt | void>;
   listMentionTargets(spaceId: string): Promise<readonly MentionTarget[]>;
   subscribe(spaceId: string, onChange: (event?: ChatChange) => void): Unsubscribe;
   createSpace(input: { name: string; kind: RelationshipKind }): Promise<string>;
@@ -290,6 +291,8 @@ function mapRemoteMessage(row: Record<string, any>): ChatMessage {
     id: row.id,
     clientId: row.client_id,
     spaceId: row.space_id,
+    spaceSequence: row.space_sequence == null ? undefined : Number(row.space_sequence),
+    syncSequence: row.sync_sequence == null ? undefined : Number(row.sync_sequence),
     senderId: row.sender_id,
     senderAvatarUrl: row.profiles?.avatar_url ?? null,
     updatedAt: row.updated_at ?? row.created_at,
@@ -349,7 +352,8 @@ class SupabaseChatRepository implements ChatRepository {
   }
   async listSpaces(): Promise<readonly ChatSpace[]> {
     deliverDueReminders();
-    const { data, error } = await requireSupabase().rpc("list_my_spaces");
+    let { data, error } = await requireSupabase().rpc("list_my_spaces_v3");
+    if (error?.code === "PGRST202") ({data,error}=await requireSupabase().rpc("list_my_spaces"));
     if (error) throw error;
     return (data ?? []).map((row: Record<string, any>) => ({
       id: row.id,
@@ -360,20 +364,27 @@ class SupabaseChatRepository implements ChatRepository {
       lastMessage: row.last_message,
       lastMessageAt: row.last_message_at,
       unreadCount: Number(row.unread_count),
+      lastReadSequence: row.last_read_sequence == null ? undefined : Number(row.last_read_sequence),
+      latestSequence: row.latest_sequence == null ? undefined : Number(row.latest_sequence),
       observationEnabled: row.observation_enabled,
     }));
   }
 
   async listMessages(spaceId: string, before?: string | MessageCursor | null, limit = 50): Promise<readonly ChatMessage[]> {
-    const { data, error } = await requireSupabase().rpc("list_space_messages_v2", {
+    let { data, error } = await requireSupabase().rpc("list_space_messages_v3", {
+      target_space_id:spaceId,before_sequence:typeof before==="object"?before?.sequence??null:null,
+      before_message_id:typeof before==="object"?before?.id??null:null,before_at:typeof before==="string"?before:before?.at??null,page_size:limit,
+    });
+    if(error?.code==="PGRST202")({data,error}=await requireSupabase().rpc("list_space_messages_v2", {
       target_space_id: spaceId, before_at: typeof before === "string" ? before : before?.at ?? null,
       before_id: typeof before === "object" ? before?.id ?? null : null, page_size: limit,
-    });
+    }));
     if (error) throw error;
     return (data ?? []).map(mapRemoteMessage).reverse();
   }
   async syncMessages(spaceId: string, after: MessageCursor): Promise<readonly ChatMessage[]> {
-    const {data,error} = await requireSupabase().rpc("sync_space_messages_v2", { target_space_id:spaceId,after_at:after.at,after_id:after.id,page_size:100 });
+    let {data,error} = await requireSupabase().rpc("sync_space_messages_v3", { target_space_id:spaceId,after_sequence:after.sequence??0,page_size:100 });
+    if(error?.code==="PGRST202")({data,error}=await requireSupabase().rpc("sync_space_messages_v2", { target_space_id:spaceId,after_at:after.at,after_id:after.id,page_size:100 }));
     if(error) throw error;
     return (data ?? []).map(mapRemoteMessage);
   }
@@ -386,6 +397,9 @@ class SupabaseChatRepository implements ChatRepository {
 
   async listMessagesAround(spaceId: string, messageId: string, limit = 50): Promise<readonly ChatMessage[]> {
     const client = requireSupabase();
+    const current=await client.rpc("list_space_messages_v3",{target_space_id:spaceId,anchor_id:messageId,page_size:limit});
+    if(!current.error)return(current.data??[]).map(mapRemoteMessage).reverse();
+    if(current.error.code!=="PGRST202")throw current.error;
     const anchor = await client.from("messages").select("created_at").eq("space_id", spaceId).eq("id", messageId).maybeSingle();
     if (anchor.error) throw anchor.error;
     if (!anchor.data) return [];
@@ -420,7 +434,7 @@ class SupabaseChatRepository implements ChatRepository {
       reply_message_preview: input.replyPreview ?? null,
       mentioned_user_ids: input.mentionedUserIds ?? [],
       mentioned_pet_ids: input.mentionedPetIds ?? [],
-    });
+    }).abortSignal(AbortSignal.timeout(20_000));
     if (sent.error) throw sent.error;
     if (!sent.data?.message?.id) throw new Error("消息回执不完整，请使用原请求重试。");
     // Latency optimization only: the durable queued job was committed with the message.
@@ -433,11 +447,17 @@ class SupabaseChatRepository implements ChatRepository {
     if (error) throw error;
   }
 
-  async markRead(spaceId: string, throughMessageId?: string | null): Promise<void> {
-    const { error } = throughMessageId
-      ? await requireSupabase().rpc("mark_space_read_through", { target_space_id: spaceId, through_message_id: throughMessageId })
-      : await requireSupabase().rpc("mark_space_read", { target_space_id: spaceId });
-    if (error) throw error;
+  async markRead(spaceId: string, throughMessageId?: string | null): Promise<ReadReceipt | void> {
+    const client=requireSupabase();
+    if (throughMessageId) {
+      const result=await client.rpc("mark_space_read_v3",{target_space_id:spaceId,through_message_id:throughMessageId});
+      if (!result.error) return {spaceId,readSequence:Number(result.data.read_sequence),latestSequence:Number(result.data.latest_sequence),unreadCount:Number(result.data.unread_count)};
+      if (result.error.code !== "PGRST202") throw result.error;
+    }
+    const {error}=throughMessageId
+      ? await client.rpc("mark_space_read_through",{target_space_id:spaceId,through_message_id:throughMessageId})
+      : await client.rpc("mark_space_read",{target_space_id:spaceId});
+    if(error) throw error;
   }
 
   async listMentionTargets(spaceId: string): Promise<readonly MentionTarget[]> {

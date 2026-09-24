@@ -23,3 +23,14 @@ expo-env.d.ts
 .vercel
 .env*
 artifacts/*.apk
+
+# Machine state and generated caches never belong to a handoff commit.
+__pycache__/
+*.py[cod]
+.gradle/
+*.credential
+*.keystore
+*.jks
+*.p12
+*.pfx
+%SystemDrive%/

@@ -1,0 +1,21 @@
+{
+  "verified_at": "2026-09-21T09:50:06.733225+00:00",
+  "apk": "D:\\Knowlege_base\\intern\\project\\bro-relationship\\.worktrees\\agent-workbench-pet-onboarding\\artifacts\\pet-cohabitation-preview-1.0.9-build11.apk",
+  "apk_sha256": "ba8d6dbe1f1501f2cb7a435c27a6e5d1b53b356262df4d5dda93424bb04650df",
+  "artifact_classification": "candidate",
+  "candidate_build_id_label": "0f8b0a47-2cff-4922-a862-f564a25ab55a",
+  "cryptographic_verification_passed": true,
+  "expected_signing_certificate_matched": true,
+  "signing_certificate_sha256": [
+    "7B:A5:D7:1C:7E:80:96:BA:E6:85:3F:EB:41:1A:A3:80:CC:5F:8C:87:42:8A:C8:C8:76:E0:2B:88:8B:05:9D:56"
+  ],
+  "apksigner_exit_code": 0,
+  "stdout": "Verifies\nVerified using v1 scheme (JAR signing): false\nVerified using v2 scheme (APK Signature Scheme v2): true\nVerified using v3 scheme (APK Signature Scheme v3): false\nVerified using v3.1 scheme (APK Signature Scheme v3.1): false\nVerified using v3.2 scheme (APK Signature Scheme v3.2): false\nVerified using v4 scheme (APK Signature Scheme v4): false\nVerified for SourceStamp: false\nNumber of signers: 1\nV2 Signer: certificate DN: CN=, OU=, O=, L=, ST=, C=\nV2 Signer: certificate SHA-256 digest: 7ba5d71c7e8096bae6853feb411aa380cc5f8c87428ac8c876e02b888b059d56\nV2 Signer: certificate SHA-1 digest: bdca501819b75556c98a633df3bf8d78f4ee0116\nV2 Signer: certificate MD5 digest: af9f39fd95d8386df95e9a4b7d892d02\nV2 Signer: key algorithm: RSA\nV2 Signer: key size (bits): 2048\nV2 Signer: public key SHA-256 digest: 2bb5725b55a2b6c98a10a6d83b71df9541608aa7530245190c52564705ecbeaf\nV2 Signer: public key SHA-1 digest: 30486ec48b6900b7c7e3e96dbabf0d4d03f548d2\nV2 Signer: public key MD5 digest: 58575ddb4b1d0d16264ac8a1d7c82672\n",
+  "stderr": "",
+  "java_version": "openjdk version \"21.0.12.1\" 2026-08-18 LTS\nOpenJDK Runtime Environment Temurin-21.0.12.1+1 (build 21.0.12.1+1-LTS)\nOpenJDK 64-Bit Server VM Temurin-21.0.12.1+1 (build 21.0.12.1+1-LTS, mixed mode, sharing)\n",
+  "apksigner_version": "0.9",
+  "toolchain_integrity_checked": true,
+  "toolchain_metadata": "D:\\Knowlege_base\\intern\\project\\bro-relationship\\.worktrees\\agent-workbench-pet-onboarding\\test-results\\apk-signing-tools\\toolchain.json",
+  "passed": true,
+  "scope": "Official apksigner verify --verbose --print-certs checks actual APK cryptographic integrity against the APK manifest's supported SDK range. Separate package/configuration and device tests are still required."
+}

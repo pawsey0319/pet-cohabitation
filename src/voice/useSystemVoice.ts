@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, PermissionsAndroid, Platform } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { usePetSectionFocusEffect as useFocusEffect } from "../pets/PetSectionScope";
 import { useSession } from "../auth/SessionProvider";
 import { createRequestId } from "../lib/uuid";
 import { getVoiceModule, voiceError, type VoiceCapabilities, type VoiceEvent } from "./native";

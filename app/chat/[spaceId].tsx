@@ -1,3 +1,7 @@
+import { clearAvatarLocalData, prefetchAvatars } from "../../src/avatars/repository";
+import { getChatDelivery } from "../../src/chat/deliveryRuntime";
+import { ChatPageScope } from "../../src/chat/pageScope";
+import { markLocallyRead, flushReadState, revokeSpaceReadState } from "../../src/chat/readState";
 import { ScrollView } from "react-native";
 import { GroupWorkSuggestions } from "../../src/work/GroupWorkSuggestions";
 import { SpaceAvatar } from "../../src/avatars/SpaceAvatar";
@@ -86,12 +90,12 @@ function MessageRow({ message, mine, signedUrl, selected, agentJob, proposal, cu
   </>;
   return (
     <View style={[styles.messageWrap, mine && styles.messageWrapMine]}>
-      {!isAgent ? <AvatarImage reference={message.senderAvatarUrl} name={message.actorName} size={36}/> : <View style={[styles.senderAvatar,styles.senderAvatarAgent]}><Text style={styles.senderAvatarText}>{message.actorKind === "pet"?"✦":"A"}</Text></View>}
+      {message.actorKind !== "space_agent" ? <AvatarImage reference={message.actorKind === "pet" && message.actorId ? `pet-avatar://${message.actorId}` : message.senderAvatarUrl} name={message.actorName} spaceId={message.spaceId} size={36}/> : <View style={[styles.senderAvatar,styles.senderAvatarAgent]}><Text style={styles.senderAvatarText}>A</Text></View>}
       <View style={[styles.messageColumn, mine && styles.messageColumnMine]}>
         {!mine ? <Text style={[styles.senderName, isAgent && styles.agentName]}>{message.actorName}{isAgent ? " · AI" : ""}</Text> : null}
         {message.kind === "image" || message.kind === "voice" || proposal ? <View style={proposal ? styles.proposalBubble : bubbleStyle}>{bubbleContent}</View> : <Pressable accessibilityRole="button" accessibilityLabel={`消息：${message.text ?? message.kind}`} onPress={onSelect} onLongPress={onSelect} style={bubbleStyle}>{bubbleContent}</Pressable>}
         {message.delegationRequestId ? <Text style={styles.delegatedLabel}>{message.delegationConfirmedAt && message.delegationConfirmedBy ? "异宠代本人发布 · 本人已确认" : "由异宠代发 · 历史记录"}</Text> : null}
-        <View style={[styles.metaRow, mine && styles.metaRowMine]}><Text style={styles.meta}>{dateLabel(message.createdAt)}</Text>{mine && message.deliveryState !== "sent" ? <Pressable onPress={message.deliveryState === "failed" ? onRetry : undefined}><Text style={[styles.meta, message.deliveryState === "failed" && styles.failed]}>{message.deliveryState === "preparing" ? "正在准备" : message.deliveryState === "uploading" ? "上传中" : message.deliveryState === "pending" ? "发送中" : "发送失败 · 重试"}</Text></Pressable> : null}</View>
+        <View style={[styles.metaRow, mine && styles.metaRowMine]}><Text style={styles.meta}>{dateLabel(message.createdAt)}</Text>{mine && message.deliveryState !== "sent" ? <Pressable onPress={message.deliveryState === "failed" ? onRetry : undefined}><Text style={[styles.meta, message.deliveryState === "failed" && styles.failed]}>{message.deliveryState === "saving" ? "正在保存…" : message.deliveryState === "preparing" ? "正在准备" : message.deliveryState === "uploading" ? "上传中" : message.deliveryState === "pending" ? "发送中" : "发送失败 · 重试"}</Text></Pressable> : null}</View>
         {mine && agentJob && (agentJob.status === "queued" || agentJob.status === "running") ? <View style={styles.agentProgress}><ActivityIndicator size="small" color={colors.mint} /><Text style={styles.agentProgressText}>{groupReplyProgress(agentJob)}</Text></View> : null}
         {mine && agentJob && (agentJob.status === "failed" || agentJob.status === "blocked") ? <Pressable disabled={agentJob.retryable === false || agentJob.errorCode === "legacy_route_review_required"} onPress={agentJob.retryable === false || agentJob.errorCode === "legacy_route_review_required" ? undefined : onRetryAgent} style={styles.agentProgress}><Text style={styles.agentFailed}>{agentJob.retryable === false || agentJob.errorCode === "legacy_route_review_required" ? "异宠回应暂不可重试" : "异宠回应失败 · 点击手动重试"}</Text></Pressable> : null}
         {reactionEntries.length ? <View style={styles.reactionSummary}>{reactionEntries.map(([emoji, users]) => <Pressable key={emoji} onPress={() => onReact(emoji)} style={styles.reactionPill}><Text style={styles.reactionText}>{emoji} {users.length}</Text></Pressable>)}</View> : null}
@@ -108,11 +112,14 @@ export default function ChatScreen() {
   const [notificationsOpen,setNotificationsOpen]=useState(false);
   const { spaceId, messageId: notificationMessageId } = useLocalSearchParams<{ spaceId: string; messageId?: string }>(); const { profile, isLoading: sessionLoading, isLocalDemo } = useSession(); const insets = useSafeAreaInsets(); const netInfo = useNetInfo();
   const { theme } = useAppTheme();
-  const repository = useMemo(() => profile ? createChatRepository(profile) : null, [profile?.id, profile?.nickname]); const outbox = useMemo(() => new MessageOutbox(createPersistentOutboxStore(profile?.id ?? "signed-out")), [profile?.id]);
+  const repository = useMemo(() => profile ? createChatRepository(profile) : null, [profile?.id, profile?.nickname]); const delivery = useMemo(() => profile && repository ? getChatDelivery(profile,repository) : null,[profile?.id,repository]); const outbox = delivery?.outbox ?? new MessageOutbox(createPersistentOutboxStore("signed-out"));
   const cache = useMemo(() => new MessageCache(profile?.id ?? "signed-out",spaceId),[profile?.id,spaceId]);
   const cursorRef = useRef<MessageCursor | null>(null);
   const generationRef = useRef(0);
-  const refreshRef = useRef<() => Promise<void>>(async () => undefined);
+  const pageScope = useRef(new ChatPageScope()).current;
+  pageScope.select(profile?.id, spaceId);
+  const composerScopeRef = useRef<string | null>(null);
+  const refreshRef = useRef<(recheckPermissions?: boolean) => Promise<void>>(async () => undefined);
   const draftRevisionRef = useRef(0);
   const [messages, setMessages] = useState<readonly ChatMessage[]>([]); const [loading, setLoading] = useState(true); const [loadingOlder, setLoadingOlder] = useState(false); const [hasOlder, setHasOlder] = useState(true);
   const [agentJobs, setAgentJobs] = useState<readonly AgentJob[]>([]);
@@ -120,7 +127,7 @@ export default function ChatScreen() {
   const [feedbackSent, setFeedbackSent] = useState<ReadonlySet<string>>(new Set());
   const [text, setText] = useState(""); const [replying, setReplying] = useState<ChatMessage | null>(null); const [selectedId, setSelectedId] = useState<string | null>(null); const [error, setError] = useState<string | null>(null);
   const [suggestionsOpen,setSuggestionsOpen]=useState(false);
-  const [menu, setMenu] = useState(false); const [invite, setInvite] = useState<string | null>(null); const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+  const [menu, setMenu] = useState(false); const [groupToolsOpen, setGroupToolsOpen] = useState(false); const [relationshipChooserOpen, setRelationshipChooserOpen] = useState(false); const [invite, setInvite] = useState<string | null>(null); const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
   const [workbenchOpen, setWorkbenchOpen] = useState(false); const [previewMessage, setPreviewMessage] = useState<ChatMessage | null>(null); const [previewLoading, setPreviewLoading] = useState(false); const [unseenNewMessage, setUnseenNewMessage] = useState(false);
   const [observationOpen, setObservationOpen] = useState(false); const [observations, setObservations] = useState<readonly PetObservationStatus[]>([]); const [panelBusy, setPanelBusy] = useState(false);
   const [mentionTargets, setMentionTargets] = useState<readonly MentionTarget[]>([]); const [mentionQuery, setMentionQuery] = useState<string | null>(null); const [selectedMentions, setSelectedMentions] = useState<readonly MentionTarget[]>([]);
@@ -133,6 +140,9 @@ export default function ChatScreen() {
   const viewportSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ownMessageSettledOffsetRef = useRef<number | null>(null);
   const lastMarkedReadKeyRef = useRef<string | null>(null);
+  const focusedRef=useRef(false);
+  const saveFailuresRef=useRef(new Map<string,QueuedMessage>());
+  useFocusEffect(useCallback(()=>{focusedRef.current=true;return()=>{focusedRef.current=false;};},[]));
   const locatedNotificationMessageRef = useRef<string | null>(null);
   const recordingActiveRef = useRef(false); const voicePressHeldRef = useRef(false); const recordStartYRef = useRef<number | null>(null); const cancelRecordingRef = useRef(false);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY); const recorderState = useAudioRecorderState(recorder, 250);
@@ -147,17 +157,27 @@ export default function ChatScreen() {
 
   const markLatestRead = useCallback(() => {
     const newest = latestSentMessage(messagesRef.current);
-    if (!repository || !newest || !nearBottomRef.current) return;
+    if (!profile || !repository || !newest || !nearBottomRef.current || !focusedRef.current || AppState.currentState === "background" || AppState.currentState === "inactive") return;
     const key = `${newest.senderId}:${newest.clientId}`;
     if (lastMarkedReadKeyRef.current === key) return;
     lastMarkedReadKeyRef.current = key;
-    void repository.markRead(spaceId, newest.id).catch(() => { if (lastMarkedReadKeyRef.current === key) lastMarkedReadKeyRef.current = null; });
-  }, [repository, spaceId]);
+    markLocallyRead(profile.id,spaceId,newest);
+    void flushReadState(profile.id,(space,id)=>repository.markRead(space,id));
+  }, [repository, spaceId, profile?.id]);
+
+  const visibleReadRef=useRef(markLatestRead);visibleReadRef.current=markLatestRead;
+  const viewability=useRef({itemVisiblePercentThreshold:1,minimumViewTime:150}).current;
+  const onVisibleMessages=useRef(({viewableItems}:{viewableItems:readonly {item:ChatMessage}[]})=>{
+    const last=latestSentMessage(messagesRef.current);
+    if(last && viewableItems.some(row=>row.item.id===last.id))visibleReadRef.current();
+  }).current;
 
   const settleViewportAtEnd = useCallback((animated: boolean) => {
+    const valid = pageScope.capture();
     if (viewportSettleTimerRef.current) clearTimeout(viewportSettleTimerRef.current);
     let attempt = 0;
     const scrollAfterLayout = () => {
+      if (!valid()) return;
       const shouldAnimate = attempt === 0 ? animated : false;
       if (Platform.OS === "web") {
         const scrollNode = (typeof document !== "undefined" ? document.querySelector('[data-testid="chat-message-list"]') : null) as HTMLElement | null;
@@ -186,19 +206,33 @@ export default function ChatScreen() {
       }
     };
     requestAnimationFrame(scrollAfterLayout);
-  }, [markLatestRead]);
+  }, [markLatestRead, pageScope]);
 
   const loadLatest = useCallback(() => refreshRef.current(), []);
   useEffect(() => {
     if (!repository || !profile) return;
     const generation = ++generationRef.current;
+    const scopeValid = pageScope.begin();
     let disposed = false;
     let revoked = false;
     let initialized = false;
     let hasMore = true;
-    const valid = () => !disposed && !revoked && generationRef.current === generation;
+    const valid = () => !disposed && !revoked && scopeValid() && generationRef.current === generation;
     cursorRef.current = null;
+    lastMarkedReadKeyRef.current=null;
+    saveFailuresRef.current.clear();
     initialScrollDoneRef.current = false;
+    locatedNotificationMessageRef.current=null;
+    pendingViewportIntentRef.current=null;
+    const composerScope=JSON.stringify([profile.id,spaceId]);
+    if(composerScopeRef.current!==composerScope){
+      composerScopeRef.current=composerScope;draftRevisionRef.current++;
+      setText("");setReplying(null);setMentionQuery(null);setSelectedMentions([]);
+      voicePressHeldRef.current=false;cancelRecordingRef.current=true;
+    }
+    setLoadingOlder(false); setHasOlder(true); setSelectedId(null); setInvite(null); setPreviewMessage(null);
+    setMentionTargets([]); setObservations([]); setFeedbackSent(new Set());
+    setPanelBusy(false); setPreviewLoading(false); setObservationOpen(false); setGroupToolsOpen(false); setRelationshipChooserOpen(false);
     publishMessages([]); setLoading(true); setAgentJobs([]); setAgentRequests([]); setSignedUrls({}); setSpaceIdentity(null);
     const apply = (remote: readonly ChatMessage[]) => {
       if (!valid()) return;
@@ -218,21 +252,15 @@ export default function ChatScreen() {
         newestMessageKeyRef.current = nextKey;
       }
       publishMessages(next);
-      const newestReadable = latestSentMessage(next);
-      if (!current.length && newestReadable) {
-        const readKey = `${newestReadable.senderId}:${newestReadable.clientId}`;
-        lastMarkedReadKeyRef.current = readKey;
-        void repository.markRead(spaceId, newestReadable.id).catch(() => { if (lastMarkedReadKeyRef.current === readKey) lastMarkedReadKeyRef.current = null; });
-      }
       void cache.save({messages:next,cursor:cursorRef.current,hasOlder:hasMore}).catch(() => undefined);
     };
     const fail = async (reason: unknown) => {
       if (!valid()) return;
       const detail = String((reason as {message?:string})?.message ?? reason);
       if (/not_space_member|unauthenticated|permission denied/i.test(detail)) {
-        revoked=true;publishMessages([]); setAgentJobs([]); setAgentRequests([]); setMentionTargets([]); setObservations([]); setSignedUrls({}); setSpaceIdentity(null); await cache.clear();
-        if(disposed||generationRef.current!==generation)return;
+        revoked=true;pageScope.revoke();void clearAvatarLocalData(profile.id,spaceId);revokeSpaceReadState(profile.id,spaceId);publishMessages([]); setAgentJobs([]); setAgentRequests([]); setMentionTargets([]); setObservations([]); setSignedUrls({}); setSpaceIdentity(null); setReplying(null); setPreviewMessage(null); setInvite(null); setLoadingOlder(false); setPanelBusy(false);
         setError("已无法访问这个群，相关缓存已清理。");
+        setLoading(false);await cache.clear();return;
       } else setError("暂未同步最新消息，可保留输入后重试。");
       setLoading(false);
     };
@@ -241,8 +269,11 @@ export default function ChatScreen() {
         repository.getSpaceName(spaceId).then(name => { if (valid()) setSpaceIdentity({ ownerId: profile.id, spaceId, name }); }).catch(fail),
         repository.listAgentJobs(spaceId).then((rows) => { if(valid()) setAgentJobs(rows); }),
         repository.listAgentRequests(spaceId).then((rows) => { if(valid()) setAgentRequests(rows); }),
+        repository.listMentionTargets(spaceId).then((rows) => { if(valid()) setMentionTargets(rows); }),
       ]);
     });
+    let recheckLoaded = false;
+    const recheckIds = new Set<string>();
     const sync = coalesceRefresh(async () => {
       if (!valid()) return;
       if (!cursorRef.current) {
@@ -260,13 +291,26 @@ export default function ChatScreen() {
           if (page.length < 100) break;
         }
       }
+      const ids = recheckLoaded ? messagesRef.current.filter(m=>m.deliveryState==="sent").map(m=>m.id) : [...recheckIds];
+      recheckLoaded=false;recheckIds.clear();
+      for(let i=0;i<ids.length;i+=100) {
+        const batch=ids.slice(i,i+100);
+        let rows: readonly ChatMessage[];
+        try { rows=await repository.getMessagesByIds(spaceId,batch); }
+        catch(reason) { recheckLoaded=true; throw reason; }
+        if(!valid())return;
+        const visible=new Set(rows.map(m=>m.id));
+        // Keep newer local edits while dropping rows the server no longer permits.
+        publishMessages(messagesRef.current.filter(m=>!batch.includes(m.id)||visible.has(m.id)));
+        apply(rows);
+      }
       if(valid()) { setLoading(false); setError(null); }
     });
-    refreshRef.current = async () => { if (initialized) { await sync().catch(fail); void auxiliary(); } };
+    refreshRef.current = async (recheckPermissions=false) => { if (initialized && valid()) { recheckLoaded ||= recheckPermissions; await sync().catch(fail); void auxiliary(); } };
     const start = async () => {
       const cached = await cache.load();
       if (!valid()) return;
-      if(cached) { cursorRef.current=cached.cursor; hasMore=cached.hasOlder; apply(cached.messages); setHasOlder(hasMore); setLoading(false); }
+      if(cached) { cursorRef.current=cached.cursor; hasMore=cached.hasOlder; apply(cached.messages); recheckLoaded=true; setHasOlder(hasMore); setLoading(false); }
       const pending = await outbox.list();
       if(!valid()) return;
       apply(pending.filter((q) => q.spaceId===spaceId && q.senderId===profile.id).map((q) => ({
@@ -282,81 +326,55 @@ export default function ChatScreen() {
     const unsubscribe = repository.subscribe(spaceId,(event) => {
       if (!initialized || !valid()) return;
       if (event?.kind === "auxiliary") { void auxiliary(); return; }
-      // Reconcile loaded IDs on permission or reaction changes; absence removes hidden rows.
-      if (event?.kind === "permission" || event?.ids?.length) {
-        const ids = event.kind === "permission" ? messagesRef.current.filter((m) => m.deliveryState === "sent").map((m)=>m.id) : event.ids ?? [];
-        void (async () => {
-          for(let i=0;i<ids.length;i+=100) {
-            const batch=ids.slice(i,i+100);
-            const rows=await repository.getMessagesByIds(spaceId,batch);
-            if(!valid()) return;
-            publishMessages(messagesRef.current.filter((m) => !batch.includes(m.id)));
-            apply(rows);
-          }
-        })().catch(fail);
-      }
+      // Reconnect can hide cached rows without changing their message timestamps.
+      if (event?.kind === "permission" || event?.kind === "connected") recheckLoaded=true;
+      for(const id of event?.ids ?? [])recheckIds.add(id);
       void sync().catch(fail);
       // A reply message can arrive even when the matching job event was lost.
       if (event?.kind === "connected" || event?.kind === "messages") void auxiliary();
     });
-    const foreground = AppState.addEventListener("change", (state) => { if (state === "active" && initialized) void refreshRef.current(); });
-    return () => { disposed=true; generationRef.current++; unsubscribe(); foreground.remove(); refreshRef.current=async()=>undefined; };
-  }, [cache,outbox,profile?.id,repository,spaceId,publishMessages]);
+    const foreground = AppState.addEventListener("change", (state) => { if (state === "active" && initialized) void refreshRef.current(true); });
+    return () => { disposed=true;if(scopeValid())pageScope.revoke();generationRef.current++; unsubscribe(); foreground.remove(); refreshRef.current=async()=>undefined; };
+  }, [cache,outbox,profile?.id,repository,spaceId,publishMessages,pageScope]);
 
-  const flush = useCallback(async () => {
-    if (!repository || !connected) return;
-    const generation = generationRef.current;
-    const completedMedia: string[] = [];
-    const failed = await outbox.flush(async (queued) => {
-      if (generation !== generationRef.current) throw new Error("会话已切换");
-      if (queued.senderId !== profile!.id) throw new Error("待发送消息不属于当前账号");
-      if (queued.localMediaUri) {
-        publishMessages(messagesRef.current.map((message) => message.clientId === queued.clientId ? { ...message, deliveryState: "uploading" } : message));
-      }
-      const receipt = await repository.sendMessage(queued, profile!.nickname);
-      if (generation === generationRef.current && queued.spaceId === spaceId) {
-        const next = mergeMessages(messagesRef.current,[receipt]);
-        publishMessages(next);
-        void cache.save({messages:next,cursor:cursorRef.current,hasOlder:true}).catch(()=>undefined);
-      }
-      if (queued.localMediaUri) completedMedia.push(queued.localMediaUri);
-    });
-    void loadLatest();
-    await Promise.allSettled(completedMedia.map((uri) => removeStabilizedMedia(uri)));
-    if(generation !== generationRef.current) return;
-    const failedIds = new Set(failed.map((item) => item.clientId));
-    publishMessages(messagesRef.current.map((message) => failedIds.has(message.clientId) && message.deliveryState !== "sent" ? { ...message, deliveryState: "failed" } : message));
-  }, [cache, connected, loadLatest, outbox, profile, publishMessages, repository, spaceId]);
-
-  useEffect(() => { const unsubscribe = NetInfo.addEventListener((state) => { if (state.isConnected) { void loadLatest(); void flush(); } }); return unsubscribe; }, [flush]);
-  useEffect(() => { if (connected) void flush(); }, [connected, flush]);
-  useEffect(() => { void repository?.listMentionTargets(spaceId).then(setMentionTargets).catch(() => setMentionTargets([])); }, [repository, spaceId]);
+  const flush = useCallback(async () => { if(delivery){delivery.setOnline(connected);await delivery.flush();} },[delivery,connected]);
+  useEffect(()=>{const valid=pageScope.capture();return delivery?.subscribe(event=>{
+    if(!valid())return;
+    if(event.spaceId!==spaceId)return;
+    const next=event.message?mergeMessages(messagesRef.current,[event.message]):messagesRef.current.map(message=>message.clientId===event.clientId && message.deliveryState!=="sent"?{...message,deliveryState:event.status}:message);
+    publishMessages(next);
+    if(event.message)void cache.save({messages:next,cursor:cursorRef.current,hasOlder:true}).catch(()=>undefined);
+  });},[delivery,spaceId,publishMessages,cache,pageScope]);
+  useEffect(()=>{ if(delivery)delivery.setOnline(connected); },[delivery,connected]);
   useEffect(() => {
     if (!repository || loading || !notificationMessageId || locatedNotificationMessageRef.current === notificationMessageId) return;
+    const valid=pageScope.capture();
     let cancelled = false;
     void (async () => {
       let available = messagesRef.current;
       if (!available.some((message) => message.id === notificationMessageId)) {
         const around = await repository.listMessagesAround(spaceId, notificationMessageId, 50);
+        if(cancelled || !valid())return;
         available = mergeMessages(around, messagesRef.current);
-        if (!cancelled) publishMessages(available);
+        publishMessages(available);
       }
       const index = available.findIndex((message) => message.id === notificationMessageId);
-      if (cancelled || index < 0) return;
+      if (cancelled || !valid() || index < 0) return;
       locatedNotificationMessageRef.current = notificationMessageId;
       setSelectedId(notificationMessageId);
-      setTimeout(() => listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 }), 120);
-    })().catch((reason) => { if (!cancelled) setError(reason instanceof Error ? reason.message : "无法定位被提及的消息"); });
+      setTimeout(() => {if(!cancelled && valid())listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });}, 120);
+    })().catch((reason) => { if (!cancelled && valid()) setError(reason instanceof Error ? reason.message : "无法定位被提及的消息"); });
     return () => { cancelled = true; };
-  }, [loading, notificationMessageId, publishMessages, repository, spaceId]);
+  }, [loading, notificationMessageId, publishMessages, repository, spaceId,pageScope]);
   useEffect(() => () => { if (viewportSettleTimerRef.current) clearTimeout(viewportSettleTimerRef.current); }, []);
   useEffect(() => {
     if (!profile || !repository) return;
+    const valid=pageScope.capture();
     for (const message of messages) {
       if (!message.mediaPath || signedUrls[message.mediaPath] || message.deliveryState !== "sent") continue;
-      void resolveCachedMedia(profile.id, message.mediaPath, () => repository.createSignedMediaUrl(message.mediaPath!)).then((url) => setSignedUrls((current) => ({ ...current, [message.mediaPath!]: url }))).catch(() => undefined);
+      void resolveCachedMedia(profile.id, message.mediaPath, () => repository.createSignedMediaUrl(message.mediaPath!)).then((url) => {if(valid())setSignedUrls((current) => ({ ...current, [message.mediaPath!]: url }));}).catch(() => undefined);
     }
-  }, [messages, profile?.id, repository, signedUrls]);
+  }, [messages, profile?.id, repository, signedUrls,pageScope]);
   const jobByMessage = useMemo(() => groupReplyJobs(messages, agentJobs, mentionTargets), [messages, agentJobs, mentionTargets]);
   const waitingForReply = messages.some((message) => message.senderId === profile?.id
     && ["queued", "running"].includes(jobByMessage.get(message.id)?.status ?? ""));
@@ -370,6 +388,8 @@ export default function ChatScreen() {
   if (!profile || !repository) return <Redirect href="/login" />;
 
   const enqueueAndSend = async (partial: Pick<QueuedMessage, "kind" | "text"> & Partial<QueuedMessage>) => {
+    const valid=pageScope.capture();
+    if(!valid())throw new Error("会话已关闭或权限已变化");
     const activeMentions = selectedMentions.filter((target) => (partial.text ?? "").includes(`@${target.displayName}`));
     const queued: QueuedMessage = {
       clientId: partial.clientId ?? createClientId(), spaceId, senderId: profile.id, kind: partial.kind, text: partial.text,
@@ -379,15 +399,25 @@ export default function ChatScreen() {
       replyToMessageId: replying?.id ?? null, replyPreview: replying?.text?.slice(0, 80) ?? (replying ? `[${replying.kind}]` : null), createdAt: new Date().toISOString(), attempts: 0,
     };
     const revision = draftRevisionRef.current;
-    await outbox.enqueue(queued);
+
     setReplying((current) => current?.id === queued.replyToMessageId ? null : current);
     if (draftRevisionRef.current === revision && partial.kind === "text") { setMentionQuery(null); setSelectedMentions([]); }
     pendingViewportIntentRef.current = createViewportIntent("own_message", viewportMetricsRef.current.contentHeight, viewportMetricsRef.current.offsetY);
     ownMessageSettledOffsetRef.current = null;
     newestMessageKeyRef.current = `${profile.id}:${queued.clientId}`;
-    publishMessages(mergeMessages(messagesRef.current, [{ id: queued.clientId, clientId: queued.clientId, spaceId, senderId: profile.id, actorKind: "human", actorName: profile.nickname, kind: queued.kind, text: queued.text, mediaPath: queued.localMediaUri ?? null, mediaDurationSeconds: queued.mediaDurationSeconds ?? null, replyToMessageId: queued.replyToMessageId ?? null, replyPreview: queued.replyPreview ?? null, createdAt: queued.createdAt, deliveryState: connected ? (queued.localMediaUri ? "preparing" : "pending") : "failed", reactions: {}, mentions: activeMentions.map((target) => ({ kind: target.kind, targetId: target.id, displayText: target.displayName })) }]));
+    publishMessages(mergeMessages(messagesRef.current, [{ id: queued.clientId, clientId: queued.clientId, spaceId, senderId: profile.id, actorKind: "human", actorName: profile.nickname, kind: queued.kind, text: queued.text, mediaPath: queued.localMediaUri ?? null, mediaDurationSeconds: queued.mediaDurationSeconds ?? null, replyToMessageId: queued.replyToMessageId ?? null, replyPreview: queued.replyPreview ?? null, createdAt: queued.createdAt, deliveryState: "saving", reactions: {}, mentions: activeMentions.map((target) => ({ kind: target.kind, targetId: target.id, displayText: target.displayName })) }]));
     settleViewportAtEnd(false);
-    await flush();
+    try {
+      if(!delivery)throw new Error("发送账号已切换");
+      await delivery.enqueue(queued);
+      if(!valid())return;
+      publishMessages(messagesRef.current.map(message=>message.clientId===queued.clientId && message.deliveryState==="saving"?{...message,deliveryState:connected?"pending":"failed"}:message));
+    } catch(reason) {
+      if(!valid())return;
+      saveFailuresRef.current.set(queued.clientId,queued);
+      publishMessages(messagesRef.current.map(message=>message.clientId===queued.clientId?{...message,deliveryState:"failed"}:message));
+      throw reason;
+    }
     const settledOffset = ownMessageSettledOffsetRef.current;
     const userMovedAway = settledOffset !== null && viewportMetricsRef.current.offsetY < settledOffset - 96;
     if (!userMovedAway) {
@@ -412,72 +442,85 @@ export default function ChatScreen() {
   };
 
   const sendTextMessage = (submittedText = text) => {
+    const valid=pageScope.capture();
+    if(!valid())return;
     const message = submittedText.trim();
     if (!message) return;
     const revision = ++draftRevisionRef.current;
     setText("");
     void enqueueAndSend({ kind: "text", text: message }).catch((reason) => {
+      if(!valid())return;
       if (draftRevisionRef.current === revision) setText(submittedText);
       setError(reason instanceof Error ? reason.message : "发送失败，草稿已保留。");
     });
   };
 
   const pickImage = async () => {
+    const valid=pageScope.capture();
     try {
     setMenu(false); const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.82, allowsEditing: false });
-    if (result.canceled) return; const asset = result.assets[0];
+    if (!valid() || result.canceled) return; const asset = result.assets[0];
     if ((asset.fileSize ?? 0) > 8 * 1024 * 1024) { setError("图片不能超过 8 MB"); return; }
     const clientId = createClientId();
     const stableUri = await stabilizeMediaForOutbox(asset.uri, profile.id, clientId);
+    if(!valid()){await removeStabilizedMedia(stableUri);return;}
     await enqueueAndSend({ clientId, kind: "image", text: null, localMediaUri: stableUri, mediaMimeType: asset.mimeType ?? "image/jpeg", mediaSizeBytes: asset.fileSize });
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "图片无法读取，请重新选择。"); }
+    } catch (reason) { if(valid())setError(reason instanceof Error ? reason.message : "图片无法读取，请重新选择。"); }
   };
 
   const startVoice = async () => {
+    const valid=pageScope.capture();
+    if(!valid())return;
     if (recordingActiveRef.current) return;
     try {
       setError(null); setRecordCancelled(false); cancelRecordingRef.current = false;
-      const permission = await requestRecordingPermissionsAsync(); if (!permission.granted) { setError("需要麦克风权限才能录制语音"); return; }
+      const permission = await requestRecordingPermissionsAsync(); if(!valid())return;if (!permission.granted) { setError("需要麦克风权限才能录制语音"); return; }
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      if (!voicePressHeldRef.current) { await setAudioModeAsync({ allowsRecording: false }); return; }
+      if (!valid() || !voicePressHeldRef.current) { await setAudioModeAsync({ allowsRecording: false }); return; }
       await recorder.prepareToRecordAsync();
-      if (!voicePressHeldRef.current) { await setAudioModeAsync({ allowsRecording: false }); return; }
+      if (!valid() || !voicePressHeldRef.current) { await setAudioModeAsync({ allowsRecording: false }); return; }
       recorder.record({ forDuration: 60 }); recordingActiveRef.current = true;
     } catch (reason) {
       recordingActiveRef.current = false;
-      setError(reason instanceof Error ? reason.message : "录音无法开始，请检查麦克风权限。");
+      if(valid())setError(reason instanceof Error ? reason.message : "录音无法开始，请检查麦克风权限。");
       await setAudioModeAsync({ allowsRecording: false }).catch(() => undefined);
     }
   };
   const stopVoice = async (send: boolean) => {
+    const valid=pageScope.capture();
     if (!recordingActiveRef.current) return;
     recordingActiveRef.current = false;
     try {
       const seconds = Math.min(60, Math.max(0, recorderState.durationMillis / 1000));
       if (recorderState.isRecording) await recorder.stop();
       const uri = recorder.uri;
-      if (!send || cancelRecordingRef.current) return;
+      if (!valid() || !send || cancelRecordingRef.current) return;
       if (seconds < 0.6) { setError("录音时间太短"); return; }
       if (!uri) { setError("没有取得录音文件"); return; }
-      const media = await getMediaInfo(uri); if (media.size > 5 * 1024 * 1024) { setError("语音不能超过 5 MB"); return; }
+      const media = await getMediaInfo(uri); if(!valid())return;if (media.size > 5 * 1024 * 1024) { setError("语音不能超过 5 MB"); return; }
       const clientId = createClientId();
       const stableUri = await stabilizeMediaForOutbox(uri, profile.id, clientId);
+      if(!valid()){await removeStabilizedMedia(stableUri);return;}
       await enqueueAndSend({ clientId, kind: "voice", text: null, localMediaUri: stableUri, mediaMimeType: media.mimeType || "audio/mp4", mediaSizeBytes: media.size, mediaDurationSeconds: seconds });
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "录音无法读取，请重试。"); }
+    } catch (reason) { if(valid())setError(reason instanceof Error ? reason.message : "录音无法读取，请重试。"); }
     finally {
-      recordStartYRef.current = null; cancelRecordingRef.current = false; setRecordCancelled(false);
+      if(valid()){recordStartYRef.current = null; cancelRecordingRef.current = false; setRecordCancelled(false);}
       await setAudioModeAsync({ allowsRecording: false }).catch(() => undefined);
     }
   };
 
   const loadOlder = async () => {
+    const valid=pageScope.capture();
+    if(!valid())return;
     const first = messages.find((item) => item.deliveryState === "sent"); if (!first || loadingOlder || !hasOlder) return; setLoadingOlder(true);
     pendingViewportIntentRef.current = createViewportIntent("history_loaded", viewportMetricsRef.current.contentHeight, viewportMetricsRef.current.offsetY);
-    try { const older = await repository.listMessages(spaceId, { at:first.createdAt,id:first.id }, 50); if (older.length) publishMessages(mergeMessages(older, messagesRef.current)); else pendingViewportIntentRef.current = null; setHasOlder(older.length === 50); }
-    finally { setLoadingOlder(false); }
+    try { const older = await repository.listMessages(spaceId, { at:first.createdAt,id:first.id,sequence:first.spaceSequence }, 50); if(!valid())return;if (older.length) publishMessages(mergeMessages(older, messagesRef.current)); else pendingViewportIntentRef.current = null; setHasOlder(older.length === 50); }
+    catch(reason){if(valid())setError(reason instanceof Error ? reason.message : "历史消息暂时无法加载，请重试。");}
+    finally { if(valid())setLoadingOlder(false); }
   };
 
   const invitePeople = async () => {
+    const valid=pageScope.capture();
     try {
       const options = {
         platform: Platform.OS,
@@ -486,17 +529,24 @@ export default function ChatScreen() {
       };
       spaceInviteUrl("validate", options);
       const result = await repository.createSpaceInvite(spaceId);
-      setInvite(spaceInviteUrl(result.token, options));
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "邀请创建失败，请稍后重试。"); }
+      if(valid())setInvite(spaceInviteUrl(result.token, options));
+    } catch (reason) { if(valid())setError(reason instanceof Error ? reason.message : "邀请创建失败，请稍后重试。"); }
   };
-  const loadObservations = async () => { setPanelBusy(true); try { setObservations(await repository.listPetObservation(spaceId)); } catch (reason) { setError(reason instanceof Error ? reason.message : "观察授权加载失败"); } finally { setPanelBusy(false); } };
+  const loadObservations = async () => { const valid=pageScope.capture();setPanelBusy(true); try { const rows=await repository.listPetObservation(spaceId);if(valid())setObservations(rows); } catch (reason) { if(valid())setError(reason instanceof Error ? reason.message : "观察授权加载失败"); } finally { if(valid())setPanelBusy(false); } };
   const openObservation = () => { setMenu(false); setObservationOpen(true); void loadObservations(); };
-  const updatePetControl = async (operation: () => Promise<void>) => { setPanelBusy(true); try { await operation(); const [nextObservation, nextMessages] = await Promise.all([repository.listPetObservation(spaceId), repository.listMessages(spaceId, null, 50)]); setObservations(nextObservation); publishMessages(nextMessages); } catch (reason) { setError(reason instanceof Error ? reason.message : "权限更新失败"); } finally { setPanelBusy(false); } };
+  const updatePetControl = async (operation: () => Promise<void>) => { const valid=pageScope.capture();setPanelBusy(true); try { await operation();if(!valid())return; const [nextObservation] = await Promise.all([repository.listPetObservation(spaceId), refreshRef.current(true)]); if(valid())setObservations(nextObservation); } catch (reason) { if(valid())setError(reason instanceof Error ? reason.message : "权限更新失败"); } finally { if(valid())setPanelBusy(false); } };
   const refreshSignedImage = async (message: ChatMessage) => {
+    const valid=pageScope.capture();
     if (!message.mediaPath) return; setPreviewLoading(true);
-    try { await invalidateCachedMedia(profile.id, message.mediaPath); const url = await resolveCachedMedia(profile.id, message.mediaPath, () => repository.createSignedMediaUrl(message.mediaPath!)); setSignedUrls((current) => ({ ...current, [message.mediaPath!]: url })); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "图片访问地址刷新失败"); }
-    finally { setPreviewLoading(false); }
+    try { await invalidateCachedMedia(profile.id, message.mediaPath); if(!valid())return;const url = await resolveCachedMedia(profile.id, message.mediaPath, () => repository.createSignedMediaUrl(message.mediaPath!)); if(valid())setSignedUrls((current) => ({ ...current, [message.mediaPath!]: url })); }
+    catch (reason) { if(valid())setError(reason instanceof Error ? reason.message : "图片访问地址刷新失败"); }
+    finally { if(valid())setPreviewLoading(false); }
+  };
+  const runMessageAction = async (operation:()=>Promise<unknown>, failure:string, committed?:()=>void) => {
+    const valid=pageScope.capture();
+    if(!valid())return;
+    try {await operation();if(!valid())return;committed?.();await loadLatest();}
+    catch(reason){if(valid())setError(reason instanceof Error ? reason.message : failure);}
   };
   const openImage = (message: ChatMessage) => { setSelectedId(null); setPreviewMessage(message); if (message.mediaPath && !signedUrls[message.mediaPath]) void refreshSignedImage(message); };
   const proposalById = new Map(agentRequests.flatMap((request) => request.proposal ? [[request.proposal.id, request.proposal] as const] : []));
@@ -506,19 +556,19 @@ export default function ChatScreen() {
 
   return (
     <KeyboardScreen keyboardVerticalOffset={0} style={[styles.page, { backgroundColor: theme.page }]}>
-      <View style={[styles.header, { paddingTop: insets.top + 6, backgroundColor: theme.card, borderBottomColor: theme.line }]}><Pressable accessibilityRole="button" accessibilityLabel="返回会话列表" onPress={() => router.back()} style={styles.headerButton}><Text style={styles.headerButtonText}>‹</Text></Pressable><Pressable accessibilityLabel="修改群头像" onPress={()=>setAvatarOpen(true)}><SpaceAvatar spaceId={spaceId} name={spaceName} size={34} /></Pressable><View style={styles.headerTitleWrap}><Text numberOfLines={1} style={styles.headerTitle}>{spaceName}</Text><Text style={[styles.headerStatus, { color: theme.accent }]}>{isLocalDemo ? "本地演示" : connected ? "实时连接" : "离线缓存 · 权限待联网核实"}</Text></View><Pressable accessibilityRole="button" accessibilityLabel="打开空间主 Agent" onPress={() => setWorkbenchOpen(true)} style={[styles.agentHeaderButton, { backgroundColor: theme.secondary, borderRadius: theme.radius }]}><Text style={[styles.agentHeaderText, { color: theme.accent }]}>A</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel="设置群聊背景" style={styles.headerButton} onPress={()=>setBackgroundOpen(true)}><Icon name="image" color={theme.text}/></Pressable></View>
+      <View style={[styles.header, { paddingTop: insets.top + 6, backgroundColor: theme.card, borderBottomColor: theme.line }]}><Pressable accessibilityRole="button" accessibilityLabel="返回会话列表" onPress={() => router.back()} style={styles.headerButton}><Text style={styles.headerButtonText}>‹</Text></Pressable><Pressable accessibilityLabel="修改群头像" onPress={()=>setAvatarOpen(true)}><SpaceAvatar spaceId={spaceId} name={spaceName} size={34} /></Pressable><View style={styles.headerTitleWrap}><Text numberOfLines={1} style={styles.headerTitle}>{spaceName}</Text><Text style={[styles.headerStatus, { color: theme.accent }]}>{isLocalDemo ? "本地演示" : connected ? "实时连接" : "离线缓存 · 权限待联网核实"}</Text></View><Pressable accessibilityRole="button" accessibilityLabel="打开群工具" onPress={() => setGroupToolsOpen(true)} style={styles.headerButton}><Icon name="more" color={theme.text}/></Pressable></View>
       {error ? <Pressable onPress={() => setError(null)} style={styles.errorBar}><Text style={styles.errorBarText}>{error}</Text></Pressable> : null}
       <AvatarEditor visible={avatarOpen} onClose={()=>setAvatarOpen(false)} target={{kind:"space",id:spaceId}} />
       <Modal visible={notificationsOpen} transparent animationType="slide" onRequestClose={()=>setNotificationsOpen(false)}><View style={styles.overlay}><View style={styles.panelCard}><Pressable onPress={()=>setNotificationsOpen(false)}><Text style={styles.close}>关闭</Text></Pressable><NotificationSettings spaceId={spaceId}/></View></View></Modal>
       <ChatBackgroundSurface threadKey={`group:${spaceId}`} style={{flex:1,minHeight:0}}>
       {loading ? <View style={styles.center}><ActivityIndicator color={colors.coral} /></View> : (
-        <FlatList testID="chat-message-list" ref={listRef} style={[styles.messageList, Platform.OS === "web" && ({ overflowAnchor: "none" } as never)]} data={messages} keyExtractor={(item) => `${item.senderId}:${item.clientId}`} contentContainerStyle={[styles.messages, Platform.OS === "web" && ({ overflowAnchor: "none" } as never)]}
+        <FlatList testID="chat-message-list" ref={listRef} style={[styles.messageList, Platform.OS === "web" && ({ overflowAnchor: "none" } as never)]} data={messages} viewabilityConfig={viewability} onViewableItemsChanged={onVisibleMessages} keyExtractor={(item) => `${item.senderId}:${item.clientId}`} contentContainerStyle={[styles.messages, Platform.OS === "web" && ({ overflowAnchor: "none" } as never)]}
           disableVirtualization={Platform.OS === "web"}
           initialNumToRender={Platform.OS === "web" ? 1000 : 18}
           maxToRenderPerBatch={Platform.OS === "web" ? 1000 : 18}
           updateCellsBatchingPeriod={Platform.OS === "web" ? 1 : 50}
           scrollEventThrottle={32}
-          onScrollToIndexFailed={({ index, averageItemLength }) => { listRef.current?.scrollToOffset({ offset: Math.max(0, index * averageItemLength), animated: false }); setTimeout(() => listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 }), 120); }}
+          onScrollToIndexFailed={({ index, averageItemLength }) => { const valid=pageScope.capture();listRef.current?.scrollToOffset({ offset: Math.max(0, index * averageItemLength), animated: false }); setTimeout(() => {if(valid())listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });}, 120); }}
           onContentSizeChange={(_, contentHeight) => {
             viewportMetricsRef.current.contentHeight = contentHeight;
             const intent = pendingViewportIntentRef.current;
@@ -539,16 +589,42 @@ export default function ChatScreen() {
             if (nearBottomRef.current) { setUnseenNewMessage(false); markLatestRead(); }
           }}
           ListHeaderComponent={hasOlder ? <Pressable disabled={loadingOlder} onPress={() => void loadOlder()} style={styles.loadOlder}><Text style={styles.loadOlderText}>{loadingOlder ? "加载中…" : "加载更早的消息"}</Text></Pressable> : null}
-          renderItem={({ item }) => <MessageRow message={item} mine={item.senderId === profile.id} signedUrl={item.mediaPath ? signedUrls[item.mediaPath] ?? (item.deliveryState !== "sent" ? item.mediaPath : null) : null} selected={selectedId === item.id} agentJob={jobByMessage.get(item.id)} proposal={item.agentProposalId ? proposalById.get(item.agentProposalId) : null} currentUserId={profile.id} feedbackSubmitted={feedbackSent.has(item.id)} onSelect={() => setSelectedId(selectedId === item.id ? null : item.id)} onOpenImage={() => openImage(item)} onReply={() => { setReplying(item); setSelectedId(null); }} onReact={(emoji) => { setSelectedId(null); void repository.toggleReaction(item.id, emoji, profile.id).then(loadLatest); }} onRetry={() => void flush()} onRetryAgent={() => void repository.retryAgentDispatch(item.id).then(loadLatest).catch((reason) => setError(reason instanceof Error ? reason.message : "异宠重试失败"))} onAgentFeedback={(rating) => { setSelectedId(null); void repository.feedbackAgentMessage(item.id, spaceId, rating).then(() => setFeedbackSent((current) => new Set([...current, item.id]))).catch((reason) => setError(reason instanceof Error ? reason.message : "反馈提交失败")); }} onProposalVote={(decision) => { const proposalId = item.agentProposalId; if (!proposalId) return; void repository.voteAgentProposal(proposalId, decision).then(loadLatest).catch((reason) => setError(reason instanceof Error ? reason.message : "投票失败")); }} />}
+          renderItem={({ item }) => <MessageRow message={item} mine={item.senderId === profile.id} signedUrl={item.mediaPath ? signedUrls[item.mediaPath] ?? (item.deliveryState !== "sent" ? item.mediaPath : null) : null} selected={selectedId === item.id} agentJob={jobByMessage.get(item.id)} proposal={item.agentProposalId ? proposalById.get(item.agentProposalId) : null} currentUserId={profile.id} feedbackSubmitted={feedbackSent.has(item.id)} onSelect={() => setSelectedId(selectedId === item.id ? null : item.id)} onOpenImage={() => openImage(item)} onReply={() => { setReplying(item); setSelectedId(null); }} onReact={(emoji) => { setSelectedId(null); void runMessageAction(()=>repository.toggleReaction(item.id, emoji, profile.id), "回应提交失败"); }} onRetry={() => { const unsaved=saveFailuresRef.current.get(item.clientId); if(unsaved && delivery)void runMessageAction(()=>delivery.enqueue(unsaved),"仍无法保存消息，内容已保留，可稍后重试。",()=>{saveFailuresRef.current.delete(item.clientId);}); else void flush(); }} onRetryAgent={() => void runMessageAction(()=>repository.retryAgentDispatch(item.id),"异宠重试失败")} onAgentFeedback={(rating) => { setSelectedId(null); void runMessageAction(()=>repository.feedbackAgentMessage(item.id, spaceId, rating),"反馈提交失败",()=>setFeedbackSent((current)=>new Set([...current,item.id]))); }} onProposalVote={(decision) => { const proposalId = item.agentProposalId; if (!proposalId) return; void runMessageAction(()=>repository.voteAgentProposal(proposalId, decision),"投票失败"); }} />}
         />
       )}
       {unseenNewMessage ? <Pressable onPress={() => { pendingViewportIntentRef.current = createViewportIntent("incoming", viewportMetricsRef.current.contentHeight, viewportMetricsRef.current.offsetY); setUnseenNewMessage(false); settleViewportAtEnd(true); }} style={styles.newMessagePrompt}><Text style={styles.newMessageText}>有新消息 ↓</Text></Pressable> : null}
       {replying ? <View style={styles.replying}><View style={{ flex: 1 }}><Text style={styles.replyingLabel}>回复 {replying.actorName}</Text><Text numberOfLines={1} style={styles.replyingText}>{replying.text ?? `[${replying.kind}]`}</Text></View><Pressable onPress={() => setReplying(null)}><Text style={styles.close}>×</Text></Pressable></View> : null}
-      {mentionQuery !== null ? <View style={styles.mentionPanel}>{filteredMentionTargets.length ? filteredMentionTargets.map((target) => <Pressable key={`${target.kind}:${target.id}`} onPress={() => chooseMention(target)} style={styles.mentionItem}><AvatarImage reference={target.avatarUrl} name={target.displayName} size={34} /><View style={{ flex: 1 }}><Text style={styles.mentionName}>{target.displayName}</Text><Text style={styles.mentionMeta}>{target.kind === "pet" ? `异宠 · ${target.ownerName ?? "空间成员"}` : "空间成员"}</Text></View></Pressable>) : <Text style={styles.mentionEmpty}>没有匹配的成员或异宠</Text>}</View> : null}
-      {voiceMode ? <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 9), backgroundColor: theme.card, borderTopColor: theme.line }]}><Pressable accessibilityRole="button" accessibilityLabel="返回键盘输入" onPress={() => setVoiceMode(false)} style={[styles.plus, { backgroundColor: theme.secondary, borderRadius: theme.radius }]}><Text style={styles.keyboardIcon}>⌨</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel="按住说话，松开发送，上滑取消" onPressIn={(event) => { voicePressHeldRef.current = true; recordStartYRef.current = event.nativeEvent.pageY; void startVoice(); }} onTouchMove={(event) => { const startY = recordStartYRef.current; if (startY === null) return; const cancelled = startY - event.nativeEvent.pageY > 55; cancelRecordingRef.current = cancelled; setRecordCancelled(cancelled); }} onPressOut={() => { voicePressHeldRef.current = false; void stopVoice(!cancelRecordingRef.current); }} style={[styles.holdToTalk, recorderState.isRecording && styles.holdToTalkActive, recordCancelled && styles.holdToTalkCancel]}><Text style={styles.holdToTalkText}>{recorderState.isRecording ? recordCancelled ? "松开取消" : `松开发送 · ${Math.min(60, Math.round(recorderState.durationMillis / 1000))} 秒` : "按住说话"}</Text><Text style={styles.holdToTalkHint}>{recorderState.isRecording ? "上滑取消" : "最长 60 秒"}</Text></Pressable></View> : <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 9), backgroundColor: theme.card, borderTopColor: theme.line }]}><Pressable accessibilityRole="button" accessibilityLabel="添加图片、语音、邀请或权限" onPress={() => setMenu(true)} style={[styles.plus, { backgroundColor: theme.secondary, borderRadius: theme.radius }]}><Text style={styles.plusText}>＋</Text></Pressable><EnterSendTextInput accessibilityLabel="消息内容" value={text} onChangeText={updateComposerText} onSend={sendTextMessage} maxLength={4000} placeholder="发消息… 输入 @ 提及成员或异宠" placeholderTextColor={theme.muted} style={[styles.composerInput, { backgroundColor: theme.secondary, borderRadius: theme.radius, borderColor: theme.line }]} /><Pressable accessibilityRole="button" accessibilityLabel="发送消息" disabled={!text.trim()} onPress={() => sendTextMessage()} style={[styles.send, { backgroundColor: theme.primary, borderRadius: theme.radius }, !text.trim() && styles.sendDisabled]}><Text style={styles.sendText}>发送</Text></Pressable></View>}
+      {mentionQuery !== null ? <View style={styles.mentionPanel}>{filteredMentionTargets.length ? filteredMentionTargets.map((target) => <Pressable key={`${target.kind}:${target.id}`} onPress={() => chooseMention(target)} style={styles.mentionItem}><AvatarImage reference={target.avatarUrl} spaceId={spaceId} name={target.displayName} size={34} /><View style={{ flex: 1 }}><Text style={styles.mentionName}>{target.displayName}</Text><Text style={styles.mentionMeta}>{target.kind === "pet" ? `异宠 · ${target.ownerName ?? "空间成员"}` : "空间成员"}</Text></View></Pressable>) : <Text style={styles.mentionEmpty}>没有匹配的成员或异宠</Text>}</View> : null}
+      {voiceMode ? <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 9), backgroundColor: theme.card, borderTopColor: theme.line }]}><Pressable accessibilityRole="button" accessibilityLabel="返回键盘输入" onPress={() => setVoiceMode(false)} style={[styles.plus, { backgroundColor: theme.secondary, borderRadius: theme.radius }]}><Text style={styles.keyboardIcon}>⌨</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel="按住说话，松开发送，上滑取消" onPressIn={(event) => { voicePressHeldRef.current = true; recordStartYRef.current = event.nativeEvent.pageY; void startVoice(); }} onTouchMove={(event) => { const startY = recordStartYRef.current; if (startY === null) return; const cancelled = startY - event.nativeEvent.pageY > 55; cancelRecordingRef.current = cancelled; setRecordCancelled(cancelled); }} onPressOut={() => { voicePressHeldRef.current = false; void stopVoice(!cancelRecordingRef.current); }} style={[styles.holdToTalk, recorderState.isRecording && styles.holdToTalkActive, recordCancelled && styles.holdToTalkCancel]}><Text style={styles.holdToTalkText}>{recorderState.isRecording ? recordCancelled ? "松开取消" : `松开发送 · ${Math.min(60, Math.round(recorderState.durationMillis / 1000))} 秒` : "按住说话"}</Text><Text style={styles.holdToTalkHint}>{recorderState.isRecording ? "上滑取消" : "最长 60 秒"}</Text></Pressable></View> : <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 9), backgroundColor: theme.card, borderTopColor: theme.line }]}><Pressable accessibilityRole="button" accessibilityLabel="添加图片或语音" onPress={() => setMenu(true)} style={[styles.plus, { backgroundColor: theme.secondary, borderRadius: theme.radius }]}><Text style={styles.plusText}>＋</Text></Pressable><EnterSendTextInput accessibilityLabel="消息内容" value={text} onChangeText={updateComposerText} onSend={sendTextMessage} maxLength={4000} placeholder="发消息… 输入 @ 提及成员或异宠" placeholderTextColor={theme.muted} style={[styles.composerInput, { backgroundColor: theme.secondary, borderRadius: theme.radius, borderColor: theme.line }]} /><Pressable accessibilityRole="button" accessibilityLabel="发送消息" disabled={!text.trim()} onPress={() => sendTextMessage()} style={[styles.send, { backgroundColor: theme.primary, borderRadius: theme.radius }, !text.trim() && styles.sendDisabled]}><Text style={styles.sendText}>发送</Text></Pressable></View>}
       </ChatBackgroundSurface>
       <ChatBackgroundEditor visible={backgroundOpen} onClose={()=>setBackgroundOpen(false)} threadKey={`group:${spaceId}`}/>
-      <Modal visible={menu} transparent animationType="fade" onRequestClose={() => setMenu(false)}><Pressable style={styles.overlay} onPress={() => setMenu(false)}><View style={styles.menuGrid}><Pressable style={styles.menuItem} onPress={()=>{setMenu(false);router.push({pathname:"/search" as never,params:{spaceId}});}}><Text style={styles.menuLabel}>搜索本群</Text></Pressable><Pressable style={styles.menuItem} onPress={()=>{setMenu(false);setSuggestionsOpen(true);}}><Text style={styles.menuLabel}>群待办识别</Text></Pressable><Pressable style={styles.menuItem} onPress={()=>{setMenu(false);setNotificationsOpen(true);}}><Text style={styles.menuIcon}>◌</Text><Text style={styles.menuLabel}>消息设置</Text></Pressable><Pressable style={styles.menuItem} onPress={()=>{setMenu(false);router.push({pathname:"/group-items" as never,params:{spaceId}});}}><Text style={styles.menuIcon}>✓</Text><Text style={styles.menuLabel}>群事项</Text></Pressable><Pressable onPress={() => void pickImage()} style={styles.menuItem}><Text style={styles.menuIcon}>▧</Text><Text style={styles.menuLabel}>图片</Text></Pressable><Pressable onPress={() => { setMenu(false); setVoiceMode(true); }} style={styles.menuItem}><Text style={styles.menuIcon}>◉</Text><Text style={styles.menuLabel}>语音</Text></Pressable><Pressable onPress={() => { setMenu(false); void invitePeople(); }} style={styles.menuItem}><Text style={styles.menuIcon}>＋</Text><Text style={styles.menuLabel}>邀请成员</Text></Pressable><Pressable onPress={openObservation} style={styles.menuItem}><Text style={styles.menuIcon}>◎</Text><Text style={styles.menuLabel}>异宠权限</Text></Pressable></View></Pressable></Modal>
+      <Modal visible={menu} transparent animationType="fade" onRequestClose={() => setMenu(false)}><Pressable style={styles.overlay} onPress={() => setMenu(false)}><Pressable style={styles.menuGrid} onPress={() => undefined}>
+        <Pressable accessibilityRole="button" onPress={() => void pickImage()} style={styles.menuItem}><Text style={styles.menuIcon}>▧</Text><Text style={styles.menuLabel}>图片</Text></Pressable>
+        <Pressable accessibilityRole="button" onPress={() => { setMenu(false); setVoiceMode(true); }} style={styles.menuItem}><Text style={styles.menuIcon}>◉</Text><Text style={styles.menuLabel}>语音</Text></Pressable>
+      </Pressable></Pressable></Modal>
+      <Modal visible={groupToolsOpen} transparent animationType="slide" onRequestClose={() => setGroupToolsOpen(false)}><Pressable style={styles.overlay} onPress={() => setGroupToolsOpen(false)}><Pressable style={styles.groupTools} onPress={() => undefined}>
+        <View style={styles.groupToolsHeading}><View><Text style={styles.groupToolsTitle}>群工具</Text><Text style={styles.groupToolsNote}>{spaceName}</Text></View><Pressable accessibilityRole="button" onPress={() => setGroupToolsOpen(false)} style={styles.headerButton}><Text style={styles.close}>关闭</Text></Pressable></View>
+        <ScrollView contentContainerStyle={styles.groupToolsRows}>
+          {([
+            { title: "搜索本群", note: "查找消息与来源", icon: "search", run: () => router.push({ pathname: "/search" as never, params: { spaceId } }) },
+            { title: "群事项", note: "分工、确认与进度", icon: "check", run: () => router.push({ pathname: "/group-items" as never, params: { spaceId } }) },
+            { title: "群助手", note: "查询、整理与已确认的安排", icon: "pet", run: () => setWorkbenchOpen(true) },
+            { title: "群待办识别", note: "独立授权后整理讨论", icon: "memory", run: () => setSuggestionsOpen(true) },
+            { title: "关系学习授权", note: "逐只异宠取得全员同意", icon: "shield", run: () => setRelationshipChooserOpen(true) },
+            { title: "我的异宠理解", note: "查看本群关系依据与纠正", icon: "memory", run: () => router.push({ pathname: "/pet-relations" as never, params: { spaceId } }) },
+            { title: "异宠权限", note: "查看与管理观察授权", icon: "shield", run: openObservation },
+            { title: "邀请成员", note: "分享邀请链接", icon: "link", run: () => void invitePeople() },
+            { title: "消息设置", note: "本群通知与静音", icon: "settings", run: () => setNotificationsOpen(true) },
+            { title: "群聊背景", note: "选择图片或 AI 设计", icon: "image", run: () => setBackgroundOpen(true) },
+            { title: "群头像", note: "成员拼图或自定义图片", icon: "user", run: () => setAvatarOpen(true) },
+          ] as const).map(tool => <Pressable accessibilityRole="button" key={tool.title} style={styles.groupToolRow} onPress={() => { setGroupToolsOpen(false); tool.run(); }}><View style={styles.groupToolIcon}><Icon name={tool.icon} color={theme.accent} size={20}/></View><View style={{flex:1}}><Text style={styles.groupToolTitle}>{tool.title}</Text><Text style={styles.groupToolsNote}>{tool.note}</Text></View><Icon name="chevron" color={theme.muted} size={16}/></Pressable>)}
+        </ScrollView>
+      </Pressable></Pressable></Modal>
+      <Modal visible={relationshipChooserOpen} transparent animationType="slide" onRequestClose={() => setRelationshipChooserOpen(false)}><View style={styles.overlay}><View style={styles.groupTools}>
+        <View style={styles.groupToolsHeading}><Text style={styles.groupToolsTitle}>关系学习授权</Text><Pressable accessibilityRole="button" onPress={() => setRelationshipChooserOpen(false)} style={styles.headerButton}><Text style={styles.close}>关闭</Text></Pressable></View>
+        <Text style={styles.groupToolsNote}>每只异宠单独取得全员同意，只理解授权生效后的群对话。你可以随时撤回。</Text>
+        <ScrollView>{mentionTargets.filter(target => target.kind === "pet").map(target => <Pressable accessibilityRole="button" key={target.id} style={styles.groupToolRow} onPress={() => { setRelationshipChooserOpen(false); router.push({ pathname: "/pet-relationship-consent" as never, params: { spaceId, petId: target.id } }); }}><AvatarImage reference={`pet-avatar://${target.id}`} spaceId={spaceId} name={target.displayName} size={36}/><View style={{flex:1}}><Text style={styles.groupToolTitle}>{target.displayName}</Text><Text style={styles.groupToolsNote}>{target.ownerName ?? "群成员"}的异宠</Text></View><Icon name="chevron" color={theme.muted} size={16}/></Pressable>)}{!mentionTargets.some(target => target.kind === "pet") ? <Text style={[styles.groupToolsNote,{paddingVertical:20}]}>本群暂无可选择的异宠；联网后重新打开群聊可刷新成员。</Text> : null}</ScrollView>
+      </View></View></Modal>
       <Modal visible={suggestionsOpen} animationType="slide" onRequestClose={()=>setSuggestionsOpen(false)}><KeyboardScreen style={{flex:1,backgroundColor:theme.page}}><AppButton label="返回群聊" variant="quiet" onPress={()=>setSuggestionsOpen(false)}/><ScrollView contentContainerStyle={{padding:16}}><GroupWorkSuggestions spaceId={spaceId}/></ScrollView></KeyboardScreen></Modal>
       <AgentWorkbench visible={workbenchOpen} spaceId={spaceId} repository={repository} onClose={() => setWorkbenchOpen(false)} onPublished={() => void loadLatest()} />
       <ImageViewer visible={Boolean(previewMessage)} url={previewMessage?.mediaPath ? signedUrls[previewMessage.mediaPath] ?? (previewMessage.deliveryState !== "sent" ? previewMessage.mediaPath : null) : null} loading={previewLoading} onClose={() => setPreviewMessage(null)} onRetry={() => { if (previewMessage) void refreshSignedImage(previewMessage); }} />
@@ -578,6 +654,14 @@ const useStyles = createThemedStyles((colors, theme) => ({
   keyboardIcon: { color: colors.mint, fontSize: 20 }, holdToTalk: { flex: 1, minHeight: 50, borderRadius: radii.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 }, holdToTalkActive: { borderColor: colors.mint, backgroundColor: colors.mintDeep }, holdToTalkCancel: { borderColor: colors.coral, backgroundColor: theme.userBubble }, holdToTalkText: { color: colors.text, fontWeight: "700" }, holdToTalkHint: { color: colors.textMuted, fontSize: 9, marginTop: 2 },
   newMessagePrompt: { position: "absolute", bottom: 78, alignSelf: "center", backgroundColor: colors.mintDeep, borderWidth: 1, borderColor: colors.mint, borderRadius: radii.pill, paddingHorizontal: 14, paddingVertical: 8 }, newMessageText: { color: colors.mint, fontWeight: "700", fontSize: 11 },
   recording: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: spacing.md, backgroundColor: colors.canvasRaised }, recordDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.coral }, recordText: { flex: 1, color: colors.text }, stopText: { color: colors.mint, fontWeight: "700" },
+  groupTools: { backgroundColor: theme.card, maxHeight: "82%", padding: 20, paddingBottom: 30, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
+  groupToolsHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingBottom: 12 },
+  groupToolsTitle: { color: theme.text, fontSize: 20, fontWeight: "600" },
+  groupToolsNote: { color: theme.muted, fontSize: 12, marginTop: 3 },
+  groupToolsRows: { paddingBottom: 12 },
+  groupToolRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.line, minHeight: 62 },
+  groupToolIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: theme.secondary, alignItems: "center", justifyContent: "center" },
+  groupToolTitle: { color: theme.text, fontSize: 15, fontWeight: "500" },
   overlay: { flex: 1, backgroundColor: theme.overlay, justifyContent: "flex-end" }, menuGrid: { backgroundColor: colors.canvasRaised, padding: spacing.lg, paddingBottom: 36, flexDirection: "row", justifyContent: "space-around", flexWrap: "wrap", gap: spacing.md, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl }, menuItem: { alignItems: "center", gap: 7, width: 76 }, menuIcon: { width: 54, height: 54, textAlign: "center", textAlignVertical: "center", lineHeight: 54, borderRadius: 18, backgroundColor: colors.surface, color: colors.mint, fontSize: 24, overflow: "hidden" }, menuLabel: { color: colors.textMuted, fontSize: 12 },
   overlayCenter: { flex: 1, backgroundColor: theme.overlay, alignItems: "center", justifyContent: "center", padding: spacing.lg }, inviteCard: { width: "100%", maxWidth: 480, borderRadius: radii.xl, backgroundColor: colors.canvasRaised, padding: spacing.lg, gap: spacing.md }, inviteTitle: { color: colors.text, fontSize: 21, fontWeight: "700" }, inviteLink: { color: colors.mint, backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.md }, inviteNote: { color: colors.textMuted, lineHeight: 20 },
   panelCard: { width: "100%", maxWidth: 620, maxHeight: "84%", borderRadius: radii.xl, backgroundColor: colors.canvasRaised, padding: spacing.lg, gap: spacing.md }, panelHead: { flexDirection: "row", alignItems: "flex-start", gap: 8 }, petPermission: { gap: 10, backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.md }, permissionControls: { flexDirection: "row", flexWrap: "wrap", gap: 7 }, permissionTitle: { color: colors.text, fontWeight: "700" }, permissionOwner: { color: colors.textMuted, fontWeight: "500" }, enabled: { color: colors.mint, fontSize: 11, marginTop: 4 }, waiting: { color: theme.danger, fontSize: 11, marginTop: 4 }, consentButton: { borderRadius: radii.pill, backgroundColor: colors.mintDeep, paddingHorizontal: 12, paddingVertical: 8 }, consentButtonOn: { backgroundColor: "#593448" }, consentText: { color: colors.text, fontSize: 11, fontWeight: "600" }, petCareRow: { gap: 8 }, careCard: { backgroundColor: colors.surface, borderRadius: radii.md, padding: 10, gap: 8 }, careActions: { flexDirection: "row", gap: spacing.lg }, careAction: { color: colors.mint, fontWeight: "700" }, storyList: { maxHeight: 330 }, story: { backgroundColor: colors.surface, borderRadius: radii.md, padding: 12, gap: 6, marginBottom: 8 }, storyPet: { color: colors.lavender, fontWeight: "700", fontSize: 12 }, storyText: { color: colors.text, lineHeight: 20 }, shareStory: { color: colors.mint, fontWeight: "600", fontSize: 12 },
