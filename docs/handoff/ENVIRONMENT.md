@@ -13,6 +13,17 @@ npm run typecheck
 npm run test:ci
 ```
 
+2026-09-24 在 macOS arm64 / Node 24.20.0 上复验时，系统 npm 11.19.0 的上述安装命令成功退出，但没有安装锁文件中的 peer `jest`，测试启动报 `Cannot find module 'jest/package.json'`。使用此前已验证的 npm 版本重新按同一锁文件安装即可恢复：
+
+```sh
+npx --yes npm@11.6.4 ci --legacy-peer-deps
+node scripts/check-handoff.mjs --native-baseline
+npm run typecheck
+npm run test:ci
+```
+
+此方式不修改系统 npm、`package.json`、锁文件或原生基线；本次 87 套件 / 627 项通过。不要通过删除锁文件、临时升级 Jest/Expo 或跳过测试处理此问题。安装附带的依赖审计结果与接续详情见 [REPOSITORY-AUDIT.md](REPOSITORY-AUDIT.md)。
+
 不接云端先看页面，在单独终端显式使用演示环境：
 
 ```powershell
@@ -74,6 +85,15 @@ npx vercel link --project pet-cohabitation-public --scope team_kg5tR50s477SwX0Uu
 - 独立 Python 透明 worker，处理云端授权任务。
 
 旧机器休眠/关机后，现有人类聊天、历史及已保存图片仍在云端，但新的 AI 回复/生成或透明处理可能不可用/排队。免费常驻没有完成，[可行性结论](../research/2026-09-21-free-cloud-feasibility.md)不能理解为线上服务已不依赖电脑。
+
+### 已有公司 API 时是否需要安装 CPA
+
+用户在 2026-09-24 补充并再次确认：Grok 审查和后续网关均使用用户稍后提供的公司 API 凭据。此次未提供接口地址/模型清单或密钥，未恢复凭据或实际调用；待通过本机受控配置取得指定凭据后再验证。继续代码开发与上述离线检查无需 CPA；若公司接口满足下列现有协议，也无需为了转发再安装一层 CPA。
+
+- 服务端文本调用见 `supabase/functions/_shared/modelAdapters.ts`、`modelStream.ts`：base URL 后追加 `/chat/completions`，Bearer 鉴权；请求使用 `response_format: json_object`、`max_tokens`、`temperature`、`reasoning_effort: low`，陪伴流式还要求兼容 SSE 的 `choices[].delta.content` 和完成标记。需用合成输入验证实际模型与这些参数兼容，只有 API key 不足以证明可直接替换。
+- 用于线上替换时，需确认原 Supabase Edge Functions 能访问该地址；仅新开发机或公司内网能访问不代表线上可达。完成兼容性/可达性验证后，再按单独迁移任务更新现有云端配置并验证回滚，不因本次接续自动切换。
+- 文本入口与图片入口分别配置。现有 `npm run check:models` 会实际调用文本、图片生成和图片编辑，不能当作仅文本的无副作用探测。图片理解/原图编辑仍保持未验关闭；独立 Python 透明 worker 不会因为文本 API 改址而迁移。
+- Grok 独立检查仍须每次调用前由用户指定模型，并按 `AGENTS.md` 使用 `call-grok` skill。本机已检查的个人 skills 目录尚无该 skill；后续先受控恢复工具及本地密钥配置，不把密钥放到聊天、Git 或 `EXPO_PUBLIC_*` 客户端变量中。
 
 ## 5. 如果要把运行服务也搬到新电脑
 
