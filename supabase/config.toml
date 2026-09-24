@@ -34,6 +34,9 @@ verify_jwt = false
 [functions.pet-chat]
 verify_jwt = true
 
+[functions.retry-pet-memory]
+verify_jwt = true
+
 [functions.generate-pet-candidate]
 verify_jwt = true
 

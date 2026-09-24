@@ -13,6 +13,7 @@ export function EnterSendTextInput(props: EnterSendTextInputProps) {
     if (!input) return;
     input.dataset.enterListener = "attached";
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (propsRef.current.editable === false) return;
       const shouldSubmit = shouldSubmitOnEnter({ key: event.key, shiftKey: event.shiftKey, isComposing: event.isComposing, keyCode: event.keyCode });
       if (!shouldSubmit) return;
       event.preventDefault();
@@ -32,6 +33,7 @@ export function EnterSendTextInput(props: EnterSendTextInputProps) {
     value={props.value}
     onChange={handleChange}
     maxLength={props.maxLength}
+    disabled={props.editable === false}
     placeholder={props.placeholder}
     rows={1}
     style={{ ...flattened, resize: "none", outline: "none", boxSizing: "border-box" }}

@@ -115,6 +115,36 @@ export type PetPrivateMessage = Readonly<{
   content: string;
   createdAt: string;
   recallSources?: readonly PetRecallSource[];
+  contextMessageIds?: readonly string[];
+  memoryEvidenceIds?: readonly string[];
+  manualMemoryIds?: readonly string[];
+}>;
+
+export type PetPersonalMemory = Readonly<{
+  id: string;
+  content: string;
+  sourceMessageId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}>;
+
+export type PetCompanionContext = Readonly<{
+  memories: readonly PetPersonalMemory[];
+  contextStartedAt: string | null;
+  preferences?: readonly import("../../supabase/functions/_shared/preferenceMemory").PreferenceView[];
+  excludedMessageIds?: readonly string[];
+  manualHistory?: readonly { id: string; memoryId: string; content: string; createdAt: string }[];
+  pendingExtractions?: number;
+  failedExtractions?: number;
+}>;
+
+export type PreferenceAction = Readonly<{ key: string; action: "important" | "positive" | "negative" | "retract" | "forget"; important?: boolean; evidenceId?: string }>;
+export type MemoryEvidencePage = Readonly<{ items: readonly import("../../supabase/functions/_shared/preferenceMemory").MemoryEvidence[]; nextOffset: number | null }>;
+
+export type SavePetMemoryInput = Readonly<{
+  id?: string;
+  content: string;
+  sourceMessageId?: string | null;
 }>;
 
 export type PetRecallSource = Readonly<{

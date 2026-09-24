@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { TextModelAdapter } from "./modelAdapters.ts";
+import { requestsSpaceRecall } from "./privateCompanion.ts";
 
 export type PetRecallSource = Readonly<{
   space_id: string;
@@ -41,6 +42,9 @@ export async function buildPetRecallContext(client: SupabaseClient, input: { own
   const enabled = new Set((permissions.data ?? []).filter((row) => row.participation_enabled && !row.proactive_paused && !row.paused_by_vote).map((row) => row.space_id));
   const allowed = memberRows.filter((row) => enabled.has(row.spaceId));
   if (!allowed.length) return { messages: [], sources: [] };
+  // Personal questions about memory should continue the private conversation.
+  // Existing group recall remains available when a group/space is explicitly named.
+  if (!requestsSpaceRecall(input.question, allowed.map((space) => space.name))) return { messages: [], sources: [] };
 
   let plan: Awaited<ReturnType<TextModelAdapter["planPetRecall"]>>;
   try { plan = await input.adapter.planPetRecall({ question: input.question, spaces: allowed.map(({ name }) => ({ name })) }); }

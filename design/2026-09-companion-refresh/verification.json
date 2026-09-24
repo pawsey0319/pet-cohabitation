@@ -1,0 +1,181 @@
+{
+  "date": "2026-09-10T09:29:57.099Z",
+  "model": "grok-4.6",
+  "generationRun": "71b99e22-d1de-4b4d-bfbc-6926fedd9078",
+  "projectId": "36f09b29-f424-43ed-b8d4-b3444d07f81f",
+  "browser": "151.0.7922.34",
+  "indexSha256": "16e7c1db420fbc59d54f3970033357f1805dcd253b3e76a190d2a58f33219af1",
+  "checks": [
+    {
+      "name": "陪伴浅色 360 无横向溢出",
+      "pass": true
+    },
+    {
+      "name": "陪伴浅色 390 无横向溢出",
+      "pass": true
+    },
+    {
+      "name": "陪伴浅色 430 无横向溢出",
+      "pass": true
+    },
+    {
+      "name": "短对话输入紧随上下文",
+      "pass": true
+    },
+    {
+      "name": "纠正后原偏好标题失效",
+      "pass": true
+    },
+    {
+      "name": "忘记移除指定示例记忆",
+      "pass": true
+    },
+    {
+      "name": "发送即清空",
+      "pass": true
+    },
+    {
+      "name": "失效偏好不进入演示回复",
+      "pass": true
+    },
+    {
+      "name": "接续对应原话",
+      "pass": true
+    },
+    {
+      "name": "搜索保持连续输入",
+      "pass": true
+    },
+    {
+      "name": "陪伴深色 360 无横向溢出",
+      "pass": true
+    },
+    {
+      "name": "陪伴深色 390 无横向溢出",
+      "pass": true
+    },
+    {
+      "name": "陪伴深色 430 无横向溢出",
+      "pass": true
+    },
+    {
+      "name": "记忆深色 360 无横向溢出",
+      "pass": true
+    },
+    {
+      "name": "记忆深色 390 无横向溢出",
+      "pass": true
+    },
+    {
+      "name": "记忆深色 430 无横向溢出",
+      "pass": true
+    },
+    {
+      "name": "聊天背景深色 360 无横向溢出",
+      "pass": true
+    },
+    {
+      "name": "聊天背景深色 390 无横向溢出",
+      "pass": true
+    },
+    {
+      "name": "聊天背景深色 430 无横向溢出",
+      "pass": true
+    },
+    {
+      "name": "AI背景明确为演示",
+      "pass": true
+    },
+    {
+      "name": "首次聊天首条消息可见",
+      "pass": true
+    },
+    {
+      "name": "失败恢复草稿",
+      "pass": true
+    },
+    {
+      "name": "重试清空输入",
+      "pass": true
+    },
+    {
+      "name": "重试仅一条用户消息",
+      "pass": true
+    },
+    {
+      "name": "OpenDesign 沙箱内本地图片可预览",
+      "pass": true
+    },
+    {
+      "name": "最终OpenDesign预览内容与本地一致",
+      "pass": true
+    }
+  ],
+  "layoutCases": [
+    {
+      "page": "陪伴浅色",
+      "width": 360,
+      "overflow": 0
+    },
+    {
+      "page": "陪伴浅色",
+      "width": 390,
+      "overflow": 0
+    },
+    {
+      "page": "陪伴浅色",
+      "width": 430,
+      "overflow": 0
+    },
+    {
+      "page": "陪伴深色",
+      "width": 360,
+      "overflow": 0
+    },
+    {
+      "page": "陪伴深色",
+      "width": 390,
+      "overflow": 0
+    },
+    {
+      "page": "陪伴深色",
+      "width": 430,
+      "overflow": 0
+    },
+    {
+      "page": "记忆深色",
+      "width": 360,
+      "overflow": 0
+    },
+    {
+      "page": "记忆深色",
+      "width": 390,
+      "overflow": 0
+    },
+    {
+      "page": "记忆深色",
+      "width": 430,
+      "overflow": 0
+    },
+    {
+      "page": "聊天背景深色",
+      "width": 360,
+      "overflow": 0
+    },
+    {
+      "page": "聊天背景深色",
+      "width": 390,
+      "overflow": 0
+    },
+    {
+      "page": "聊天背景深色",
+      "width": 430,
+      "overflow": 0
+    }
+  ],
+  "contrast": {
+    "lightPrimary": 5.311520258232734,
+    "darkPrimary": 5.457786918995603
+  },
+  "pageErrors": []
+}

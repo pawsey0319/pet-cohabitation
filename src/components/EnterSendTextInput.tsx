@@ -8,6 +8,7 @@ export type EnterSendTextInputProps = Readonly<{
   placeholder?: string;
   placeholderTextColor?: string;
   maxLength?: number;
+  editable?: boolean;
   style?: StyleProp<TextStyle>;
 }>;
 
@@ -23,6 +24,7 @@ export function EnterSendTextInput(props: EnterSendTextInputProps) {
     placeholder={props.placeholder}
     placeholderTextColor={props.placeholderTextColor}
     maxLength={props.maxLength}
+    editable={props.editable}
     style={props.style}
   />;
 }

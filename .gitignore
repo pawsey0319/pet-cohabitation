@@ -22,3 +22,13 @@ expo-env.d.ts
 # @end expo-cli
 .vercel
 .env*
+
+# Machine-only input-method data and generated Python files.
+%SystemDrive%/
+__pycache__/
+*.py[cod]
+*.credential
+*.keystore
+*.jks
+*.p12
+*.pfx

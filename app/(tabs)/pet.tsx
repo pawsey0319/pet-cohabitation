@@ -1,13 +1,13 @@
-import { Redirect } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Redirect, useFocusEffect } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSession } from "../../src/auth/SessionProvider";
 import { GenerativePetPreview } from "../../src/components/GenerativePetPreview";
 import { LivingPetPortrait } from "../../src/components/LivingPetPortrait";
-import { EnterSendTextInput } from "../../src/components/EnterSendTextInput";
+import { PetCompanionPanel } from "../../src/components/PetCompanionPanel";
 import { createPetRepository } from "../../src/data/petRepository";
-import type { PetEvolutionEvent, PetExperience, PetGenerationSession, PetPrivateMessage, PetRecord, PetRuntimeState, PetVisualAsset, StyleSignal } from "../../src/data/types";
+import type { PetCompanionContext, PetEvolutionEvent, PetExperience, PetGenerationSession, PetPrivateMessage, PetRecord, PetRuntimeState, PetVisualAsset, StyleSignal } from "../../src/data/types";
 import { MIN_INCUBATION_TURNS } from "../../src/pets/rules";
 import { AppButton, DemoBanner, Surface } from "../../src/ui/common";
 import { colors, radii, spacing } from "../../src/theme/tokens";
@@ -21,31 +21,43 @@ function SignalCard({ signal, onFeedback, onCorrect }: Readonly<{ signal: StyleS
 }
 
 export default function PetRoute() {
+  const { profile } = useSession();
+  return <PetScreen key={profile?.id ?? "signed-out"} />;
+}
+
+function PetScreen() {
   const { profile, isLocalDemo } = useSession(); const insets = useSafeAreaInsets(); const repository = useMemo(() => profile ? createPetRepository(profile) : null, [profile]);
   const [pet, setPet] = useState<PetRecord | null>(null); const [messages, setMessages] = useState<readonly PetPrivateMessage[]>([]); const [assets, setAssets] = useState<readonly PetVisualAsset[]>([]); const [signals, setSignals] = useState<readonly StyleSignal[]>([]);
   const [experiences, setExperiences] = useState<readonly PetExperience[]>([]); const [events, setEvents] = useState<readonly PetEvolutionEvent[]>([]);
+  const [companion, setCompanion] = useState<PetCompanionContext>({ memories: [], contextStartedAt: null });
+  const [enteredAt, setEnteredAt] = useState(Date.now());
   const [runtime, setRuntime] = useState<PetRuntimeState | null>(null); const [now, setNow] = useState(Date.now());
   const [generationSessions, setGenerationSessions] = useState<readonly PetGenerationSession[]>([]);
-  const [name, setName] = useState(""); const [chat, setChat] = useState(""); const [instruction, setInstruction] = useState("更像一个会观察人的奇异生命"); const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null); const [urls, setUrls] = useState<Record<string, string>>({});
+  const [name, setName] = useState(""); const [instruction, setInstruction] = useState("更像一个会观察人的奇异生命"); const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null); const [urls, setUrls] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [confirming, setConfirming] = useState(false);
   const [correcting, setCorrecting] = useState<StyleSignal | null>(null); const [correction, setCorrection] = useState("");
 
-  const load = useCallback(async () => {
-    if (!repository) return; try { const [nextPet, nextMessages, nextAssets, nextSignals, nextExperiences, nextEvents, nextGenerations, nextRuntime] = await Promise.all([repository.getPet(), repository.listPrivateMessages(), repository.listAssets(), repository.listStyleSignals(), repository.listExperiences(), repository.listEvolutionEvents(), repository.listGenerationSessions(), repository.getRuntimeState()]); setPet(nextPet); setMessages(nextMessages); setAssets(nextAssets); setSignals(nextSignals); setExperiences(nextExperiences); setEvents(nextEvents); setGenerationSessions(nextGenerations); setRuntime(nextRuntime); setSelectedAssetId(nextPet?.status === "confirmed" ? nextPet.currentAssetId : nextAssets.at(-1)?.id ?? null); setError(null); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "异宠档案加载失败"); } finally { setLoading(false); }
+  const loadVersion = useRef(0);
+  const load = useCallback(async (strict = false) => {
+    if (!repository) return;
+    const version = ++loadVersion.current;
+    try {
+      const [nextPet, nextMessages, nextAssets, nextSignals, nextExperiences, nextEvents, nextGenerations, nextRuntime, nextCompanion] = await Promise.all([repository.getPet(), repository.listPrivateMessages(), repository.listAssets(), repository.listStyleSignals(), repository.listExperiences(), repository.listEvolutionEvents(), repository.listGenerationSessions(), repository.getRuntimeState(), repository.getCompanionContext()]);
+      if (version !== loadVersion.current) return;
+      setPet(nextPet); setMessages(nextMessages); setAssets(nextAssets); setSignals(nextSignals); setExperiences(nextExperiences); setEvents(nextEvents); setGenerationSessions(nextGenerations); setRuntime(nextRuntime); setCompanion(nextCompanion); setSelectedAssetId(nextPet?.status === "confirmed" ? nextPet.currentAssetId : nextAssets.at(-1)?.id ?? null); setError(null);
+    } catch (reason) { if (version === loadVersion.current) setError(reason instanceof Error ? reason.message : "异宠档案加载失败"); if (strict) throw reason; }
+    finally { if (version === loadVersion.current) setLoading(false); }
   }, [repository]);
-  useEffect(() => { void load(); }, [load]);
+  useFocusEffect(useCallback(() => { setEnteredAt(Date.now()); void load(); }, [load]));
   useEffect(() => repository?.subscribe(() => void load()), [load, repository]);
   useEffect(() => { if (!runtime?.expiresAt) return; const timer = setInterval(() => setNow(Date.now()), 1_000); return () => clearInterval(timer); }, [runtime?.expiresAt]);
   useEffect(() => { for (const asset of assets) { if (asset.storagePath.startsWith("local-") || urls[asset.storagePath]) continue; void repository?.createSignedAssetUrl(asset.storagePath).then((url) => setUrls((current) => ({ ...current, [asset.storagePath]: url }))); } }, [assets, repository, urls]);
-  const sendChat = useCallback(async (submittedText = chat) => {
-    const content = submittedText.trim();
-    if (!content || busy || !repository) return;
-    setBusy(true); setError(null); setChat("");
-    try { await repository.chat(content); await load(); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "操作失败"); }
+  const companionAction = useCallback(async (operation: () => Promise<unknown>) => {
+    if (busy || !repository) throw new Error("请等这次操作完成");
+    setBusy(true); setError(null);
+    try { await operation(); await load(true); }
     finally { setBusy(false); }
-  }, [busy, chat, load, repository]);
+  }, [busy, load, repository]);
   if (!profile || !repository) return <Redirect href="/login" />;
   const selected = assets.find((asset) => asset.id === selectedAssetId) ?? null;
   const act = async (operation: () => Promise<void>) => { setBusy(true); setError(null); try { await operation(); await load(); } catch (reason) { setError(reason instanceof Error ? reason.message : "操作失败"); } finally { setBusy(false); } };
@@ -66,11 +78,19 @@ export default function PetRoute() {
       {latestGeneration && (generationActive || latestGeneration.status === "failed") ? <Surface style={styles.taskCard}><View style={styles.taskHead}><View><Text style={styles.sectionTitle}>{generationActive ? "异宠外观正在生成" : "这次外观生成失败"}</Text><Text style={styles.copy}>{latestGeneration.status === "queued" ? "已排队，可以离开页面，完成后会自动出现。" : latestGeneration.status === "running" ? `正在连接图像模型 · 第 ${latestGeneration.attempts || 1} 次尝试` : `原因：${latestGeneration.errorCode ?? "模型暂时不可用"}`}</Text></View>{generationActive ? <ActivityIndicator color={colors.coral} /> : null}</View>{latestGeneration.status === "failed" && latestGeneration.attempts < 2 ? <AppButton label="用同一任务重试" variant="quiet" disabled={busy} onPress={() => void act(() => repository.retryGeneration(latestGeneration.id).then(() => undefined))} /> : null}</Surface> : null}
       {!pet ? <Surface style={styles.naming}><Text style={styles.sectionTitle}>先给胚胎一个名字</Text><Text style={styles.copy}>名字确认后仍属于同一只异宠。外观在正式确认前可以反复沟通和修改。</Text><TextInput value={name} onChangeText={setName} maxLength={24} placeholder="例如：芽芽" placeholderTextColor={colors.textMuted} style={styles.input} /><AppButton label={busy ? "正在唤醒…" : "开始对话"} disabled={busy || !name.trim()} onPress={create} /></Surface> : (
         <>
+          <PetCompanionPanel key={profile.id} ownerId={profile.id} petName={pet.name} incubating={pet.status !== "confirmed"} messages={messages} context={companion} enteredAt={enteredAt} busy={busy}
+            portrait={pet.status === "confirmed" && selected ? <LivingPetPortrait state={motionState}><CandidateVisual asset={selected} url={urls[selected.storagePath]} size={64} /></LivingPetPortrait> : undefined}
+            onSend={(content, requestId) => companionAction(() => repository.chat(content, requestId))}
+            onUpdatePreference={(input) => companionAction(() => repository.updatePreference(input))}
+            onListEvidence={(key,offset) => repository.listMemoryEvidence(key,offset)}
+            onRetryExtraction={() => companionAction(() => repository.retryMemoryExtraction())}
+            onSaveMemory={(input) => companionAction(() => repository.savePersonalMemory(input))}
+            onRemoveMemory={(id) => companionAction(() => repository.removePersonalMemory(id))}
+            onNewConversation={() => companionAction(() => repository.startNewConversation())} />
           {pet.status === "incubating" ? <Surface style={styles.stage}><Text style={styles.stageLabel}>孵化对话</Text><Text style={styles.stageTitle}>先让它从你的表达里认识你</Text><View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${Math.min(100, pet.conversationTurns / MIN_INCUBATION_TURNS * 100)}%` }]} /></View><Text style={styles.progressText}>{pet.conversationTurns} / {MIN_INCUBATION_TURNS} 轮 · 达到 5 轮后才能生成第一张候选</Text></Surface> : null}
           {pet.status === "drafting" && selected ? <Surface style={styles.visualCard}><View style={styles.visualHeader}><View><Text style={styles.stageLabel}>尚未确认 · 可自由修改</Text><Text style={styles.stageTitle}>这是当前草稿，不是最终承诺</Text></View><Text style={styles.quota}>今日剩余 {pet.generationsRemainingToday}</Text></View><View style={styles.visual}><CandidateVisual asset={selected} url={urls[selected.storagePath]} /></View><FlatList horizontal data={assets} keyExtractor={(item) => item.id} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.candidates} renderItem={({ item, index }) => <Pressable onPress={() => setSelectedAssetId(item.id)} style={[styles.candidate, selectedAssetId === item.id && styles.candidateSelected]}><CandidateVisual asset={item} url={urls[item.storagePath]} size={74} /><Text style={styles.candidateLabel}>候选 {index + 1}</Text></Pressable>} /><TextInput value={instruction} onChangeText={setInstruction} multiline placeholder="用自然语言继续修改，例如：不要这么可爱" placeholderTextColor={colors.textMuted} style={[styles.input, styles.instruction]} /><View style={styles.buttonRow}><View style={styles.flex}><AppButton label={generationActive ? "后台生成中…" : busy ? "正在提交…" : "基于当前修改"} disabled={busy || generationActive || !instruction.trim()} onPress={() => void generate(false)} /></View><View style={styles.flex}><AppButton label="重新探索方向" variant="secondary" disabled={busy || generationActive || !instruction.trim()} onPress={() => void generate(true)} /></View></View><AppButton label="选择这张并确认" variant="quiet" disabled={busy || generationActive} onPress={() => setConfirming(true)} /></Surface> : null}
           {pet.status === "confirmed" && selected ? <Surface style={styles.confirmed}><Text style={styles.stageLabel}>已确认 · 同一生命继续成长</Text><View style={styles.visual}><LivingPetPortrait state={motionState}><CandidateVisual asset={selected} url={urls[selected.storagePath]} /></LivingPetPortrait></View><View style={styles.petActions}>{([['care', '陪伴'], ['feed', '投喂'], ['play', '玩耍'], ['rest', '休息']] as const).map(([action, label]) => <Pressable key={action} accessibilityRole="button" accessibilityLabel={label} disabled={busy} onPress={() => void act(() => repository.performAction(action).then(() => undefined))} style={[styles.petAction, busy && styles.disabled]}><Text style={styles.petActionText}>{label}</Text></Pressable>)}</View><Text style={styles.stageTitle}>它不会再回到初始捏宠</Text><Text style={styles.copy}>以后所有外观变化都来自日常相处。系统会在隐藏的成长里程碑达到后自主进入下一生命阶段，不设经验条，也不需要手动开启。</Text><View style={styles.lineage}><Text style={styles.lineageText}>形态谱系 · 第 {assets.filter((asset) => !asset.isDraft).length || 1} 个生命阶段</Text></View>{evolutionActive ? <View style={styles.taskInline}><ActivityIndicator color={colors.coral} /><Text style={styles.copy}>长久积累正在变成新的生命阶段，可以先离开页面。</Text></View> : events[0]?.status === "failed" ? <View style={styles.taskInline}><Text style={styles.errorText}>自动进化暂时失败：{events[0].errorCode ?? "AI 暂时离线，可稍后重试"}</Text><AppButton label="沿用同一成长事件重试" variant="quiet" disabled={busy || events[0].failedAttempts >= 2} onPress={() => void act(() => repository.retryEvolution(events[0].id).then(() => undefined))} /></View> : <View style={styles.growthNotice}><Text style={styles.growthNoticeText}>它正在从每一次聊天、陪伴和共同经历里慢慢形成自己。</Text></View>}<View style={styles.experienceList}><Text style={styles.sectionTitle}>最近相处经历</Text>{experiences.length ? experiences.slice(0, 3).map((experience) => <View key={experience.id} style={styles.experience}><Text style={styles.experienceText}>{experience.summary}</Text><Text style={styles.signalSource}>{new Date(experience.occurredAt).toLocaleString("zh-CN")}</Text></View>) : <Text style={styles.copy}>先和它私聊，或在关系空间的宠物角照顾它；真实相处会成为下一次进化的原因。</Text>}</View>{events[0]?.status === "succeeded" && events[0].officialAssetId === pet.currentAssetId && !events[0].continuityRepairUsed ? <AppButton label="报告：与上一形态完全断裂" variant="quiet" disabled={busy || evolutionActive} onPress={() => void repair(events[0].id)} /> : null}<Text style={styles.repairNote}>连续性修复只会沿用同一事件重试一次，不能借此重新捏宠。</Text></Surface> : null}
           {pet.status !== "confirmed" && pet.conversationTurns >= MIN_INCUBATION_TURNS && pet.status === "incubating" ? <Surface style={styles.ready}><Text style={styles.sectionTitle}>第一版性格判断已经可以形成</Text><Text style={styles.copy}>系统会综合这 5 轮对话生成，不套固定“萌宠、赛博或水彩”画风。</Text><TextInput value={instruction} onChangeText={setInstruction} multiline style={[styles.input, styles.instruction]} placeholderTextColor={colors.textMuted} /><AppButton label={generationActive ? "后台生成中…" : busy ? "正在提交…" : "生成第一张候选"} disabled={busy || generationActive} onPress={() => void generate(false)} /></Surface> : null}
-          <Surface style={styles.chatCard}><View style={styles.chatHead}><Text style={styles.sectionTitle}>和 {pet.name} 私聊</Text><Text style={styles.private}>仅主人可见 · 可回忆已加入群聊</Text></View><View style={styles.thread}>{messages.slice(-10).map((message) => <View key={message.id} style={[styles.privateMessage, message.role === "owner" ? styles.ownerMessage : styles.petMessage]}><Text style={[styles.privateText, message.role === "owner" && styles.ownerText]}>{message.content}</Text>{message.role === "pet" && message.recallSources?.length ? <Text style={styles.memorySource}>记忆来源：{[...new Map(message.recallSources.map((source) => [source.spaceId, source])).values()].map((source) => `${source.spaceName} · ${new Date(source.createdAt).toLocaleDateString("zh-CN")}`).join("；")}</Text> : null}</View>)}</View><View style={styles.chatComposer}><EnterSendTextInput value={chat} onChangeText={setChat} onSend={(value) => void sendChat(value)} placeholder={pet.status === "confirmed" ? "问问它记得哪些相处和群聊…" : "说说你喜欢怎样相处…"} placeholderTextColor={colors.textMuted} style={styles.chatInput} /><Pressable disabled={busy || !chat.trim()} onPress={() => void sendChat()} style={[styles.chatSend, (busy || !chat.trim()) && styles.disabled]}><Text style={styles.chatSendText}>发送</Text></Pressable></View></Surface>
           <View style={styles.signalSection}><Text style={styles.sectionTitle}>我观察到的倾向</Text><Text style={styles.copy}>只展示概括性依据，不展示其他成员私密原文。遗忘后，该信号不再进入后续模型提示词。</Text>{signals.length ? signals.map((signal) => <SignalCard key={signal.id} signal={signal} onFeedback={(kind) => void act(() => repository.feedback(signal.id, kind))} onCorrect={() => { setCorrecting(signal); setCorrection(signal.tendency); }} />) : <Surface><Text style={styles.copy}>继续相处后，这里会出现可以认可、纠正或忘记的成长札记。</Text></Surface>}</View>
         </>
       )}
@@ -82,6 +102,7 @@ export default function PetRoute() {
 }
 
 const styles = StyleSheet.create({
+  disabled: { opacity: .45 },
   page: { flex: 1, backgroundColor: colors.canvas }, center: { flex: 1, backgroundColor: colors.canvas, justifyContent: "center" }, content: { width: "100%", maxWidth: 720, alignSelf: "center", paddingHorizontal: spacing.md, paddingBottom: 110, gap: spacing.md }, eyebrow: { color: colors.mint, fontSize: 11, fontWeight: "900", letterSpacing: 1.5 }, title: { color: colors.text, fontSize: 32, fontWeight: "900" },
   naming: { gap: spacing.md }, sectionTitle: { color: colors.text, fontSize: 18, fontWeight: "900" }, copy: { color: colors.textMuted, lineHeight: 21 }, input: { minHeight: 49, borderRadius: radii.md, backgroundColor: colors.surface, color: colors.text, paddingHorizontal: spacing.md, paddingVertical: 12 },
   stage: { gap: spacing.sm }, stageLabel: { color: colors.mint, fontSize: 11, fontWeight: "900", letterSpacing: 1 }, stageTitle: { color: colors.text, fontSize: 20, fontWeight: "900" }, progressTrack: { height: 8, borderRadius: 4, backgroundColor: colors.surface }, progressFill: { height: 8, borderRadius: 4, backgroundColor: colors.coral }, progressText: { color: colors.textMuted, fontSize: 12 },
@@ -89,7 +110,6 @@ const styles = StyleSheet.create({
   confirmed: { alignItems: "stretch", gap: spacing.md }, lineage: { alignSelf: "center", paddingHorizontal: 13, paddingVertical: 7, borderRadius: radii.pill, backgroundColor: colors.mintDeep }, lineageText: { color: colors.mint, fontSize: 12, fontWeight: "800" }, ready: { gap: spacing.md },
   petActions: { flexDirection: "row", justifyContent: "center", flexWrap: "wrap", gap: 8 }, petAction: { backgroundColor: colors.surface, borderRadius: radii.pill, paddingHorizontal: 15, paddingVertical: 9 }, petActionText: { color: colors.mint, fontWeight: "900", fontSize: 12 }, growthNotice: { backgroundColor: colors.mintDeep, borderRadius: radii.md, padding: 12 }, growthNoticeText: { color: colors.mint, lineHeight: 20, textAlign: "center" },
   experienceList: { gap: 8 }, experience: { backgroundColor: colors.surface, borderRadius: radii.md, padding: 10, gap: 4 }, experienceText: { color: colors.text, lineHeight: 19 }, repairNote: { color: colors.textMuted, fontSize: 11, textAlign: "center" },
-  chatCard: { gap: spacing.md }, chatHead: { flexDirection: "row", justifyContent: "space-between", flexWrap: "wrap", gap: 4 }, private: { color: colors.mint, fontSize: 11 }, thread: { gap: 8 }, privateMessage: { maxWidth: "82%", borderRadius: 15, padding: 10 }, ownerMessage: { alignSelf: "flex-end", backgroundColor: colors.coralSoft }, petMessage: { alignSelf: "flex-start", backgroundColor: colors.mintDeep }, privateText: { color: colors.text, lineHeight: 20 }, ownerText: { color: colors.textDark }, memorySource: { color: colors.mint, fontSize: 10, marginTop: 7, lineHeight: 15 }, chatComposer: { flexDirection: "row", alignItems: "flex-end", gap: 8 }, chatInput: { flex: 1, minHeight: 45, maxHeight: 100, backgroundColor: colors.surface, borderRadius: 15, color: colors.text, padding: 11 }, chatSend: { backgroundColor: colors.coral, minHeight: 45, borderRadius: 14, justifyContent: "center", paddingHorizontal: 14 }, chatSendText: { color: colors.white, fontWeight: "900" }, disabled: { opacity: .4 },
   signalSection: { gap: spacing.md }, signal: { gap: 8 }, forgotten: { opacity: .5 }, signalHead: { flexDirection: "row", justifyContent: "space-between" }, signalTitle: { color: colors.text, fontWeight: "900", flex: 1 }, confidence: { color: colors.mint, fontWeight: "800" }, signalBody: { color: colors.text, lineHeight: 20 }, signalSource: { color: colors.textMuted, fontSize: 11 }, signalImpact: { color: colors.lavender, fontSize: 12, lineHeight: 18 }, signalActions: { flexDirection: "row", gap: spacing.lg, marginTop: 4 }, signalAction: { color: colors.textMuted, fontWeight: "800" }, signalActionActive: { color: colors.mint }, forget: { color: colors.coralSoft, fontWeight: "800" },
   error: { backgroundColor: "#603345", borderRadius: radii.md, padding: spacing.sm }, errorText: { color: colors.coralSoft, textAlign: "center" }, overlay: { flex: 1, backgroundColor: "rgba(4,3,13,.78)", alignItems: "center", justifyContent: "center", padding: spacing.lg }, confirmModal: { width: "100%", maxWidth: 480, gap: spacing.md }, confirmTitle: { color: colors.text, fontSize: 22, fontWeight: "900" },
   taskCard: { gap: spacing.md, borderWidth: 1, borderColor: colors.coralSoft }, taskHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md }, taskInline: { backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.sm, gap: spacing.sm, alignItems: "center" },
