@@ -90,6 +90,8 @@ npx vercel link --project pet-cohabitation-public --scope team_kg5tR50s477SwX0Uu
 
 用户在 2026-09-24 补充并再次确认：Grok 审查和后续网关均使用用户稍后提供的公司 API 凭据。此次未提供接口地址/模型清单或密钥，未恢复凭据或实际调用；待通过本机受控配置取得指定凭据后再验证。继续代码开发与上述离线检查无需 CPA；若公司接口满足下列现有协议，也无需为了转发再安装一层 CPA。
 
+本机已按用户要求创建 `~/.config/pet-cohabitation/model-api.env` 并打开供用户填写，字段为 `MODEL_API_BASE_URL`、`MODEL_API_KEY`；目录权限 700、文件权限 600，位于产品仓库之外。后续调用从此文件读取凭据，无需重复索取；不要回显文件内容、把 key 放入命令参数或将其导入客户端环境。仅检查填写状态时输出是否配置，不输出实际值。文件不保存默认模型，每次 Grok 调用仍由用户指定。保存此文件不会自动调用 API、部署网关或更新线上 Secrets；实际使用时再验证接口兼容性。
+
 - 服务端文本调用见 `supabase/functions/_shared/modelAdapters.ts`、`modelStream.ts`：base URL 后追加 `/chat/completions`，Bearer 鉴权；请求使用 `response_format: json_object`、`max_tokens`、`temperature`、`reasoning_effort: low`，陪伴流式还要求兼容 SSE 的 `choices[].delta.content` 和完成标记。需用合成输入验证实际模型与这些参数兼容，只有 API key 不足以证明可直接替换。
 - 用于线上替换时，需确认原 Supabase Edge Functions 能访问该地址；仅新开发机或公司内网能访问不代表线上可达。完成兼容性/可达性验证后，再按单独迁移任务更新现有云端配置并验证回滚，不因本次接续自动切换。
 - 文本入口与图片入口分别配置。现有 `npm run check:models` 会实际调用文本、图片生成和图片编辑，不能当作仅文本的无副作用探测。图片理解/原图编辑仍保持未验关闭；独立 Python 透明 worker 不会因为文本 API 改址而迁移。
