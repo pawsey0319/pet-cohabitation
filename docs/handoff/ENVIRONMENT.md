@@ -88,9 +88,11 @@ npx vercel link --project pet-cohabitation-public --scope team_kg5tR50s477SwX0Uu
 
 ### 已有公司 API 时是否需要安装 CPA
 
-用户在 2026-09-24 补充并再次确认：Grok 审查和后续网关均使用用户稍后提供的公司 API 凭据。此次未提供接口地址/模型清单或密钥，未恢复凭据或实际调用；待通过本机受控配置取得指定凭据后再验证。继续代码开发与上述离线检查无需 CPA；若公司接口满足下列现有协议，也无需为了转发再安装一层 CPA。
+用户在 2026-09-24 补充并再次确认：Grok 审查和后续网关均使用用户提供的公司 API 凭据。用户已在本机受控文件中填写地址与密钥，并完成下述只读模型目录检查。继续代码开发与上述离线检查无需 CPA；若公司接口满足下列现有协议，也无需为了转发再安装一层 CPA。
 
 本机已按用户要求创建 `~/.config/pet-cohabitation/model-api.env` 并打开供用户填写，字段为 `MODEL_API_BASE_URL`、`MODEL_API_KEY`；目录权限 700、文件权限 600，位于产品仓库之外。后续调用从此文件读取凭据，无需重复索取；不要回显文件内容、把 key 放入命令参数或将其导入客户端环境。仅检查填写状态时输出是否配置，不输出实际值。文件不保存默认模型，每次 Grok 调用仍由用户指定。保存此文件不会自动调用 API、部署网关或更新线上 Secrets；实际使用时再验证接口兼容性。
+
+2026-09-24 配置复核：将用户填写地址末尾的 `/chat/completions` 去除，保留原 API 根路径；使用本地密钥以 Bearer 鉴权执行 `GET <base>/models`，禁用重定向，返回 HTTP 200 和 27 个模型条目。其中 Grok ID 为 `Grok-4.5`、`Grok-4.6`、`Grok-4.7`，仅为本次目录观测，不是默认选择。此结果只证明本机能够取得模型目录，不证明各模型已获推理权限、文本/流式协议兼容或 Supabase 云端可达。检查没有提交生成请求；未记录实际地址、密钥或响应原文，未修改线上配置。
 
 - 服务端文本调用见 `supabase/functions/_shared/modelAdapters.ts`、`modelStream.ts`：base URL 后追加 `/chat/completions`，Bearer 鉴权；请求使用 `response_format: json_object`、`max_tokens`、`temperature`、`reasoning_effort: low`，陪伴流式还要求兼容 SSE 的 `choices[].delta.content` 和完成标记。需用合成输入验证实际模型与这些参数兼容，只有 API key 不足以证明可直接替换。
 - 用于线上替换时，需确认原 Supabase Edge Functions 能访问该地址；仅新开发机或公司内网能访问不代表线上可达。完成兼容性/可达性验证后，再按单独迁移任务更新现有云端配置并验证回滚，不因本次接续自动切换。
